@@ -8,7 +8,13 @@
     ".": "./src/index.js"
   },
   "scripts": {
-    "demo": "npx --yes serve . -p 3000 --no-clipboard"
+    "demo": "npx --yes serve . -p 3001 --no-clipboard",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.1",
+    "vitest": "^2.1.8"
   },
   "keywords": ["keybinding", "game", "input", "browser", "threejs"],
   "license": "MIT"

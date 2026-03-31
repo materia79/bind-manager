@@ -125,6 +125,8 @@ Action definition fields:
 
 - `getBinding(actionId)`
 - `getBindings()`
+- `exportBindings(options?)`
+- `importBindings(payload, options?)`
 - `setBinding(actionId, slot, code)`
 - `clearBinding(actionId, slot)`
 - `resetAction(actionId)`
@@ -165,6 +167,38 @@ bind-manager:<namespace>
 
 The payload is versioned internally to support future format upgrades.
 
+## JSON Export and Import
+
+Export:
+
+```js
+const payload = binds.exportBindings();
+// { version, namespace, bindings, metadata }
+```
+
+Import (merge mode, default):
+
+```js
+const report = binds.importBindings(payload);
+console.log(report);
+// {
+//   mode: 'merge',
+//   appliedActions,
+//   appliedSlots,
+//   skippedUnknownActions,
+//   invalidEntries,
+//   conflictCount
+// }
+```
+
+Import (replace mode):
+
+```js
+binds.importBindings(payload, { mode: 'replace' });
+```
+
+In `replace` mode, known actions missing from payload are cleared.
+
 ## ThreeJS and Standalone Examples
 
 - ThreeJS integration guide: [examples/threejs/README.md](examples/threejs/README.md)
@@ -189,8 +223,11 @@ See style source in [src/ui/styles.js](src/ui/styles.js).
 
 - Keyboard device only
 - Browser environment only (DOM required for built-in UI)
-- No JSON import/export yet
 - No mouse/gamepad binding yet
+
+## QA
+
+Release checklist: [QA_CHECKLIST.md](QA_CHECKLIST.md)
 
 ## License
 

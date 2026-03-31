@@ -43,8 +43,6 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 
 ### Missing for a stronger v1
 
-- Automated tests are not implemented yet (unit + browser integration).
-- JSON export/import is not implemented.
 - Mouse and gamepad input devices are not implemented.
 - No release packaging pipeline yet (bundle variants, changelog/release automation).
 - No accessibility verification pass yet (screen reader and keyboard-only audit).
@@ -65,26 +63,26 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 
 ### Future requirements from original notes
 
-- Export/import JSON: missing.
+- Export/import JSON: done.
 - Hint visibility controls: done (per-action and bulk).
 
 ## Next Milestones
 
 ### Milestone 1: Quality and stability (recommended next)
 
-- Add unit tests for:
+- Add and maintain unit tests for:
 	- key mapping/labeling
 	- binding assignment and conflict detection
 	- clear/reset flows
 	- storage round-trip
-- Add browser integration tests for modal/hints behavior.
-- Add manual QA checklist for canvas-heavy apps (focus, layering, pointer lock).
+- Add and maintain browser integration tests for modal/hints behavior.
+- Manual QA checklist added in `QA_CHECKLIST.md`; execute before release.
 
 ### Milestone 2: Data portability
 
-- Implement JSON export API.
-- Implement JSON import API with validation and version checks.
-- Add optional "merge vs replace" import strategy.
+- JSON export API implemented.
+- JSON import API implemented with validation and import report.
+- Merge and replace import strategies implemented.
 
 ### Milestone 3: Input device expansion
 

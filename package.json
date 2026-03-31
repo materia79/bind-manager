@@ -1,0 +1,15 @@
+{
+  "name": "bind-manager",
+  "version": "0.1.0",
+  "description": "Universal key binding manager for browser games and applications",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "demo": "npx --yes serve . -p 3000 --no-clipboard"
+  },
+  "keywords": ["keybinding", "game", "input", "browser", "threejs"],
+  "license": "MIT"
+}

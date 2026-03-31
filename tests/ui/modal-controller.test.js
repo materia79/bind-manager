@@ -20,7 +20,7 @@ describe('ModalController integration behavior', () => {
     manager.open();
 
     const bindButtons = document.querySelectorAll('.bm-bind-btn');
-    expect(bindButtons.length).toBe(2);
+    expect(bindButtons.length).toBe(3); // 2 keyboard slots + 1 gamepad slot
 
     // Start capture on first slot
     bindButtons[0].click();

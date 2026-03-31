@@ -33,10 +33,18 @@ export class ActionRegistry {
       label: typeof def.label === 'string' ? def.label : def.id,
       description: typeof def.description === 'string' ? def.description : '',
       group: typeof def.group === 'string' && def.group.trim() !== '' ? def.group : 'General',
+      // Keyboard slots / defaults
       slots: typeof def.slots === 'number' && def.slots >= 1 ? Math.floor(def.slots) : 2,
-      // Reserved for future device types (mouse, gamepad)
-      device: 'keyboard',
       defaultBindings: Array.isArray(def.defaultBindings) ? def.defaultBindings.slice() : [],
+      // Gamepad slots / defaults
+      gamepadSlots: typeof def.gamepadSlots === 'number' && def.gamepadSlots >= 1
+        ? Math.floor(def.gamepadSlots) : 1,
+      defaultGamepadBindings: Array.isArray(def.defaultGamepadBindings)
+        ? def.defaultGamepadBindings.slice() : [],
+      // Whether this action accepts continuous analog float events (e.g. move speed from a stick)
+      analog: def.analog === true,
+      // null = fires for any connected controller; integer = only fires for that gamepad.index
+      playerIndex: Number.isInteger(def.playerIndex) ? def.playerIndex : null,
     };
 
     this._actions.set(action.id, action);
@@ -79,6 +87,9 @@ export class ActionRegistry {
  * @property {string} description
  * @property {string} group
  * @property {number} slots
- * @property {string} device
+ * @property {number} gamepadSlots
+ * @property {string[]} defaultGamepadBindings
+ * @property {boolean} analog
+ * @property {number | null} playerIndex
  * @property {string[]} defaultBindings
  */

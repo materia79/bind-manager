@@ -28,9 +28,12 @@ describe('BindManager export/import', () => {
     const manager = createWithActions();
     const payload = manager.exportBindings();
 
-    expect(payload.version).toBe(1);
+  expect(payload.version).toBe(2);
     expect(payload.namespace).toBe(`import-export-test-${testCounter}`);
-    expect(payload.bindings.forward).toEqual(['KeyW', 'ArrowUp']);
+    // v2 format: each action has { keyboard, gamepad }
+    expect(payload.bindings.forward.keyboard).toEqual(['KeyW', 'ArrowUp']);
+    expect(Array.isArray(payload.bindings.forward.gamepad)).toBe(true);
+    expect(payload.bindings.jump.keyboard).toEqual(['Space']);
     expect(typeof payload.metadata.exportedAt).toBe('string');
 
     manager.destroy();

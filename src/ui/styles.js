@@ -176,7 +176,37 @@ const CSS = `
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.bm-action-controls.bm-with-gamepad {
+  align-items: flex-start;
+}
+
+.bm-device-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bm-device-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bm-device-badge {
+  width: 18px;
+  font-size: 13px;
+  text-align: center;
   flex-shrink: 0;
+  color: var(--bm-text-desc);
+  user-select: none;
+  line-height: 32px;
+}
+
+.bm-device-badge.bm-device-gp {
+  color: var(--bm-accent);
+  opacity: 0.8;
 }
 
 .bm-bind-slots {
@@ -225,6 +255,20 @@ const CSS = `
 .bm-clear-slot-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.bm-action-reset-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ---- "No controller" placeholder ---- */
+.bm-no-controller {
+  font-size: 11px;
+  color: var(--bm-text-desc);
+  font-style: italic;
+  padding: 2px 4px;
+  line-height: 32px;
 }
 
 .bm-clear-slot-btn {
@@ -314,9 +358,7 @@ const CSS = `
   color: var(--bm-reset-hover);
 }
 
-/* ================================================================
-   Action Hints Bar (bottom of screen)
-   ================================================================ */
+/* ====== Action Hints Bar (bottom of screen) ====== */
 
 .bm-hints {
   position: fixed;
@@ -336,8 +378,7 @@ const CSS = `
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 12px;
   color: var(--bm-text-secondary);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  /* backdrop-filter: blur(6px); jsdom doesn't support this, but it's still nice for browsers */
 }
 
 .bm-hint-item {
@@ -377,6 +418,13 @@ const CSS = `
 
 .bm-hint-label {
   color: var(--bm-text-secondary);
+}
+
+/* ---- Gamepad hint key (distinct colour) ---- */
+.bm-hint-gp-key {
+  color: var(--bm-accent-hover);
+  background: rgba(92, 124, 250, 0.12);
+  border-color: rgba(92, 124, 250, 0.35);
 }
 `;
 

@@ -1,5 +1,6 @@
 import { getKeyLabel } from '../input/key-names.js';
 import { injectStyles } from './styles.js';
+import { getGamepadLabel } from '../input/gamepad-profiles.js';
 
 /**
  * Manages the bottom-of-screen key hint overlay.
@@ -17,13 +18,15 @@ export class HintsController {
    * @param {import('../core/binding-store.js').BindingStore} bindingStore
    * @param {import('../core/action-registry.js').ActionRegistry} registry
    */
-  constructor(bindingStore, registry) {
+  constructor(bindingStore, registry, gamepadRuntime = null) {
     this._store = bindingStore;
     this._registry = registry;
+      this._gamepadRuntime = gamepadRuntime;
     this._bar = null;
     /** @type {Set<string>} action ids that should currently be visible */
     this._visible = new Set();
     this._unsubscribeStore = null;
+    this._onGamepadChange = null;
   }
 
   /** @param {HTMLElement} container */
@@ -35,11 +38,21 @@ export class HintsController {
     container.appendChild(this._bar);
 
     this._unsubscribeStore = this._store.subscribe(() => this._render());
+
+      this._onGamepadChange = () => this._render();
+      if (typeof window !== 'undefined') {
+        window.addEventListener('bm-gamepad-connected',    this._onGamepadChange);
+        window.addEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+      }
   }
 
   unmount() {
     this._unsubscribeStore?.();
     this._bar?.remove();
+        if (this._onGamepadChange && typeof window !== 'undefined') {
+          window.removeEventListener('bm-gamepad-connected',    this._onGamepadChange);
+          window.removeEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+        }
     this._bar = null;
   }
 
@@ -95,13 +108,24 @@ export class HintsController {
     for (const actionId of this._visible) {
       const action = this._registry.get(actionId);
       if (!action) continue;
-      const bindings = this._store.get(actionId) ?? [];
-      const keys = bindings.filter(Boolean).map(getKeyLabel);
-      if (keys.length === 0) continue;
 
-      const keysHtml = keys
+      const kbBindings = this._store.get(actionId, 'keyboard') ?? [];
+      const gpBindings = this._store.get(actionId, 'gamepad')  ?? [];
+
+      const kbKeys = kbBindings.filter(Boolean).map(getKeyLabel);
+      const profile = this._gamepadRuntime?.getActiveProfile() ?? 'generic';
+      const gpKeys = gpBindings.filter(Boolean).map(code => getGamepadLabel(code, profile));
+
+      if (kbKeys.length === 0 && gpKeys.length === 0) continue;
+
+      const kbHtml = kbKeys
         .map(k => `<kbd class="bm-hint-key">${_esc(k)}</kbd>`)
         .join('<span class="bm-hint-sep">/</span>');
+      const gpHtml = gpKeys
+        .map(k => `<kbd class="bm-hint-key bm-hint-gp-key">${_esc(k)}</kbd>`)
+        .join('<span class="bm-hint-sep">/</span>');
+
+      const keysHtml = [kbHtml, gpHtml].filter(Boolean).join('<span class="bm-hint-sep">·</span>');
 
       items.push(`
         <div class="bm-hint-item">

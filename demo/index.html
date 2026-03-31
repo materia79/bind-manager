@@ -112,6 +112,143 @@
       border-color: rgba(40,200,100,0.8);
     }
 
+    #input-debug-btn {
+      background: rgba(250, 170, 90, 0.2);
+      border-color: rgba(250, 170, 90, 0.55);
+      color: #ffd3a4;
+    }
+    #input-debug-btn:hover {
+      background: rgba(250, 170, 90, 0.38);
+      border-color: rgba(255, 192, 120, 0.95);
+    }
+
+    #debug-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 120;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.78);
+      backdrop-filter: blur(4px);
+    }
+
+    #debug-modal.debug-open {
+      display: flex;
+    }
+
+    #debug-panel {
+      width: min(880px, calc(100vw - 24px));
+      max-height: calc(100vh - 24px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #111526;
+      border: 1px solid #38446b;
+      border-radius: 10px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    }
+
+    .debug-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 16px;
+    }
+
+    .debug-head h2 {
+      font-size: 15px;
+      color: #f0f2ff;
+    }
+
+    .debug-body {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 12px;
+      padding: 12px;
+      overflow: auto;
+    }
+
+    .debug-card {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px;
+    }
+
+    .debug-card h3 {
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #9ab0ff;
+      margin-bottom: 8px;
+    }
+
+    #debug-status {
+      min-height: 44px;
+      color: #cfd8ff;
+      line-height: 1.45;
+    }
+
+    #debug-progress {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #9fb2f5;
+    }
+
+    #debug-countdown {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #ffc177;
+      font-weight: 600;
+    }
+
+    #debug-live {
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.24);
+      padding: 8px;
+      font-size: 12px;
+      color: #b8c4ff;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    #debug-results {
+      width: 100%;
+      min-height: 260px;
+      resize: vertical;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #dfe5ff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      padding: 10px;
+    }
+
+    .debug-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .debug-small {
+      font-size: 12px;
+      color: #98a6d8;
+      margin-top: 6px;
+    }
+
+    @media (max-width: 860px) {
+      .debug-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* ── Centre title ── */
     #center-text {
       position: fixed;
@@ -153,6 +290,7 @@
   </div>
 
   <div id="controls">
+    <button class="hud-btn" id="input-debug-btn">Input Debug</button>
     <button class="hud-btn" id="open-btn">⚙ Key Bindings</button>
     <button class="hud-btn" id="hint-toggle-btn">👁 Toggle Hints</button>
     <button class="hud-btn" id="reset-btn">↺ Reset All</button>
@@ -161,6 +299,35 @@
   <div id="center-text">
     <h1>Bind Manager Demo</h1>
     <p>Press <kbd>F5</kbd> or click "Key Bindings" to open the modal.</p>
+  </div>
+
+  <div id="debug-modal" aria-hidden="true">
+    <div id="debug-panel" role="dialog" aria-modal="true" aria-label="Input Debugger">
+      <div class="debug-head">
+        <h2>Input Debugger</h2>
+        <button class="hud-btn" id="debug-close-btn">Close</button>
+      </div>
+      <div class="debug-body">
+        <div class="debug-card">
+          <h3>Guided Test</h3>
+          <div id="debug-status">Press Start Debug to begin the controller mapping routine.</div>
+          <div id="debug-progress"></div>
+          <div id="debug-countdown"></div>
+          <div class="debug-small">Live strongest input delta from baseline</div>
+          <div id="debug-live">(idle)</div>
+          <div class="debug-actions">
+            <button class="hud-btn" id="debug-start-btn">Start Debug</button>
+            <button class="hud-btn" id="debug-skip-btn">Skip Step</button>
+            <button class="hud-btn" id="debug-copy-btn">Copy JSON</button>
+          </div>
+          <div class="debug-small">Release all controls during normalization when prompted. Each control step records for 5 seconds.</div>
+        </div>
+        <div class="debug-card">
+          <h3>Generated Controller Definition JSON</h3>
+          <textarea id="debug-results" spellcheck="false" readonly></textarea>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="./main.js"></script>

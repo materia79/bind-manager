@@ -9,6 +9,7 @@
   },
   "scripts": {
     "demo": "npx --yes serve . -p 3001 --no-clipboard",
+    "process_controller_defs": "node scripts/process-controller-defs.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

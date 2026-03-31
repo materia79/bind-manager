@@ -1,5 +1,6 @@
 import { getKeyLabel } from '../input/key-names.js';
 import { injectStyles } from './styles.js';
+import { getGamepadLabel } from '../input/gamepad-profiles.js';
 
 /**
  * Controls the key binding modal UI.
@@ -21,18 +22,20 @@ export class ModalController {
    * @param {import('../core/action-registry.js').ActionRegistry} registry
    * @param {import('../input/keyboard-runtime.js').KeyboardRuntime} keyboardRuntime
    */
-  constructor(bindingStore, registry, keyboardRuntime) {
+  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null) {
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
+  this._gamepadRuntime = gamepadRuntime;
 
     this._container = null;
     this._overlay = null;
     this._open = false;
-    /** @type {{ actionId: string, slot: number, buttonEl: HTMLElement } | null} */
+    /** @type {{ actionId: string, slot: number, device: string, buttonEl: HTMLElement } | null} */
     this._captureTarget = null;
     this._warningTimeout = null;
     this._unsubscribeStore = null;
+    this._onGamepadChange = null;
   }
 
   /** @param {HTMLElement} container */
@@ -52,9 +55,16 @@ export class ModalController {
       if (e.target === this._overlay) this.close();
     });
 
-    // Escape key closes the modal (handled here once, not inside _render)
     this._overlay.addEventListener('keydown', (e) => {
-      if (e.code === 'Escape' && !this._captureTarget) this.close();
+      if (e.code === 'Escape') {
+        if (!this._captureTarget) {
+          this.close();
+        } else if (this._captureTarget.device === 'gamepad') {
+          // Keyboard Escape cancels an in-progress gamepad capture
+          this._gamepadRuntime?.cancelCapture();
+        }
+        // For keyboard captures, Escape is handled inside KeyboardRuntime.startCapture
+      }
     });
 
 
@@ -63,7 +73,14 @@ export class ModalController {
 
     // Re-render when any binding changes while modal is open
     this._unsubscribeStore = this._store.subscribe(() => {
-      if (this._open) this._updateBindButtons();
+      if (this._open) this._updateBindButtons();  // lightweight, avoids full DOM teardown
+
+        // Update button labels when a controller connects/disconnects
+        this._onGamepadChange = () => { if (this._open) this._updateBindButtons(); };
+        if (typeof window !== 'undefined') {
+          window.addEventListener('bm-gamepad-connected',    this._onGamepadChange);
+          window.addEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+        }
     });
   }
 
@@ -71,6 +88,10 @@ export class ModalController {
     this._unsubscribeStore?.();
     clearTimeout(this._warningTimeout);
     this._overlay?.remove();
+        if (this._onGamepadChange && typeof window !== 'undefined') {
+          window.removeEventListener('bm-gamepad-connected',    this._onGamepadChange);
+          window.removeEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+        }
     this._overlay = null;
     this._container = null;
   }
@@ -81,6 +102,7 @@ export class ModalController {
     this._overlay.style.display = 'flex';
     this._open = true;
     this._runtime.setGameplaySuppressed(true);
+      this._gamepadRuntime?.setGameplaySuppressed(true);
     // Focus the modal so Escape works without a mouse click first
     this._overlay.querySelector('.bm-modal')?.focus();
   }
@@ -91,6 +113,7 @@ export class ModalController {
     this._overlay.style.display = 'none';
     this._open = false;
     this._runtime.setGameplaySuppressed(false);
+    this._gamepadRuntime?.setGameplaySuppressed(false);
   }
 
   toggle() {
@@ -143,16 +166,16 @@ export class ModalController {
     for (const btn of this._overlay.querySelectorAll('.bm-bind-btn')) {
       btn.addEventListener('click', () => {
         if (this._captureTarget) return;
-        const { actionId, slot } = btn.dataset;
-        this._startCapture(actionId, parseInt(slot, 10), btn);
+        const { actionId, slot, device } = btn.dataset;
+        this._startCapture(actionId, parseInt(slot, 10), btn, device || 'keyboard');
       });
     }
 
     for (const btn of this._overlay.querySelectorAll('.bm-clear-slot-btn')) {
       btn.addEventListener('click', () => {
         if (this._captureTarget) return;
-        const { actionId, slot } = btn.dataset;
-        this._store.clear(actionId, parseInt(slot, 10));
+        const { actionId, slot, device } = btn.dataset;
+        this._store.clear(actionId, parseInt(slot, 10), device || 'keyboard');
         this._updateBindButtons();
       });
     }
@@ -166,13 +189,13 @@ export class ModalController {
     }
     // Restore capture highlight if mid-capture when render was forced
     if (this._captureTarget) {
-      const { actionId, slot } = this._captureTarget;
+      const { actionId, slot, device } = this._captureTarget;
       const btn = this._overlay.querySelector(
-        `.bm-bind-btn[data-action-id="${CSS.escape(actionId)}"][data-slot="${slot}"]`
+        `.bm-bind-btn[data-action-id="${CSS.escape(actionId)}"][data-slot="${slot}"][data-device="${device || 'keyboard'}"]`
       );
       if (btn) {
         btn.classList.add('bm-capturing');
-        btn.textContent = 'Press a key…';
+        btn.textContent = device === 'gamepad' ? 'Press a button…' : 'Press a key…';
         this._captureTarget.buttonEl = btn;
       }
       this._setCaptureUiState(true, btn);
@@ -183,14 +206,17 @@ export class ModalController {
   _updateBindButtons() {
     if (!this._overlay) return;
     for (const btn of this._overlay.querySelectorAll('.bm-bind-btn')) {
-      const { actionId, slot } = btn.dataset;
+      const { actionId, slot, device } = btn.dataset;
       // Don't touch the button currently being captured
       if (this._captureTarget?.actionId === actionId &&
-          this._captureTarget?.slot === parseInt(slot, 10)) continue;
+          this._captureTarget?.slot === parseInt(slot, 10) &&
+          this._captureTarget?.device === device) continue;
 
-      const bindings = this._store.get(actionId);
+      const bindings = this._store.get(actionId, device || 'keyboard');
       const code = bindings?.[parseInt(slot, 10)] ?? null;
-      btn.textContent = code ? getKeyLabel(code) : '—';
+      btn.textContent = code
+        ? (device === 'gamepad' ? this._getGamepadLabel(code) : getKeyLabel(code))
+        : '—';
       btn.classList.toggle('bm-unbound', !code);
     }
   }
@@ -209,18 +235,31 @@ export class ModalController {
   }
 
   _renderAction(action) {
-    const bindings = this._store.get(action.id) ?? [];
-    const slots = Array.from({ length: action.slots }, (_, i) => {
-      const code = bindings[i] ?? null;
+    const kbBindings = this._store.get(action.id, 'keyboard') ?? [];
+    const gpBindings = this._store.get(action.id, 'gamepad')  ?? [];
+
+    const kbSlots = Array.from({ length: action.slots }, (_, i) => {
+      const code  = kbBindings[i] ?? null;
       const label = code ? getKeyLabel(code) : '—';
-      const cls = code ? 'bm-bind-btn' : 'bm-bind-btn bm-unbound';
+      const cls   = code ? 'bm-bind-btn' : 'bm-bind-btn bm-unbound';
       return `
         <div class="bm-slot">
-          <button class="${cls}" data-action-id="${_esc(action.id)}" data-slot="${i}" title="Click to rebind">${_esc(label)}</button>
-          <button class="bm-clear-slot-btn" data-action-id="${_esc(action.id)}" data-slot="${i}" title="Clear this binding" aria-label="Clear binding">×</button>
-        </div>
-      `;
+          <button class="${cls}" data-action-id="${_esc(action.id)}" data-slot="${i}" data-device="keyboard" title="Click to rebind">${_esc(label)}</button>
+          <button class="bm-clear-slot-btn" data-action-id="${_esc(action.id)}" data-slot="${i}" data-device="keyboard" title="Clear" aria-label="Clear keyboard binding">×</button>
+        </div>`;
     });
+
+    const gpSlots = Array.from({ length: action.gamepadSlots }, (_, i) => {
+      const code  = gpBindings[i] ?? null;
+      const label = code ? this._getGamepadLabel(code) : '—';
+      const cls   = code ? 'bm-bind-btn' : 'bm-bind-btn bm-unbound';
+      return `
+        <div class="bm-slot">
+          <button class="${cls}" data-action-id="${_esc(action.id)}" data-slot="${i}" data-device="gamepad" title="Click to rebind">${_esc(label)}</button>
+          <button class="bm-clear-slot-btn" data-action-id="${_esc(action.id)}" data-slot="${i}" data-device="gamepad" title="Clear" aria-label="Clear gamepad binding">×</button>
+        </div>`;
+    });
+
     return `
       <div class="bm-action-row">
         <div class="bm-action-info">
@@ -228,41 +267,75 @@ export class ModalController {
           ${action.description ? `<div class="bm-action-desc">${_esc(action.description)}</div>` : ''}
         </div>
         <div class="bm-action-controls">
-          <div class="bm-bind-slots">${slots.join('')}</div>
+          <div class="bm-device-rows">
+            <div class="bm-device-row">
+              <span class="bm-device-badge bm-device-kbd" title="Keyboard">⌨</span>
+              <div class="bm-bind-slots">${kbSlots.join('')}</div>
+            </div>
+            <div class="bm-device-row">
+              <span class="bm-device-badge bm-device-gp" title="Gamepad">⊕</span>
+              <div class="bm-bind-slots">${gpSlots.join('')}</div>
+            </div>
+          </div>
           <button class="bm-action-reset-btn" data-action-id="${_esc(action.id)}" title="Reset to default">↺</button>
         </div>
-      </div>
-    `;
+      </div>`;
   }
 
-  _startCapture(actionId, slot, buttonEl) {
+  _startCapture(actionId, slot, buttonEl, device = 'keyboard') {
     if (this._captureTarget) return;
-    this._captureTarget = { actionId, slot, buttonEl };
+    this._captureTarget = { actionId, slot, device, buttonEl };
     this._setCaptureUiState(true, buttonEl);
     buttonEl.classList.add('bm-capturing');
-    buttonEl.textContent = 'Press a key…';
 
-    this._runtime.startCapture((code) => {
-      this._captureTarget = null;
-      this._setCaptureUiState(false, null);
-      if (code === null) {
-        // Escape pressed — cancel, restore original label
+    if (device === 'gamepad') {
+      buttonEl.textContent = 'Press a button…';
+      // Guard: no controller connected
+      const connected = this._gamepadRuntime?.getConnectedGamepads() ?? [];
+      if (!this._gamepadRuntime || connected.length === 0) {
+        this._captureTarget = null;
+        this._setCaptureUiState(false, null);
+        buttonEl.classList.remove('bm-capturing');
         this._updateBindButtons();
+        this._showWarning('No controller detected. Plug in a gamepad and try again.');
         return;
       }
-      const result = this._store.set(actionId, slot, code);
-      if (result.conflicts.length > 0) {
-        this._showConflictWarning(result.conflicts, code);
-      } else {
-        this._hideConflictWarning();
-      }
-      this._updateBindButtons();
-    });
+      this._gamepadRuntime.startCapture((code) => {
+        this._captureTarget = null;
+        this._setCaptureUiState(false, null);
+        if (code === null) { this._updateBindButtons(); return; }
+        const result = this._store.set(actionId, slot, code, 'gamepad');
+        if (result.conflicts.length > 0) {
+          this._showConflictWarning(result.conflicts, code, 'gamepad');
+        } else {
+          this._hideConflictWarning();
+        }
+        this._updateBindButtons();
+      });
+    } else {
+      buttonEl.textContent = 'Press a key…';
+      this._runtime.startCapture((code) => {
+        this._captureTarget = null;
+        this._setCaptureUiState(false, null);
+        if (code === null) { this._updateBindButtons(); return; }
+        const result = this._store.set(actionId, slot, code, 'keyboard');
+        if (result.conflicts.length > 0) {
+          this._showConflictWarning(result.conflicts, code, 'keyboard');
+        } else {
+          this._hideConflictWarning();
+        }
+        this._updateBindButtons();
+      });
+    }
   }
 
   _cancelCapture() {
     if (this._captureTarget) {
-      this._runtime.cancelCapture();
+      if (this._captureTarget.device === 'gamepad') {
+        this._gamepadRuntime?.cancelCapture();
+      } else {
+        this._runtime.cancelCapture();
+      }
       this._captureTarget = null;
       this._setCaptureUiState(false, null);
       this._updateBindButtons();
@@ -286,17 +359,32 @@ export class ModalController {
     if (resetAllBtn) resetAllBtn.disabled = capturing;
   }
 
-  _showConflictWarning(conflicts, code) {
+  _showConflictWarning(conflicts, code, device = 'keyboard') {
     const warningEl = this._overlay?.querySelector('.bm-conflict-warning');
     if (!warningEl) return;
     const names = conflicts.map(c => {
       const action = this._registry.get(c.actionId);
       return action ? `"${action.label}"` : c.actionId;
     });
-    warningEl.textContent = `${getKeyLabel(code)} is also bound to ${names.join(', ')} — both will be active.`;
+    const label = device === 'gamepad' ? this._getGamepadLabel(code) : getKeyLabel(code);
+    warningEl.textContent = `${label} is also bound to ${names.join(', ')} — both will be active.`;
     warningEl.classList.remove('bm-hidden');
     clearTimeout(this._warningTimeout);
     this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 5000);
+  }
+
+  _showWarning(message) {
+    const warningEl = this._overlay?.querySelector('.bm-conflict-warning');
+    if (!warningEl) return;
+    warningEl.textContent = message;
+    warningEl.classList.remove('bm-hidden');
+    clearTimeout(this._warningTimeout);
+    this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 4000);
+  }
+
+  _getGamepadLabel(code) {
+    const profile = this._gamepadRuntime ? this._gamepadRuntime.getActiveProfile() : 'generic';
+    return getGamepadLabel(code, profile);
   }
 
   _hideConflictWarning() {

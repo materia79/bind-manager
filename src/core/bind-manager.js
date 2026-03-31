@@ -4,6 +4,7 @@ import { KeyboardRuntime } from '../input/keyboard-runtime.js';
 import { LocalStorageAdapter } from '../storage/local-storage-adapter.js';
 import { ModalController } from '../ui/modal-controller.js';
 import { HintsController } from '../ui/hints-controller.js';
+import { GamepadRuntime } from '../input/gamepad-runtime.js';
 
 /**
  * Creates and returns a Bind Manager instance.
@@ -34,6 +35,8 @@ export function createBindManager(options = {}) {
     container = null,
     storage = null,
   } = options;
+  const deadband        = options.deadband        ?? 0.12;
+  const analogThreshold = options.analogThreshold ?? 0.50;
 
   // -- Core layer --
   const registry = new ActionRegistry();
@@ -46,10 +49,11 @@ export function createBindManager(options = {}) {
 
   // -- Input layer --
   const runtime = new KeyboardRuntime(store);
+  const gamepadRuntime = new GamepadRuntime(store, registry, { deadband, analogThreshold });
 
   // -- UI layer --
-  const modal = new ModalController(store, registry, runtime);
-  const hints = new HintsController(store, registry);
+  const modal = new ModalController(store, registry, runtime, gamepadRuntime);
+  const hints = new HintsController(store, registry, gamepadRuntime);
 
   // Determine mount target (explicit container or document.body)
   const mountTarget = container ?? (typeof document !== 'undefined' ? document.body : null);
@@ -60,6 +64,7 @@ export function createBindManager(options = {}) {
 
   // Start global keyboard listeners
   runtime.start();
+  gamepadRuntime.start();
 
   // Persist to storage on every binding change
   const unsubPersist = store.subscribe(() => {
@@ -123,13 +128,30 @@ export function createBindManager(options = {}) {
      * @param {string} actionId
      * @returns {(string|null)[]}
      */
-    getBinding(actionId) { return store.get(actionId); },
+    getBinding(actionId, device = 'keyboard') { return store.get(actionId, device); },
 
     /**
      * Get all current bindings as a plain serialisable object.
      * @returns {Record<string, (string|null)[]>}
      */
     getBindings() { return store.getAll(); },
+
+    /**
+     * Get the detected profile ('xbox' | 'dualsense' | 'generic') for a connected gamepad.
+     * @param {number} [gamepadIndex=0]
+     * @returns {string}
+     */
+    getActiveGamepadProfile(gamepadIndex = 0) {
+      return gamepadRuntime.getActiveProfile(gamepadIndex);
+    },
+
+    /**
+     * Get info about all currently connected gamepads.
+     * @returns {{ index: number, id: string, profile: string }[]}
+     */
+    getConnectedGamepads() {
+      return gamepadRuntime.getConnectedGamepads();
+    },
 
     /**
      * Export current bindings in a versioned payload.
@@ -139,7 +161,7 @@ export function createBindManager(options = {}) {
     exportBindings(options = {}) {
       const { includeMetadata = true } = options;
       const payload = {
-        version: 1,
+        version: 2,
         namespace,
         bindings: store.getAll(),
       };
@@ -184,6 +206,7 @@ export function createBindManager(options = {}) {
       }
 
       const bindingsObj = parsed.value.bindings;
+        const payloadVersion = parsed.value.version;
       const knownActions = registry.getAll();
       const incomingActionIds = new Set(Object.keys(bindingsObj));
 
@@ -194,28 +217,53 @@ export function createBindManager(options = {}) {
 
       for (const action of knownActions) {
         const incoming = bindingsObj[action.id];
-        const shouldApply = Array.isArray(incoming) || (mode === 'replace' && !incomingActionIds.has(action.id));
-        if (!shouldApply) continue;
-
-        const targetSlots = Array.from({ length: action.slots }, (_, slot) => {
-          if (!Array.isArray(incoming)) return null;
-          const raw = incoming[slot];
-          if (raw === null || typeof raw === 'string') return raw;
-          if (typeof raw === 'undefined') return null;
-          report.invalidEntries.push(`Action "${action.id}" slot ${slot} has invalid value type`);
-          return null;
-        });
+        // Normalise to { keyboard: [...], gamepad: [...] }, handling v1 (array) and v2 ({keyboard, gamepad})
+        const entry = _normaliseBindingEntry(incoming, payloadVersion);
+        const hasEntry = entry != null;
+        const shouldProcess = hasEntry || (mode === 'replace' && !incomingActionIds.has(action.id));
+        if (!shouldProcess) continue;
 
         let actionChanged = false;
-        for (let slot = 0; slot < targetSlots.length; slot++) {
-          const current = store.get(action.id)?.[slot] ?? null;
-          const next = targetSlots[slot] ?? null;
+
+        // ── Keyboard slots ──────────────────────────────────────────────────
+        const kbTarget = Array.from({ length: action.slots }, (_, slot) => {
+          if (!hasEntry) return null;
+          const raw = entry.keyboard[slot];
+          if (raw === null || raw === undefined) return null;
+          if (typeof raw === 'string') return raw;
+          report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has invalid value type`);
+          return null;
+        });
+        for (let slot = 0; slot < kbTarget.length; slot++) {
+          const current = store.get(action.id, 'keyboard')?.[slot] ?? null;
+          const next = kbTarget[slot] ?? null;
           if (current === next) continue;
-          const result = store.set(action.id, slot, next);
+          const result = store.set(action.id, slot, next, 'keyboard');
           actionChanged = true;
           report.appliedSlots += 1;
           report.conflictCount += result.conflicts.length;
         }
+
+        // ── Gamepad slots (v2 only) ─────────────────────────────────────────
+        if (payloadVersion >= 2 && hasEntry) {
+          const gpTarget = Array.from({ length: action.gamepadSlots }, (_, slot) => {
+            const raw = entry.gamepad[slot];
+            if (raw === null || raw === undefined) return null;
+            if (typeof raw === 'string') return raw;
+            report.invalidEntries.push(`Action "${action.id}" gamepad slot ${slot} has invalid value type`);
+            return null;
+          });
+          for (let slot = 0; slot < gpTarget.length; slot++) {
+            const current = store.get(action.id, 'gamepad')?.[slot] ?? null;
+            const next = gpTarget[slot] ?? null;
+            if (current === next) continue;
+            const result = store.set(action.id, slot, next, 'gamepad');
+            actionChanged = true;
+            report.appliedSlots += 1;
+            report.conflictCount += result.conflicts.length;
+          }
+        }
+
         if (actionChanged) report.appliedActions += 1;
       }
 
@@ -231,14 +279,14 @@ export function createBindManager(options = {}) {
      * @param {number} slot
      * @param {string | null} code - KeyboardEvent.code or null to clear
      */
-    setBinding(actionId, slot, code) { return store.set(actionId, slot, code); },
+    setBinding(actionId, slot, code, device = 'keyboard') { return store.set(actionId, slot, code, device); },
 
     /**
      * Clear the binding for a specific slot (sets it to null).
      * @param {string} actionId
      * @param {number} slot
      */
-    clearBinding(actionId, slot) { return store.clear(actionId, slot); },
+    clearBinding(actionId, slot, device = 'keyboard') { return store.clear(actionId, slot, device); },
 
     /**
      * Reset a single action to its registered defaults.
@@ -277,7 +325,13 @@ export function createBindManager(options = {}) {
      * @param {(event: import('../input/keyboard-runtime.js').ActionEvent) => void} listener
      * @returns {() => void} unsubscribe
      */
-    onAnyAction(listener) { return runtime.onAnyAction(listener); },
+    onAnyAction(listener) {
+      const unsubs = [
+        runtime.onAnyAction(listener),
+        gamepadRuntime.onAnyAction(listener),
+      ];
+      return () => unsubs.forEach(fn => fn());
+    },
 
     /**
      * Check if the key(s) bound to an action are currently held down.
@@ -285,8 +339,10 @@ export function createBindManager(options = {}) {
      * @returns {boolean}
      */
     isActionPressed(actionId) {
-      const bindings = store.get(actionId) ?? [];
-      return bindings.some(code => code && runtime.isPressed(code));
+        const kbBindings = store.get(actionId, 'keyboard') ?? [];
+        const gpBindings = store.get(actionId, 'gamepad')  ?? [];
+        return kbBindings.some(code => code && runtime.isPressed(code))
+          || gpBindings.some(code => code && gamepadRuntime.isPressed(code));
     },
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -299,6 +355,7 @@ export function createBindManager(options = {}) {
       unsubPersist();
       if (_debugListener) window.removeEventListener('keydown', _debugListener);
       runtime.stop();
+        gamepadRuntime.stop();
       modal.unmount();
       hints.unmount();
     },
@@ -326,7 +383,11 @@ export function createBindManager(options = {}) {
        * @returns {() => void} unsubscribe
        */
       onPressed(cb) {
-        return runtime.onAction(actionId, (e) => { if (e.type === 'pressed') cb(e); });
+        const unsubs = [
+          runtime.onAction(actionId, (e) => { if (e.type === 'pressed') cb(e); }),
+          gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'pressed') cb(e); }),
+        ];
+        return () => unsubs.forEach(fn => fn());
       },
       /**
        * Listen for this action being released (key released).
@@ -334,7 +395,11 @@ export function createBindManager(options = {}) {
        * @returns {() => void} unsubscribe
        */
       onReleased(cb) {
-        return runtime.onAction(actionId, (e) => { if (e.type === 'released') cb(e); });
+        const unsubs = [
+          runtime.onAction(actionId, (e) => { if (e.type === 'released') cb(e); }),
+          gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'released') cb(e); }),
+        ];
+        return () => unsubs.forEach(fn => fn());
       },
       /**
        * Listen for this action being held (key repeat events).
@@ -342,7 +407,19 @@ export function createBindManager(options = {}) {
        * @returns {() => void} unsubscribe
        */
       onHeld(cb) {
-        return runtime.onAction(actionId, (e) => { if (e.type === 'held') cb(e); });
+        const unsubs = [
+          runtime.onAction(actionId, (e) => { if (e.type === 'held') cb(e); }),
+          gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'held') cb(e); }),
+        ];
+        return () => unsubs.forEach(fn => fn());
+      },
+      /**
+       * Listen for continuous analog axis values (axes only, requires action.analog=true).
+       * @param {(e: import('../input/gamepad-runtime.js').GamepadActionEvent) => void} cb
+       * @returns {() => void} unsubscribe
+       */
+      onAnalog(cb) {
+        return gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'analog') cb(e); });
       },
     };
   }
@@ -382,12 +459,38 @@ function _parseImportPayload(payload) {
 }
 
 /**
+ * Normalise a raw binding entry from an import payload into { keyboard, gamepad }.
+ * - v1 (array): treated as keyboard-only, gamepad gets empty array
+ * - v2 (object with keyboard/gamepad): used directly
+ * Returns null if the entry is missing or unrecognisable.
+ * @param {unknown} incoming
+ * @param {number} payloadVersion
+ * @returns {{ keyboard: unknown[], gamepad: unknown[] } | null}
+ */
+function _normaliseBindingEntry(incoming, payloadVersion) {
+  if (incoming == null) return null;
+  if (Array.isArray(incoming)) {
+    // v1 format — keyboard only
+    return { keyboard: incoming, gamepad: [] };
+  }
+  if (typeof incoming === 'object' && payloadVersion >= 2) {
+    return {
+      keyboard: Array.isArray(incoming.keyboard) ? incoming.keyboard : [],
+      gamepad:  Array.isArray(incoming.gamepad)  ? incoming.gamepad  : [],
+    };
+  }
+  return null;
+}
+
+/**
  * @typedef {object} BindManagerOptions
  * @property {string} [namespace='default']         - Storage namespace (use your game name)
  * @property {boolean} [debug=false]                - Enable debug toggle key
  * @property {string} [debugKey='F5']               - KeyboardEvent.code for debug toggle
  * @property {HTMLElement | null} [container=null]  - Mount target (defaults to document.body)
  * @property {object | null} [storage=null]         - Custom storage adapter (load/save/clear)
+ * @property {number} [deadband=0.12]              - Gamepad axis deadband (ignore drift below this)
+ * @property {number} [analogThreshold=0.50]       - Axis value threshold for digital events
  *
  * @typedef {object} ActionDef
  * @property {string} id
@@ -396,6 +499,10 @@ function _parseImportPayload(payload) {
  * @property {string} [group]
  * @property {number} [slots=2]
  * @property {string[]} [defaultBindings]
+ * @property {number} [gamepadSlots=1]
+ * @property {string[]} [defaultGamepadBindings]
+ * @property {boolean} [analog=false]
+ * @property {number | null} [playerIndex=null]
  *
  * @typedef {object} ActionHandle
  * @property {() => void} showHint
@@ -404,6 +511,7 @@ function _parseImportPayload(payload) {
  * @property {(cb: Function) => (() => void)} onPressed
  * @property {(cb: Function) => (() => void)} onReleased
  * @property {(cb: Function) => (() => void)} onHeld
+ * @property {(cb: Function) => (() => void)} onAnalog
  *
  * @typedef {object} BindingChangeEvent
  * @property {'binding-changed' | 'reset'} type

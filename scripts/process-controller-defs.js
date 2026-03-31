@@ -11,6 +11,15 @@ const CAPTURES_DIR = path.join(ROOT, 'src', 'input', 'controller_definitions', '
 const DEFS_DIR = path.join(ROOT, 'src', 'input', 'controller_definitions', 'profiles');
 const OUT_FILE = path.join(ROOT, 'src', 'input', 'controller_definitions', 'index.js');
 
+const DPAD_CODES = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'];
+const HAT_DEFAULT_VALUES = {
+  GP_B12: -1.0,      // Up
+  GP_B15: -0.428571, // Right
+  GP_B13: 0.142857,  // Down
+  GP_B14: 0.714286,  // Left
+};
+const HAT_DEFAULT_TOLERANCE = 0.2;
+
 function main() {
   if (!fs.existsSync(CAPTURES_DIR)) {
     console.error(`[process_controller_defs] capture directory missing: ${CAPTURES_DIR}`);
@@ -100,7 +109,7 @@ function validateCaptureSanity(capture) {
 
   const expectedSeen = new Set();
   const physicalToExpected = new Map();
-  const dpadExpected = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'];
+  const dpadExpected = DPAD_CODES;
   const dpadPhysicalKeys = new Set();
 
   const buttonCount = Number.isInteger(target.buttons) ? target.buttons : null;
@@ -181,6 +190,46 @@ function validateCaptureSanity(capture) {
   return { errors, warnings };
 }
 
+function validateGeneratedMappingSanity(mapping) {
+  const errors = [];
+  const warnings = [];
+
+  if (!mapping || typeof mapping !== 'object') {
+    errors.push('generated mapping must be an object');
+    return { errors, warnings };
+  }
+
+  for (const [code, entry] of Object.entries(mapping)) {
+    if (!entry || typeof entry !== 'object') {
+      errors.push(`${code}: generated entry must be an object`);
+      continue;
+    }
+    if (!['button', 'axis', 'hat'].includes(entry.kind)) {
+      errors.push(`${code}: generated entry kind must be button/axis/hat`);
+      continue;
+    }
+    if (!Number.isInteger(entry.index) || entry.index < 0) {
+      errors.push(`${code}: generated entry index must be a non-negative integer`);
+    }
+    if (entry.kind === 'axis' && entry.direction !== 'negative' && entry.direction !== 'positive') {
+      errors.push(`${code}: axis entry must include direction negative/positive`);
+    }
+    if (entry.kind === 'hat') {
+      if (typeof entry.value !== 'number' || !Number.isFinite(entry.value)) {
+        errors.push(`${code}: hat entry must include numeric value`);
+      }
+      if (entry.tolerance != null && (typeof entry.tolerance !== 'number' || !Number.isFinite(entry.tolerance) || entry.tolerance <= 0)) {
+        errors.push(`${code}: hat entry tolerance must be a positive number`);
+      }
+      if (entry.tolerance == null) {
+        warnings.push(`${code}: hat entry missing tolerance; runtime defaults may vary`);
+      }
+    }
+  }
+
+  return { errors, warnings };
+}
+
 function toControllerDefinition(capture, fileName) {
   if (!capture || typeof capture !== 'object') {
     throw new Error('capture root must be an object');
@@ -226,6 +275,14 @@ function toControllerDefinition(capture, fileName) {
     };
   }
 
+  // If D-pad entries collapse to one axis-direction in captures, represent them as
+  // hat-value mappings so runtime can resolve all four directions distinctly.
+  applyDpadHatHeuristic(mapping);
+  const generatedSanity = validateGeneratedMappingSanity(mapping);
+  if (generatedSanity.errors.length > 0) {
+    throw new Error(generatedSanity.errors.join('; '));
+  }
+
   const sourceButtons = Number.isInteger(targetController.buttons) ? targetController.buttons : null;
   const sourceAxes = Number.isInteger(targetController.axes) ? targetController.axes : null;
 
@@ -245,6 +302,29 @@ function toControllerDefinition(capture, fileName) {
     mapping,
     labels,
   };
+}
+
+function applyDpadHatHeuristic(mapping) {
+  const dpadEntries = DPAD_CODES
+    .map((code) => [code, mapping[code]])
+    .filter(([, entry]) => entry && entry.kind === 'axis');
+
+  if (dpadEntries.length !== DPAD_CODES.length) return;
+
+  const first = dpadEntries[0][1];
+  const allSameAxisDirection = dpadEntries.every(([, entry]) =>
+    entry.index === first.index && entry.direction === first.direction
+  );
+  if (!allSameAxisDirection) return;
+
+  for (const [code] of dpadEntries) {
+    mapping[code] = {
+      kind: 'hat',
+      index: first.index,
+      value: HAT_DEFAULT_VALUES[code],
+      tolerance: HAT_DEFAULT_TOLERANCE,
+    };
+  }
 }
 
 function dedupeByDevice(definitions, warnings) {

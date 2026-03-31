@@ -16,6 +16,7 @@
  */
 import { isGamepadCode } from './gamepad-codes.js';
 import { detectGamepadProfile } from './gamepad-profiles.js';
+import { findControllerProfileByGamepadId } from './controller_definitions/index.js';
 
 const GP_BUTTON_COUNT = 17;
 const GP_AXIS_COUNT   = 4;
@@ -34,6 +35,10 @@ export class GamepadRuntime {
 
     /** @type {Map<number, { buttons: boolean[], axes: number[] }>} */
     this._curState = new Map();
+    /** @type {Map<number, any>} */
+    this._controllerProfileByGamepadIndex = new Map();
+    /** @type {Map<string, CompiledControllerMapping>} */
+    this._compiledProfileCache = new Map();
 
     /** @type {Map<string, Set<Function>>} per-action listeners */
     this._listeners    = new Map();
@@ -177,12 +182,19 @@ export class GamepadRuntime {
   getActiveProfile(gamepadIndex = 0) {
     if (typeof navigator === 'undefined') return 'generic';
     const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
-    return gp ? detectGamepadProfile(gp.id) : 'generic';
+    if (!gp) return 'generic';
+    const mapped = this._getControllerProfile(gp);
+    if (mapped?.profileHint) return mapped.profileHint;
+    return detectGamepadProfile(gp.id);
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
 
   _handleConnect(e) {
+    this._controllerProfileByGamepadIndex.set(
+      e.gamepad.index,
+      findControllerProfileByGamepadId(e.gamepad.id),
+    );
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-connected', { detail: e.gamepad }));
     }
@@ -190,6 +202,7 @@ export class GamepadRuntime {
 
   _handleDisconnect(e) {
     this._curState.delete(e.gamepad.index);
+    this._controllerProfileByGamepadIndex.delete(e.gamepad.index);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-disconnected', { detail: e.gamepad }));
     }
@@ -210,17 +223,8 @@ export class GamepadRuntime {
       axes:    new Array(GP_AXIS_COUNT).fill(0),
     };
 
-    // Snapshot current hardware state
-    // Pad buttons array to GP_BUTTON_COUNT to ensure D-Pad and guide buttons are always available
-    const buttonStates = new Array(GP_BUTTON_COUNT).fill(false);
-    for (let i = 0; i < gamepad.buttons.length && i < GP_BUTTON_COUNT; i++) {
-      buttonStates[i] = gamepad.buttons[i].pressed;
-    }
-
-    const cur = {
-      buttons: buttonStates,
-      axes:    [...gamepad.axes].slice(0, GP_AXIS_COUNT),
-    };
+    // Snapshot current state as canonical logical GP buttons/axes.
+    const cur = this._snapshotLogicalState(gamepad);
 
     this._curState.set(gamepad.index, cur);
 
@@ -305,6 +309,177 @@ export class GamepadRuntime {
   }
 
   /**
+   * Build a canonical logical state (GP_B0..GP_B16 + GP_A0..GP_A3) from raw
+   * physical gamepad hardware state, using a vendor/product mapping when known.
+   * @param {Gamepad} gamepad
+   * @returns {{ buttons: boolean[], axes: number[] }}
+   * @private
+   */
+  _snapshotLogicalState(gamepad) {
+    const profile = this._getControllerProfile(gamepad);
+    const compiled = this._compileControllerMapping(profile);
+
+    if (!compiled) {
+      const buttons = new Array(GP_BUTTON_COUNT).fill(false);
+      for (let i = 0; i < gamepad.buttons.length && i < GP_BUTTON_COUNT; i++) {
+        const btn = gamepad.buttons[i];
+        const value = typeof btn?.value === 'number' ? btn.value : (btn?.pressed ? 1 : 0);
+        buttons[i] = (btn?.pressed === true) || value > 0.5;
+      }
+      return {
+        buttons,
+        axes: [...gamepad.axes].slice(0, GP_AXIS_COUNT),
+      };
+    }
+
+    const logicalButtons = new Array(GP_BUTTON_COUNT).fill(false);
+    const logicalAxes = new Array(GP_AXIS_COUNT).fill(0);
+
+    for (let i = 0; i < GP_BUTTON_COUNT; i++) {
+      const entry = compiled.buttons[i];
+      if (!entry) continue;
+      if (entry.kind === 'hat') {
+        logicalButtons[i] = this._isHatDirectionActive(gamepad, entry);
+        continue;
+      }
+      const magnitude = this._readDirectionalMagnitude(gamepad, entry);
+      logicalButtons[i] = magnitude > this._analogThreshold;
+    }
+
+    for (let a = 0; a < GP_AXIS_COUNT; a++) {
+      const nEntry = compiled.axesNeg[a];
+      const pEntry = compiled.axesPos[a];
+      const neg = nEntry ? this._readDirectionalMagnitude(gamepad, nEntry) : 0;
+      const pos = pEntry ? this._readDirectionalMagnitude(gamepad, pEntry) : 0;
+      logicalAxes[a] = Math.max(-1, Math.min(1, pos - neg));
+    }
+
+    return {
+      buttons: logicalButtons,
+      axes: logicalAxes,
+    };
+  }
+
+  /**
+   * @param {Gamepad} gamepad
+   * @returns {any | null}
+   * @private
+   */
+  _getControllerProfile(gamepad) {
+    if (this._controllerProfileByGamepadIndex.has(gamepad.index)) {
+      return this._controllerProfileByGamepadIndex.get(gamepad.index);
+    }
+    const profile = findControllerProfileByGamepadId(gamepad.id);
+    this._controllerProfileByGamepadIndex.set(gamepad.index, profile);
+    return profile;
+  }
+
+  /**
+   * Convert a controller definition mapping object into fast lookup arrays.
+   * @param {any | null} profile
+   * @returns {CompiledControllerMapping | null}
+   * @private
+   */
+  _compileControllerMapping(profile) {
+    if (!profile || typeof profile !== 'object' || !profile.mapping) return null;
+    const key = `${profile.vendorId ?? 'unknown'}-${profile.productId ?? 'unknown'}`;
+    if (this._compiledProfileCache.has(key)) {
+      return this._compiledProfileCache.get(key);
+    }
+
+    /** @type {CompiledControllerMapping} */
+    const compiled = {
+      buttons: new Array(GP_BUTTON_COUNT).fill(null),
+      axesNeg: new Array(GP_AXIS_COUNT).fill(null),
+      axesPos: new Array(GP_AXIS_COUNT).fill(null),
+    };
+
+    for (let i = 0; i < GP_BUTTON_COUNT; i++) {
+      const code = `GP_B${i}`;
+      const entry = this._normaliseMappingEntry(profile.mapping[code]);
+      if (entry) compiled.buttons[i] = entry;
+    }
+
+    for (let a = 0; a < GP_AXIS_COUNT; a++) {
+      const codeN = `GP_A${a}N`;
+      const codeP = `GP_A${a}P`;
+      const entryN = this._normaliseMappingEntry(profile.mapping[codeN]);
+      const entryP = this._normaliseMappingEntry(profile.mapping[codeP]);
+      if (entryN) compiled.axesNeg[a] = entryN;
+      if (entryP) compiled.axesPos[a] = entryP;
+    }
+
+    this._compiledProfileCache.set(key, compiled);
+    return compiled;
+  }
+
+  /**
+   * @param {any} entry
+   * @returns {CompiledInputMappingEntry | null}
+   * @private
+   */
+  _normaliseMappingEntry(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+    if ((entry.kind !== 'button' && entry.kind !== 'axis' && entry.kind !== 'hat') || !Number.isInteger(entry.index)) return null;
+    if (entry.index < 0) return null;
+    if (entry.kind === 'hat') {
+      if (typeof entry.value !== 'number' || !Number.isFinite(entry.value)) return null;
+      const tolerance = typeof entry.tolerance === 'number' && Number.isFinite(entry.tolerance) && entry.tolerance > 0
+        ? entry.tolerance
+        : 0.2;
+      return {
+        kind: 'hat',
+        index: entry.index,
+        direction: 'positive',
+        value: entry.value,
+        tolerance,
+      };
+    }
+    return {
+      kind: entry.kind,
+      index: entry.index,
+      direction: entry.direction === 'negative' ? 'negative' : 'positive',
+    };
+  }
+
+  /**
+   * Read activation magnitude [0, 1+] for a mapped physical input entry.
+   * @param {Gamepad} gamepad
+   * @param {CompiledInputMappingEntry} entry
+   * @returns {number}
+   * @private
+   */
+  _readDirectionalMagnitude(gamepad, entry) {
+    if (entry.kind === 'hat') {
+      return this._isHatDirectionActive(gamepad, entry) ? 1 : 0;
+    }
+
+    if (entry.kind === 'button') {
+      const btn = gamepad.buttons?.[entry.index];
+      if (!btn) return 0;
+      const value = typeof btn.value === 'number' ? btn.value : (btn.pressed ? 1 : 0);
+      return Math.max(0, value);
+    }
+
+    const raw = gamepad.axes?.[entry.index] ?? 0;
+    if (entry.direction === 'negative') return Math.max(0, -raw);
+    return Math.max(0, raw);
+  }
+
+  /**
+   * @param {Gamepad} gamepad
+   * @param {CompiledInputMappingEntry} entry
+   * @returns {boolean}
+   * @private
+   */
+  _isHatDirectionActive(gamepad, entry) {
+    const raw = gamepad.axes?.[entry.index];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return false;
+    const tolerance = typeof entry.tolerance === 'number' ? entry.tolerance : 0.2;
+    return Math.abs(raw - entry.value) <= tolerance;
+  }
+
+  /**
    * Resolve the code to bound actions and fire digital events.
    * Respects action.playerIndex (null = any controller).
    * @private
@@ -383,4 +558,20 @@ export class GamepadRuntime {
  * @property {number} value        — button value or axis value
  * @property {'gamepad'} device
  * @property {number} gamepadIndex
+ */
+
+/**
+ * @typedef {object} CompiledInputMappingEntry
+ * @property {'button' | 'axis' | 'hat'} kind
+ * @property {number} index
+ * @property {'negative' | 'positive'} direction
+ * @property {number} [value]
+ * @property {number} [tolerance]
+ */
+
+/**
+ * @typedef {object} CompiledControllerMapping
+ * @property {(CompiledInputMappingEntry | null)[]} buttons
+ * @property {(CompiledInputMappingEntry | null)[]} axesNeg
+ * @property {(CompiledInputMappingEntry | null)[]} axesPos
  */

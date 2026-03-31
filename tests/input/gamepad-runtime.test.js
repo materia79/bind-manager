@@ -9,6 +9,12 @@
  * vibrationActuator, so all of those are stubbed here.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+let __mockControllerProfile = null;
+vi.mock('../../src/input/controller_definitions/index.js', () => ({
+  findControllerProfileByGamepadId: () => __mockControllerProfile,
+}));
+
 import { GamepadRuntime } from '../../src/input/gamepad-runtime.js';
 import { ActionRegistry } from '../../src/core/action-registry.js';
 import { BindingStore } from '../../src/core/binding-store.js';
@@ -26,6 +32,22 @@ function makeGamepad(id = 'Fake Gamepad', index = 0, buttons = [], axes = []) {
     buttons: Array.from({ length: btnCount }, (_, i) => ({
       pressed: buttons[i] ?? false,
       value:   buttons[i] ? 1 : 0,
+    })),
+    axes: Array.from({ length: axisCount }, (_, i) => axes[i] ?? 0),
+    vibrationActuator: null,
+  };
+}
+
+function makeMappedGamepad(id = '054c-0ce6-DualSense Wireless Controller', index = 0, buttons = {}, axes = {}) {
+  const btnCount = 20;
+  const axisCount = 12;
+  return {
+    id,
+    index,
+    connected: true,
+    buttons: Array.from({ length: btnCount }, (_, i) => ({
+      pressed: buttons[i] ?? false,
+      value: buttons[i] ? 1 : 0,
     })),
     axes: Array.from({ length: axisCount }, (_, i) => axes[i] ?? 0),
     vibrationActuator: null,
@@ -53,6 +75,10 @@ function setup(options = {}) {
   const runtime = new GamepadRuntime(store, registry, options);
   return { registry, store, runtime };
 }
+
+beforeEach(() => {
+  __mockControllerProfile = null;
+});
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -328,5 +354,145 @@ describe('GamepadRuntime — onAnyAction', () => {
 
     runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
     expect(events).toHaveLength(0);
+  });
+});
+
+describe('GamepadRuntime — controller definition mapping', () => {
+  it('dispatches logical GP_B0 when mapped physical button index is pressed', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      mapping: {
+        GP_B0: { kind: 'button', index: 1 },
+      },
+    };
+
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', (e) => events.push(e));
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, { 1: true }, {}));
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('pressed');
+    expect(events[0].code).toBe('GP_B0');
+  });
+
+  it('treats mapped axis direction as logical button for digital dispatch', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      mapping: {
+        GP_B0: { kind: 'axis', index: 9, direction: 'negative' },
+      },
+    };
+
+    const { runtime } = setup({ analogThreshold: 0.5 });
+    const events = [];
+    runtime.onAction('jump', (e) => events.push(e));
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: -1 }));
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('pressed');
+    expect(events[0].code).toBe('GP_B0');
+  });
+
+  it('maps logical axis GP_A0N/GP_A0P from configured physical axis and supports analog events', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      mapping: {
+        GP_A0N: { kind: 'axis', index: 5, direction: 'negative' },
+        GP_A0P: { kind: 'axis', index: 5, direction: 'positive' },
+      },
+    };
+
+    const { runtime } = setup({ analogThreshold: 0.5, deadband: 0.12 });
+    const events = [];
+    runtime.onAction('moveX', (e) => events.push(e));
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 5: -0.9 }));
+
+    const pressed = events.find((e) => e.type === 'pressed');
+    const analog = events.find((e) => e.type === 'analog');
+    expect(pressed?.code).toBe('GP_A0N');
+    expect(analog?.axisIndex).toBe(0);
+    expect(analog?.value).toBeCloseTo(-0.9);
+  });
+
+  it('distinguishes D-pad directions when mapped as hat values on one axis', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      mapping: {
+        GP_B12: { kind: 'hat', index: 9, value: -1.0, tolerance: 0.2 },
+        GP_B13: { kind: 'hat', index: 9, value: 0.142857, tolerance: 0.2 },
+        GP_B14: { kind: 'hat', index: 9, value: 0.714286, tolerance: 0.2 },
+        GP_B15: { kind: 'hat', index: 9, value: -0.428571, tolerance: 0.2 },
+      },
+    };
+
+    const { registry, store, runtime } = setup({ analogThreshold: 0.5 });
+    registry.register({ id: 'dpadUp', label: 'DPad Up', slots: 1, gamepadSlots: 1 });
+    registry.register({ id: 'dpadDown', label: 'DPad Down', slots: 1, gamepadSlots: 1 });
+    registry.register({ id: 'dpadLeft', label: 'DPad Left', slots: 1, gamepadSlots: 1 });
+    registry.register({ id: 'dpadRight', label: 'DPad Right', slots: 1, gamepadSlots: 1 });
+    store.initAction(registry.get('dpadUp'));
+    store.initAction(registry.get('dpadDown'));
+    store.initAction(registry.get('dpadLeft'));
+    store.initAction(registry.get('dpadRight'));
+    store.set('dpadUp', 0, 'GP_B12', 'gamepad');
+    store.set('dpadDown', 0, 'GP_B13', 'gamepad');
+    store.set('dpadLeft', 0, 'GP_B14', 'gamepad');
+    store.set('dpadRight', 0, 'GP_B15', 'gamepad');
+
+    const hit = [];
+    runtime.onAnyAction((e) => {
+      if (e.type === 'pressed') hit.push(e.actionId);
+    });
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: -1.0 }));
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 1.285714 }));
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 0.142857 }));
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 1.285714 }));
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 0.714286 }));
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 1.285714 }));
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: -0.428571 }));
+
+    expect(hit).toContain('dpadUp');
+    expect(hit).toContain('dpadDown');
+    expect(hit).toContain('dpadLeft');
+    expect(hit).toContain('dpadRight');
+  });
+
+  it('capture returns the intended hat-mapped D-pad code instead of always GP_B12', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      mapping: {
+        GP_B12: { kind: 'hat', index: 9, value: -1.0, tolerance: 0.2 },
+        GP_B13: { kind: 'hat', index: 9, value: 0.142857, tolerance: 0.2 },
+        GP_B14: { kind: 'hat', index: 9, value: 0.714286, tolerance: 0.2 },
+        GP_B15: { kind: 'hat', index: 9, value: -0.428571, tolerance: 0.2 },
+      },
+    };
+
+    const { runtime } = setup({ analogThreshold: 0.5 });
+    let captured = null;
+    runtime.startCapture((code) => { captured = code; });
+
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 1.285714 }));
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: 0.142857 }));
+
+    expect(captured).toBe('GP_B13');
   });
 });

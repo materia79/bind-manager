@@ -93,24 +93,28 @@ export const controllerDefinition = {
       "index": 11
     },
     "GP_B12": {
-      "kind": "axis",
+      "kind": "hat",
       "index": 9,
-      "direction": "negative"
+      "value": -1,
+      "tolerance": 0.2
     },
     "GP_B13": {
-      "kind": "axis",
+      "kind": "hat",
       "index": 9,
-      "direction": "negative"
+      "value": 0.142857,
+      "tolerance": 0.2
     },
     "GP_B14": {
-      "kind": "axis",
+      "kind": "hat",
       "index": 9,
-      "direction": "negative"
+      "value": 0.714286,
+      "tolerance": 0.2
     },
     "GP_B15": {
-      "kind": "axis",
+      "kind": "hat",
       "index": 9,
-      "direction": "negative"
+      "value": -0.428571,
+      "tolerance": 0.2
     },
     "GP_B16": {
       "kind": "axis",

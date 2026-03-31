@@ -178,7 +178,13 @@ moveLeft.onPressed(() => log('move-left pressed', 'pressed'));
 moveRight.onPressed(() => log('move-right pressed', 'pressed'));
 jump.onPressed(() => log('jump!', 'pressed'));
 attack.onPressed(() => log('attack!', 'pressed'));
+block.onPressed(() => log('block start', 'pressed'));
+block.onReleased(() => log('block stop', 'released'));
 interact.onPressed(() => log('interact', 'pressed'));
+openMap.onPressed(() => log('open-map toggled', 'pressed'));
+openMap.onReleased(() => log('open-map released', 'released'));
+openInventory.onPressed(() => log('open-inventory toggled', 'pressed'));
+openInventory.onReleased(() => log('open-inventory released', 'released'));
 sprint.onPressed(() => log('sprint start', 'pressed'));
 sprint.onReleased(() => log('sprint stop', 'released'));
 

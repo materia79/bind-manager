@@ -131,6 +131,97 @@ export function createBindManager(options = {}) {
      */
     getBindings() { return store.getAll(); },
 
+    /**
+     * Export current bindings in a versioned payload.
+     * @param {{ includeMetadata?: boolean }} [options]
+     * @returns {{ version: number, namespace: string, bindings: Record<string, (string|null)[]>, metadata?: { exportedAt: string } }}
+     */
+    exportBindings(options = {}) {
+      const { includeMetadata = true } = options;
+      const payload = {
+        version: 1,
+        namespace,
+        bindings: store.getAll(),
+      };
+      if (includeMetadata) {
+        payload.metadata = {
+          exportedAt: new Date().toISOString(),
+        };
+      }
+      return payload;
+    },
+
+    /**
+     * Import bindings from an object or JSON string.
+     *
+     * Modes:
+     * - merge   (default): apply only actions present in payload
+     * - replace: apply payload actions and clear missing known actions
+     *
+     * @param {object | string} payload
+     * @param {{ mode?: 'merge' | 'replace' }} [options]
+     * @returns {ImportReport}
+     */
+    importBindings(payload, options = {}) {
+      const { mode = 'merge' } = options;
+      if (mode !== 'merge' && mode !== 'replace') {
+        throw new Error(`Invalid import mode: "${mode}". Expected "merge" or "replace".`);
+      }
+
+      const report = {
+        mode,
+        appliedActions: 0,
+        appliedSlots: 0,
+        skippedUnknownActions: [],
+        invalidEntries: [],
+        conflictCount: 0,
+      };
+
+      const parsed = _parseImportPayload(payload);
+      if (!parsed.ok) {
+        report.invalidEntries.push(parsed.reason);
+        return report;
+      }
+
+      const bindingsObj = parsed.value.bindings;
+      const knownActions = registry.getAll();
+      const incomingActionIds = new Set(Object.keys(bindingsObj));
+
+      // Track unknown action ids present in import payload.
+      for (const actionId of incomingActionIds) {
+        if (!registry.has(actionId)) report.skippedUnknownActions.push(actionId);
+      }
+
+      for (const action of knownActions) {
+        const incoming = bindingsObj[action.id];
+        const shouldApply = Array.isArray(incoming) || (mode === 'replace' && !incomingActionIds.has(action.id));
+        if (!shouldApply) continue;
+
+        const targetSlots = Array.from({ length: action.slots }, (_, slot) => {
+          if (!Array.isArray(incoming)) return null;
+          const raw = incoming[slot];
+          if (raw === null || typeof raw === 'string') return raw;
+          if (typeof raw === 'undefined') return null;
+          report.invalidEntries.push(`Action "${action.id}" slot ${slot} has invalid value type`);
+          return null;
+        });
+
+        let actionChanged = false;
+        for (let slot = 0; slot < targetSlots.length; slot++) {
+          const current = store.get(action.id)?.[slot] ?? null;
+          const next = targetSlots[slot] ?? null;
+          if (current === next) continue;
+          const result = store.set(action.id, slot, next);
+          actionChanged = true;
+          report.appliedSlots += 1;
+          report.conflictCount += result.conflicts.length;
+        }
+        if (actionChanged) report.appliedActions += 1;
+      }
+
+      return report;
+    },
+
     // ── Binding mutations ────────────────────────────────────────────────────
 
     /**
@@ -258,6 +349,39 @@ export function createBindManager(options = {}) {
 }
 
 /**
+ * @param {object | string} payload
+ * @returns {{ ok: true, value: { version: number, bindings: Record<string, unknown> } } | { ok: false, reason: string }}
+ */
+function _parseImportPayload(payload) {
+  let parsed = payload;
+  if (typeof payload === 'string') {
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return { ok: false, reason: 'Payload is not valid JSON' };
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { ok: false, reason: 'Payload must be an object or JSON string' };
+  }
+  if (typeof parsed.version !== 'number') {
+    return { ok: false, reason: 'Payload is missing numeric version' };
+  }
+  if (!parsed.bindings || typeof parsed.bindings !== 'object') {
+    return { ok: false, reason: 'Payload is missing bindings object' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      version: parsed.version,
+      bindings: parsed.bindings,
+    },
+  };
+}
+
+/**
  * @typedef {object} BindManagerOptions
  * @property {string} [namespace='default']         - Storage namespace (use your game name)
  * @property {boolean} [debug=false]                - Enable debug toggle key
@@ -288,4 +412,12 @@ export function createBindManager(options = {}) {
  * @property {string | null} [oldCode]
  * @property {string | null} [newCode]
  * @property {import('./binding-store.js').ConflictRef[]} [conflicts]
+ *
+ * @typedef {object} ImportReport
+ * @property {'merge' | 'replace'} mode
+ * @property {number} appliedActions
+ * @property {number} appliedSlots
+ * @property {string[]} skippedUnknownActions
+ * @property {string[]} invalidEntries
+ * @property {number} conflictCount
  */

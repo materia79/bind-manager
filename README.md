@@ -329,15 +329,7 @@ Why this is primary:
 - Covers core binding needs (buttons, triggers, sticks, D-pad/hat mapping, profile labels).
 - Keeps the normal binding flow simple and stable for most users.
 
-WebHID remains optional and reference-only in this repo.
-
-Current reference artifact:
-- [docs/reference/dualsense-webhid-tester.html](docs/reference/dualsense-webhid-tester.html)
-
-Scope of the reference file:
-- It is a protocol/debugging reference for DualSense report parsing.
-- It is not part of the primary Bind Manager runtime input path.
-- It may be used later for optional advanced diagnostics (for example gyro/touch telemetry) behind explicit opt-in.
+WebHID is not part of the primary Bind Manager runtime input path.
 
 Out of scope for the core runtime:
 - Full migration from Gamepad API to WebHID.
@@ -350,4 +342,6 @@ Release checklist: [QA_CHECKLIST.md](QA_CHECKLIST.md)
 
 ## License
 
-MIT
+This project is licensed under the MIT License.
+
+See [LICENSE.md](LICENSE.md).

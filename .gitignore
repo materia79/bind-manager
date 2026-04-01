@@ -7,3 +7,5 @@ dist/bind-manager.js
 !dist/standalone-demo.html
 PLAN.md
 QA_CHECKLIST.md
+docs/*
+!docs/README.md

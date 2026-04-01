@@ -1,0 +1,3 @@
+# Bind Manager Manual - Index
+
+todo...

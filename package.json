@@ -18,8 +18,14 @@
   "devDependencies": {
     "esbuild": "^0.25.3",
     "jsdom": "^24.1.1",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.2"
   },
-  "keywords": ["keybinding", "game", "input", "browser", "threejs"],
-  "license": "none yet"
+  "keywords": [
+    "keybinding",
+    "game",
+    "input",
+    "browser",
+    "threejs"
+  ],
+  "license": "MIT"
 }

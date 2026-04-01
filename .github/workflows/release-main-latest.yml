@@ -61,9 +61,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          RELEASE_NOTES="Rolling release for the latest commit on main.
+
+          Source commit: $GITHUB_SHA
+          Updated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           gh release edit main-latest \
             --title "Bind Manager main-latest" \
-            --notes "Rolling release for the latest commit on main.
-
-Source commit: $GITHUB_SHA
-Updated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            --notes "$RELEASE_NOTES"

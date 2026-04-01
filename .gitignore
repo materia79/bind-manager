@@ -5,3 +5,6 @@ dist/bind-manager.js.map
 dist/bind-manager.js
 !dist/README.md
 !dist/standalone-demo.html
+PLAN.md
+QA_CHECKLIST.md
+package-lock.json

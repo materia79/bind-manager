@@ -2,6 +2,11 @@
 
 Bind Manager is a browser-first key binding system for games and interactive applications.
 
+Architecture docs:
+- [src/core/README.md](src/core/README.md) explains the manager, registry, store, lifecycle, and public API wiring.
+- [src/input/README.md](src/input/README.md) explains keyboard/gamepad runtimes, logical codes, labels, and profile resolution.
+- [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md) explains exact controller profiles, capture processing, and generated mappings.
+
 It provides:
 - A modal for rebinding keys (grouped by action category)
 - A bottom-screen hint bar for action prompts
@@ -24,6 +29,17 @@ Current input support in this MVP: keyboard plus browser Gamepad API input, incl
 - Gamepad binding capture and runtime action events
 - Exact controller labels from generated device profiles when available
 - Manual gamepad profile override and family/generic fallback behavior
+
+## Documentation Map
+
+Use these internal docs when you want implementation details rather than package-level usage guidance.
+
+- [src/core/README.md](src/core/README.md)
+	- Core architecture, state model, manager lifecycle, import/export, persistence, and invariants.
+- [src/input/README.md](src/input/README.md)
+	- Input runtime architecture, code formats, keyboard/gamepad event flow, and profile-dependent labeling.
+- [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md)
+	- Generated controller profiles, capture workflow, processing pipeline, and validation rules.
 
 ## Install and Run
 

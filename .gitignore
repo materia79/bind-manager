@@ -1,4 +1,7 @@
 node_modules/
+dist/*
 dist/bind-manager.min.js
 dist/bind-manager.js.map
 dist/bind-manager.js
+!dist/README.md
+!dist/standalone-demo.html

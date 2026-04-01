@@ -122,6 +122,16 @@
       border-color: rgba(255, 192, 120, 0.95);
     }
 
+    #test-btn {
+      background: rgba(100, 210, 235, 0.2);
+      border-color: rgba(100, 210, 235, 0.5);
+      color: #b8f2ff;
+    }
+    #test-btn:hover {
+      background: rgba(100, 210, 235, 0.4);
+      border-color: rgba(130, 235, 255, 0.95);
+    }
+
     #debug-modal {
       position: fixed;
       inset: 0;
@@ -243,9 +253,237 @@
       margin-top: 6px;
     }
 
+    #tester-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 130;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2, 10, 18, 0.82);
+      backdrop-filter: blur(4px);
+    }
+
+    #tester-modal.tester-open {
+      display: flex;
+    }
+
+    #tester-panel {
+      width: min(940px, calc(100vw - 24px));
+      max-height: calc(100vh - 24px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #0f1a26;
+      border: 1px solid #35506d;
+      border-radius: 10px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    }
+
+    .tester-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 16px;
+    }
+
+    .tester-head h2 {
+      font-size: 15px;
+      color: #e8f8ff;
+    }
+
+    .tester-body {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 12px;
+      padding: 12px;
+      overflow: auto;
+    }
+
+    .tester-card {
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px;
+    }
+
+    .tester-card h3 {
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #86dfff;
+      margin-bottom: 8px;
+    }
+
+    #tester-status {
+      min-height: 24px;
+      color: #daf2ff;
+      line-height: 1.45;
+      margin-bottom: 6px;
+    }
+
+    #tester-detail {
+      font-size: 12px;
+      color: #9fc0d8;
+      min-height: 36px;
+      line-height: 1.4;
+    }
+
+    #tester-last-signal,
+    #tester-active-codes {
+      margin-top: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.24);
+      padding: 8px;
+      font-size: 12px;
+      color: #b8def8;
+      white-space: pre-wrap;
+      line-height: 1.4;
+    }
+
+    #tester-controller {
+      position: relative;
+      width: min(540px, 100%);
+      height: 320px;
+      margin: 0 auto;
+      border-radius: 160px;
+      border: 1px solid rgba(150, 210, 240, 0.2);
+      background:
+        radial-gradient(circle at 50% 45%, rgba(66, 164, 212, 0.22), rgba(14, 28, 42, 0.94) 64%),
+        linear-gradient(165deg, rgba(40, 80, 110, 0.45), rgba(9, 16, 25, 0.95));
+      overflow: hidden;
+    }
+
+    #tester-controller::before {
+      content: '';
+      position: absolute;
+      inset: 14px;
+      border-radius: 150px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      pointer-events: none;
+    }
+
+    .tester-node {
+      position: absolute;
+      min-width: 24px;
+      min-height: 24px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 223, 244, 0.35);
+      color: #d9edfa;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(12, 25, 36, 0.9);
+      transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+      padding: 4px 6px;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .tester-node.active {
+      border-color: #7cf0ff;
+      box-shadow: 0 0 14px rgba(124, 240, 255, 0.75);
+      transform: scale(1.06);
+      background: rgba(18, 55, 78, 0.95);
+      color: #f2fcff;
+    }
+
+    .tester-node.wide {
+      border-radius: 8px;
+      min-width: 46px;
+      min-height: 22px;
+    }
+
+    .tester-stick {
+      position: absolute;
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      border: 1px solid rgba(178, 214, 236, 0.36);
+      background: rgba(6, 12, 20, 0.55);
+      pointer-events: none;
+    }
+
+    .tester-stick::before,
+    .tester-stick::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: rgba(180, 210, 228, 0.18);
+      transform: translate(-50%, -50%);
+    }
+
+    .tester-stick::before {
+      width: 1px;
+      height: 100%;
+    }
+
+    .tester-stick::after {
+      width: 100%;
+      height: 1px;
+    }
+
+    .tester-stick-dot {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 1px solid rgba(200, 232, 250, 0.7);
+      background: rgba(78, 157, 208, 0.55);
+      transform: translate(-50%, -50%);
+      transition: transform 0.08s linear;
+    }
+
+    .tester-trigger-meter {
+      position: absolute;
+      width: 18px;
+      height: 58px;
+      border-radius: 8px;
+      border: 1px solid rgba(180, 220, 245, 0.32);
+      background: rgba(8, 14, 22, 0.66);
+      overflow: hidden;
+    }
+
+    .tester-trigger-fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 0%;
+      background: linear-gradient(180deg, rgba(83, 178, 233, 0.72), rgba(30, 105, 158, 0.95));
+      transition: height 0.08s linear;
+    }
+
+    .tester-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .tester-help {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #8eb8d4;
+    }
+
     @media (max-width: 860px) {
       .debug-body {
         grid-template-columns: 1fr;
+      }
+
+      .tester-body {
+        grid-template-columns: 1fr;
+      }
+
+      #tester-controller {
+        height: 300px;
       }
     }
 
@@ -291,6 +529,7 @@
 
   <div id="controls">
     <button class="hud-btn" id="input-debug-btn">Input Debug</button>
+    <button class="hud-btn" id="test-btn">Test</button>
     <button class="hud-btn" id="open-btn">⚙ Key Bindings</button>
     <button class="hud-btn" id="hint-toggle-btn">👁 Toggle Hints</button>
     <button class="hud-btn" id="reset-btn">↺ Reset All</button>
@@ -325,6 +564,76 @@
         <div class="debug-card">
           <h3>Generated Controller Definition JSON</h3>
           <textarea id="debug-results" spellcheck="false" readonly></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tester-modal" aria-hidden="true">
+    <div id="tester-panel" role="dialog" aria-modal="true" aria-label="Controller Tester" tabindex="-1">
+      <div class="tester-head">
+        <h2>Controller Tester</h2>
+        <button class="hud-btn" id="tester-close-btn">Close</button>
+      </div>
+      <div class="tester-body">
+        <div class="tester-card">
+          <h3>Live Controller View</h3>
+          <div id="tester-controller">
+            <div class="tester-node wide" data-code="GP_B4" style="left: 82px; top: 20px;">L1</div>
+            <div class="tester-node wide" data-code="GP_B5" style="right: 82px; top: 20px;">R1</div>
+
+            <div class="tester-trigger-meter" style="left: 96px; top: 48px;">
+              <div id="tester-l2-fill" class="tester-trigger-fill"></div>
+            </div>
+            <div class="tester-trigger-meter" style="right: 96px; top: 48px;">
+              <div id="tester-r2-fill" class="tester-trigger-fill"></div>
+            </div>
+            <div class="tester-node wide" data-code="GP_B6" style="left: 78px; top: 112px;">L2</div>
+            <div class="tester-node wide" data-code="GP_B7" style="right: 78px; top: 112px;">R2</div>
+
+            <div class="tester-node" data-code="GP_B12" style="left: 56px; top: 132px;">U</div>
+            <div class="tester-node" data-code="GP_B13" style="left: 56px; top: 190px;">D</div>
+            <div class="tester-node" data-code="GP_B14" style="left: 26px; top: 162px;">L</div>
+            <div class="tester-node" data-code="GP_B15" style="left: 86px; top: 162px;">R</div>
+
+            <div class="tester-stick" style="left: 130px; top: 170px;">
+              <div id="tester-left-stick-dot" class="tester-stick-dot"></div>
+            </div>
+            <div class="tester-node" data-code="GP_A1N" style="left: 165px; top: 146px;">Up</div>
+            <div class="tester-node" data-code="GP_A1P" style="left: 165px; top: 258px;">Down</div>
+            <div class="tester-node" data-code="GP_A0N" style="left: 108px; top: 202px;">Left</div>
+            <div class="tester-node" data-code="GP_A0P" style="left: 222px; top: 202px;">Right</div>
+            <div class="tester-node" data-code="GP_B10" style="left: 166px; top: 204px;">L3</div>
+
+            <div class="tester-node" data-code="GP_B2" style="right: 86px; top: 132px;">Sq</div>
+            <div class="tester-node" data-code="GP_B3" style="right: 56px; top: 104px;">Tr</div>
+            <div class="tester-node" data-code="GP_B0" style="right: 56px; top: 162px;">Cr</div>
+            <div class="tester-node" data-code="GP_B1" style="right: 26px; top: 132px;">Ci</div>
+
+            <div class="tester-stick" style="right: 130px; top: 170px;">
+              <div id="tester-right-stick-dot" class="tester-stick-dot"></div>
+            </div>
+            <div class="tester-node" data-code="GP_A3N" style="right: 165px; top: 146px;">Up</div>
+            <div class="tester-node" data-code="GP_A3P" style="right: 165px; top: 258px;">Down</div>
+            <div class="tester-node" data-code="GP_A2N" style="right: 222px; top: 202px;">Left</div>
+            <div class="tester-node" data-code="GP_A2P" style="right: 108px; top: 202px;">Right</div>
+            <div class="tester-node" data-code="GP_B11" style="right: 166px; top: 204px;">R3</div>
+
+            <div class="tester-node wide" data-code="GP_B8" style="left: 214px; top: 134px;">Create</div>
+            <div class="tester-node" data-code="GP_B16" style="left: 256px; top: 160px;">PS</div>
+            <div class="tester-node wide" data-code="GP_B9" style="left: 292px; top: 134px;">Options</div>
+          </div>
+        </div>
+        <div class="tester-card">
+          <h3>Signal Details</h3>
+          <div id="tester-status">Connect a gamepad and press controls to test input mapping.</div>
+          <div id="tester-detail">Idle.</div>
+          <div class="tester-actions">
+            <button class="hud-btn" id="tester-calibrate-btn">Calibrate Baseline</button>
+          </div>
+          <div id="tester-last-signal">Last strongest signal: (none)</div>
+          <div id="tester-active-codes">Active codes: (none)</div>
+          <div class="tester-help">Tip: keep sticks centered during calibration. Escape closes this modal.</div>
         </div>
       </div>
     </div>

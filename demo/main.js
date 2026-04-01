@@ -225,9 +225,14 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 // ── 7. Input debugger (guided controller mapping) ───────────────────────────
 
 const inputDebug = createInputDebugger();
+const controllerTester = createControllerTester();
 
 document.getElementById('input-debug-btn').addEventListener('click', () => {
   inputDebug.open();
+});
+
+document.getElementById('test-btn').addEventListener('click', () => {
+  controllerTester.open();
 });
 
 function createInputDebugger() {
@@ -310,7 +315,10 @@ function createInputDebugger() {
     setProgress('Normalization');
     setCountdown('');
 
-    state.baseline = await captureBaseline(gp.index, 2000);
+    state.baseline = await captureBaseline(gp.index, 2000, {
+      shouldCancel: () => state.cancel,
+      onTick: (secondsLeft) => setCountdown(`Normalization: ${secondsLeft}s`),
+    });
     if (!state.baseline || state.cancel) {
       setStatus('Debug cancelled during normalization.');
       state.isRunning = false;
@@ -348,36 +356,6 @@ function createInputDebugger() {
       setStatus('Debug completed. Review and copy the generated JSON definition.');
     }
     updateButtonState();
-  }
-
-  async function captureBaseline(gamepadIndex, durationMs) {
-    const samples = { buttonSums: [], axisSums: [], count: 0 };
-    const start = performance.now();
-
-    while (performance.now() - start < durationMs) {
-      if (state.cancel) return null;
-      const gp = getGamepadByIndex(gamepadIndex);
-      if (!gp) return null;
-
-      const buttons = gp.buttons || [];
-      const axes = gp.axes || [];
-
-      for (let i = 0; i < buttons.length; i++) {
-        samples.buttonSums[i] = (samples.buttonSums[i] || 0) + (buttons[i].value || 0);
-      }
-      for (let i = 0; i < axes.length; i++) {
-        samples.axisSums[i] = (samples.axisSums[i] || 0) + (axes[i] || 0);
-      }
-
-      samples.count += 1;
-      const secondsLeft = Math.max(0, Math.ceil((durationMs - (performance.now() - start)) / 1000));
-      setCountdown(`Normalization: ${secondsLeft}s`);
-      await wait(50);
-    }
-
-    const buttonMeans = samples.buttonSums.map((sum) => sum / Math.max(1, samples.count));
-    const axisMeans = samples.axisSums.map((sum) => sum / Math.max(1, samples.count));
-    return { buttons: buttonMeans, axes: axisMeans };
   }
 
   async function captureStep(gamepadIndex, step, baseline, durationMs) {
@@ -431,54 +409,6 @@ function createInputDebugger() {
         peakRaw: Number(top.peakRaw.toFixed(4)),
       },
     };
-  }
-
-  function pickGamepad() {
-    const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
-    if (!pads.length) return null;
-    return pads.find((p) => /dualsense|dualshock|playstation|wireless controller|054c/i.test(p.id)) || pads[0];
-  }
-
-  function getGamepadByIndex(index) {
-    if (index == null || !navigator.getGamepads) return null;
-    return [...navigator.getGamepads()].find((g) => g && g.connected && g.index === index) || null;
-  }
-
-  function getStrongestSignal(gamepad, baseline) {
-    let strongest = null;
-    const minDelta = 0.12;
-
-    for (let i = 0; i < gamepad.buttons.length; i++) {
-      const raw = gamepad.buttons[i]?.value || 0;
-      const base = baseline.buttons[i] || 0;
-      const delta = raw - base;
-      if (delta > minDelta && (!strongest || delta > strongest.delta)) {
-        strongest = { kind: 'button', index: i, delta, rawValue: raw };
-      }
-    }
-
-    for (let i = 0; i < gamepad.axes.length; i++) {
-      const raw = gamepad.axes[i] || 0;
-      const base = baseline.axes[i] || 0;
-      const shifted = raw - base;
-      const pos = shifted > 0 ? shifted : 0;
-      const neg = shifted < 0 ? -shifted : 0;
-
-      if (pos > minDelta && (!strongest || pos > strongest.delta)) {
-        strongest = { kind: 'axis', index: i, direction: 'positive', delta: pos, rawValue: raw };
-      }
-      if (neg > minDelta && (!strongest || neg > strongest.delta)) {
-        strongest = { kind: 'axis', index: i, direction: 'negative', delta: neg, rawValue: raw };
-      }
-    }
-
-    return strongest;
-  }
-
-  function toGpCode(signal) {
-    if (signal.kind === 'button') return `GP_B${signal.index}`;
-    if (signal.kind === 'axis') return `GP_A${signal.index}${signal.direction === 'negative' ? 'N' : 'P'}`;
-    return null;
   }
 
   function renderOutput() {
@@ -596,6 +526,336 @@ function createInputDebugger() {
 
   renderOutput();
   return { open, close };
+}
+
+function createControllerTester() {
+  const els = {
+    modal: document.getElementById('tester-modal'),
+    panel: document.getElementById('tester-panel'),
+    controller: document.getElementById('tester-controller'),
+    status: document.getElementById('tester-status'),
+    detail: document.getElementById('tester-detail'),
+    lastSignal: document.getElementById('tester-last-signal'),
+    activeCodes: document.getElementById('tester-active-codes'),
+    closeBtn: document.getElementById('tester-close-btn'),
+    calibrateBtn: document.getElementById('tester-calibrate-btn'),
+    leftStickDot: document.getElementById('tester-left-stick-dot'),
+    rightStickDot: document.getElementById('tester-right-stick-dot'),
+    l2Fill: document.getElementById('tester-l2-fill'),
+    r2Fill: document.getElementById('tester-r2-fill'),
+  };
+
+  const controllerNodes = [...els.controller.querySelectorAll('[data-code]')];
+
+  const state = {
+    isOpen: false,
+    pollTimer: null,
+    activeGamepadIndex: null,
+    baseline: null,
+    calibrating: false,
+  };
+
+  els.closeBtn.addEventListener('click', close);
+  els.calibrateBtn.addEventListener('click', calibrateBaseline);
+  els.modal.addEventListener('click', (ev) => {
+    if (ev.target === els.modal) close();
+  });
+  els.modal.addEventListener('keydown', (ev) => {
+    if (ev.code === 'Escape') {
+      ev.preventDefault();
+      close();
+    }
+  });
+
+  function open() {
+    state.isOpen = true;
+    els.modal.classList.add('tester-open');
+    els.modal.setAttribute('aria-hidden', 'false');
+    setStatus('Listening for controller input.');
+    setDetail('Press any button, trigger, d-pad direction, or stick direction.');
+    updateLastSignal(null);
+    setActiveCodes([]);
+    clearVisuals();
+    startPolling();
+    els.panel.focus();
+  }
+
+  function close() {
+    state.isOpen = false;
+    state.calibrating = false;
+    els.modal.classList.remove('tester-open');
+    els.modal.setAttribute('aria-hidden', 'true');
+    stopPolling();
+    clearVisuals();
+    setDetail('Idle.');
+  }
+
+  async function calibrateBaseline() {
+    if (state.calibrating) return;
+    const gp = state.activeGamepadIndex == null
+      ? pickGamepad()
+      : getGamepadByIndex(state.activeGamepadIndex);
+
+    if (!gp) {
+      setStatus('No controller detected. Connect one, then calibrate.');
+      return;
+    }
+
+    state.calibrating = true;
+    els.calibrateBtn.disabled = true;
+    setStatus('Calibrating baseline. Release all controls...');
+
+    try {
+      const baseline = await captureBaseline(gp.index, 1500, {
+        shouldCancel: () => !state.isOpen,
+        onTick: (secondsLeft) => setDetail(`Calibrating... ${secondsLeft}s remaining`),
+      });
+
+      if (baseline) {
+        state.baseline = baseline;
+        state.activeGamepadIndex = gp.index;
+        setStatus('Calibration complete. Baseline locked for this session.');
+      } else {
+        setStatus('Calibration cancelled or controller disconnected.');
+      }
+    } finally {
+      state.calibrating = false;
+      els.calibrateBtn.disabled = false;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    updateFrame();
+    state.pollTimer = setInterval(updateFrame, 100);
+  }
+
+  function stopPolling() {
+    if (state.pollTimer) {
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+    }
+  }
+
+  function updateFrame() {
+    if (!state.isOpen) return;
+
+    const gp = state.activeGamepadIndex == null
+      ? pickGamepad()
+      : getGamepadByIndex(state.activeGamepadIndex) || pickGamepad();
+
+    if (!gp) {
+      state.activeGamepadIndex = null;
+      setStatus('No controller detected. Connect a controller to begin.');
+      setDetail('Waiting for gamepad connection...');
+      setActiveCodes([]);
+      updateLastSignal(null);
+      clearVisuals();
+      return;
+    }
+
+    state.activeGamepadIndex = gp.index;
+    const baseline = state.baseline || createNeutralBaseline(gp);
+    const activeCodes = getActiveCodes(gp, baseline);
+    applyHighlights(activeCodes);
+    updateSticks(gp, baseline);
+    updateTriggers(gp, baseline);
+    setActiveCodes(activeCodes);
+
+    const strongest = getStrongestSignal(gp, baseline);
+    updateLastSignal(strongest);
+
+    const profileHint = /dualsense|dualshock|playstation|wireless controller|054c/i.test(gp.id)
+      ? 'DualSense-like profile detected'
+      : 'Generic profile detected';
+    setStatus(`Controller connected on slot ${gp.index}.`);
+    setDetail(`${profileHint}\n${gp.id}`);
+  }
+
+  function applyHighlights(activeCodes) {
+    const active = new Set(activeCodes);
+    for (const node of controllerNodes) {
+      node.classList.toggle('active', active.has(node.dataset.code));
+    }
+  }
+
+  function updateSticks(gamepad, baseline) {
+    const lx = shiftedAxis(gamepad, baseline, 0);
+    const ly = shiftedAxis(gamepad, baseline, 1);
+    const rx = shiftedAxis(gamepad, baseline, 2);
+    const ry = shiftedAxis(gamepad, baseline, 3);
+
+    els.leftStickDot.style.transform = `translate(calc(-50% + ${Math.round(lx * 14)}px), calc(-50% + ${Math.round(ly * 14)}px))`;
+    els.rightStickDot.style.transform = `translate(calc(-50% + ${Math.round(rx * 14)}px), calc(-50% + ${Math.round(ry * 14)}px))`;
+  }
+
+  function updateTriggers(gamepad, baseline) {
+    const left = clamp01(readButtonDelta(gamepad, baseline, 6));
+    const right = clamp01(readButtonDelta(gamepad, baseline, 7));
+    els.l2Fill.style.height = `${Math.round(left * 100)}%`;
+    els.r2Fill.style.height = `${Math.round(right * 100)}%`;
+  }
+
+  function setStatus(text) {
+    els.status.textContent = text;
+  }
+
+  function setDetail(text) {
+    els.detail.textContent = text;
+  }
+
+  function setActiveCodes(codes) {
+    els.activeCodes.textContent = `Active codes: ${codes.length ? codes.join(', ') : '(none)'}`;
+  }
+
+  function updateLastSignal(signal) {
+    if (!signal) {
+      els.lastSignal.textContent = 'Last strongest signal: (none)';
+      return;
+    }
+    els.lastSignal.textContent = [
+      'Last strongest signal:',
+      `kind: ${signal.kind}`,
+      `index: ${signal.index}`,
+      `direction: ${signal.direction || 'n/a'}`,
+      `delta: ${signal.delta.toFixed(4)}`,
+      `raw: ${signal.rawValue.toFixed(4)}`,
+      `code: ${toGpCode(signal)}`,
+    ].join('\n');
+  }
+
+  function clearVisuals() {
+    applyHighlights([]);
+    els.leftStickDot.style.transform = 'translate(-50%, -50%)';
+    els.rightStickDot.style.transform = 'translate(-50%, -50%)';
+    els.l2Fill.style.height = '0%';
+    els.r2Fill.style.height = '0%';
+  }
+
+  return { open, close };
+}
+
+function pickGamepad() {
+  const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
+  if (!pads.length) return null;
+  return pads.find((p) => /dualsense|dualshock|playstation|wireless controller|054c/i.test(p.id)) || pads[0];
+}
+
+function getGamepadByIndex(index) {
+  if (index == null || !navigator.getGamepads) return null;
+  return [...navigator.getGamepads()].find((g) => g && g.connected && g.index === index) || null;
+}
+
+async function captureBaseline(gamepadIndex, durationMs, options = {}) {
+  const { shouldCancel, onTick } = options;
+  const samples = { buttonSums: [], axisSums: [], count: 0 };
+  const start = performance.now();
+
+  while (performance.now() - start < durationMs) {
+    if (typeof shouldCancel === 'function' && shouldCancel()) return null;
+    const gp = getGamepadByIndex(gamepadIndex);
+    if (!gp) return null;
+
+    const buttons = gp.buttons || [];
+    const axes = gp.axes || [];
+
+    for (let i = 0; i < buttons.length; i++) {
+      samples.buttonSums[i] = (samples.buttonSums[i] || 0) + (buttons[i].value || 0);
+    }
+    for (let i = 0; i < axes.length; i++) {
+      samples.axisSums[i] = (samples.axisSums[i] || 0) + (axes[i] || 0);
+    }
+
+    samples.count += 1;
+    const secondsLeft = Math.max(0, Math.ceil((durationMs - (performance.now() - start)) / 1000));
+    if (typeof onTick === 'function') onTick(secondsLeft);
+    await wait(50);
+  }
+
+  const buttonMeans = samples.buttonSums.map((sum) => sum / Math.max(1, samples.count));
+  const axisMeans = samples.axisSums.map((sum) => sum / Math.max(1, samples.count));
+  return { buttons: buttonMeans, axes: axisMeans };
+}
+
+function getStrongestSignal(gamepad, baseline) {
+  let strongest = null;
+  const minDelta = 0.12;
+
+  for (let i = 0; i < gamepad.buttons.length; i++) {
+    const raw = gamepad.buttons[i]?.value || 0;
+    const base = baseline.buttons[i] || 0;
+    const delta = raw - base;
+    if (delta > minDelta && (!strongest || delta > strongest.delta)) {
+      strongest = { kind: 'button', index: i, delta, rawValue: raw };
+    }
+  }
+
+  for (let i = 0; i < gamepad.axes.length; i++) {
+    const raw = gamepad.axes[i] || 0;
+    const base = baseline.axes[i] || 0;
+    const shifted = raw - base;
+    const pos = shifted > 0 ? shifted : 0;
+    const neg = shifted < 0 ? -shifted : 0;
+
+    if (pos > minDelta && (!strongest || pos > strongest.delta)) {
+      strongest = { kind: 'axis', index: i, direction: 'positive', delta: pos, rawValue: raw };
+    }
+    if (neg > minDelta && (!strongest || neg > strongest.delta)) {
+      strongest = { kind: 'axis', index: i, direction: 'negative', delta: neg, rawValue: raw };
+    }
+  }
+
+  return strongest;
+}
+
+function toGpCode(signal) {
+  if (signal.kind === 'button') return `GP_B${signal.index}`;
+  if (signal.kind === 'axis') return `GP_A${signal.index}${signal.direction === 'negative' ? 'N' : 'P'}`;
+  return null;
+}
+
+function getActiveCodes(gamepad, baseline) {
+  const activeCodes = [];
+  const buttonThreshold = 0.35;
+  const axisThreshold = 0.42;
+
+  for (let i = 0; i <= 16; i++) {
+    const raw = gamepad.buttons?.[i]?.value || 0;
+    const pressed = gamepad.buttons?.[i]?.pressed === true;
+    const delta = raw - (baseline.buttons[i] || 0);
+    if (pressed || delta > buttonThreshold) activeCodes.push(`GP_B${i}`);
+  }
+
+  for (let i = 0; i <= 3; i++) {
+    const shifted = shiftedAxis(gamepad, baseline, i);
+    if (shifted < -axisThreshold) activeCodes.push(`GP_A${i}N`);
+    if (shifted > axisThreshold) activeCodes.push(`GP_A${i}P`);
+  }
+
+  return activeCodes;
+}
+
+function createNeutralBaseline(gamepad) {
+  return {
+    buttons: new Array(gamepad.buttons?.length || 0).fill(0),
+    axes: new Array(gamepad.axes?.length || 0).fill(0),
+  };
+}
+
+function shiftedAxis(gamepad, baseline, axisIndex) {
+  const raw = gamepad.axes?.[axisIndex] || 0;
+  const base = baseline.axes?.[axisIndex] || 0;
+  return raw - base;
+}
+
+function readButtonDelta(gamepad, baseline, buttonIndex) {
+  const raw = gamepad.buttons?.[buttonIndex]?.value || 0;
+  const base = baseline.buttons?.[buttonIndex] || 0;
+  return raw - base;
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
 }
 
 function wait(ms) {

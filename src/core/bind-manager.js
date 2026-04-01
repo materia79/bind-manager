@@ -3,6 +3,7 @@ import { BindingStore } from './binding-store.js';
 import { KeyboardRuntime } from '../input/keyboard-runtime.js';
 import { LocalStorageAdapter } from '../storage/local-storage-adapter.js';
 import { ModalController } from '../ui/modal-controller.js';
+import { CaptureModalController } from '../ui/capture-modal-controller.js';
 import { HintsController } from '../ui/hints-controller.js';
 import { GamepadRuntime } from '../input/gamepad-runtime.js';
 
@@ -64,12 +65,14 @@ export function createBindManager(options = {}) {
   });
 
   // -- UI layer --
-  const modal = new ModalController(store, registry, runtime, gamepadRuntime);
+  const captureModal = new CaptureModalController();
+  const modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal);
   const hints = new HintsController(store, registry, gamepadRuntime);
 
   // Determine mount target (explicit container or document.body)
   const mountTarget = container ?? (typeof document !== 'undefined' ? document.body : null);
   if (mountTarget) {
+    captureModal.mount(mountTarget);
     modal.mount(mountTarget);
     hints.mount(mountTarget);
   }
@@ -446,6 +449,7 @@ export function createBindManager(options = {}) {
       if (_debugListener) window.removeEventListener('keydown', _debugListener);
       runtime.stop();
         gamepadRuntime.stop();
+      captureModal.unmount();
       modal.unmount();
       hints.unmount();
     },

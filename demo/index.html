@@ -614,7 +614,8 @@
           align-items: center;
           justify-content: center;
           background: rgba(0, 0, 0, 0.55);
-          z-index: 4500;
+          z-index: 10000;
+          pointer-events: all;
         }
 
         #capture-mini-modal.open {
@@ -866,7 +867,7 @@
   </div>
 
   <div id="capture-mini-modal" aria-hidden="true">
-    <div id="capture-mini-panel" role="dialog" aria-modal="true" aria-label="Input Capture">
+    <div id="capture-mini-panel" role="dialog" aria-modal="true" aria-label="Input Capture" tabindex="-1">
       <div class="debug-head">
         <h3 id="capture-mini-title">Capture Input</h3>
         <button class="hud-btn" id="capture-mini-cancel-btn">Cancel</button>

@@ -379,6 +379,11 @@ export class GamepadRuntime {
   _handleDisconnect(e) {
     this._curState.delete(e.gamepad.index);
     this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
+    if (this._captureCallback) {
+      const cb = this._captureCallback;
+      this._captureCallback = null;
+      cb(null);
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-disconnected', { detail: e.gamepad }));
     }

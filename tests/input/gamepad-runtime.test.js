@@ -290,6 +290,16 @@ describe('GamepadRuntime — capture mode', () => {
     expect(captured).toBeNull();
   });
 
+  it('calls callback with null when the gamepad disconnects during capture', () => {
+    const { runtime } = setup();
+    let captured = 'NOT_SET';
+    runtime.startCapture(code => { captured = code; });
+
+    runtime._handleDisconnect({ gamepad: makeGamepad('GP', 0) });
+
+    expect(captured).toBeNull();
+  });
+
   it('cancels previous capture when startCapture is called again', () => {
     const { runtime } = setup();
     const results = [];

@@ -291,6 +291,13 @@ function createInputDebugger() {
     liveTimer: null,
   };
 
+  const refreshProfileUi = () => {
+    if (!state.isOpen) return;
+    const activeIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
+    state.activeGamepadIndex = activeIndex;
+    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, activeIndex);
+  };
+
   els.presetSelect.innerHTML = Object.values(CAPTURE_PRESETS)
     .map((preset) => `<option value="${preset.id}">${preset.label}</option>`)
     .join('');
@@ -358,6 +365,9 @@ function createInputDebugger() {
     resolveGamepadIndex: () => state.activeGamepadIndex,
     onChange: () => renderOutput(),
   });
+  window.addEventListener('bm-gamepad-profile-changed', refreshProfileUi);
+  window.addEventListener('bm-gamepad-connected', refreshProfileUi);
+  window.addEventListener('bm-gamepad-disconnected', refreshProfileUi);
   els.modal.addEventListener('click', (ev) => {
     if (ev.target === els.modal) close();
   });
@@ -365,6 +375,7 @@ function createInputDebugger() {
   function open() {
     state.isOpen = true;
     state.cancel = false;
+    state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('debug-open');
     els.modal.setAttribute('aria-hidden', 'false');
     setStatus('Ready. Press Start Debug to run the guided controller capture.');
@@ -374,7 +385,7 @@ function createInputDebugger() {
     ensureCaptureScaffold(getCapturePreset(state.selectedPreset));
     syncFromSharedPayload();
     startLiveMonitor();
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, state.activeGamepadIndex);
+    refreshProfileUi();
     updateButtonState();
   }
 
@@ -472,6 +483,7 @@ function createInputDebugger() {
       setStatus('No controller detected. Connect a controller first.');
       return;
     }
+    state.activeGamepadIndex = gp.index;
     if (!state.baseline) {
       setStatus('No baseline yet. Press Start Debug first.');
       return;
@@ -704,6 +716,13 @@ function createControllerTester() {
     editCooldown: false,
   };
 
+  const refreshProfileUi = () => {
+    if (!state.isOpen) return;
+    const activeIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
+    state.activeGamepadIndex = activeIndex;
+    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, activeIndex);
+  };
+
   els.closeBtn.addEventListener('click', close);
   els.calibrateBtn.addEventListener('click', calibrateBaseline);
   els.rawToggleBtn.addEventListener('click', () => {
@@ -746,6 +765,9 @@ function createControllerTester() {
       updateFrame();
     },
   });
+  window.addEventListener('bm-gamepad-profile-changed', refreshProfileUi);
+  window.addEventListener('bm-gamepad-connected', refreshProfileUi);
+  window.addEventListener('bm-gamepad-disconnected', refreshProfileUi);
   els.modal.addEventListener('click', (ev) => {
     if (ev.target === els.modal) close();
   });
@@ -765,6 +787,7 @@ function createControllerTester() {
 
   function open() {
     state.isOpen = true;
+    state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('tester-open');
     els.modal.setAttribute('aria-hidden', 'false');
     setStatus('Listening for controller input.');
@@ -772,7 +795,7 @@ function createControllerTester() {
     updateLastSignal(null);
     setActiveCodes([]);
     clearVisuals();
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, state.activeGamepadIndex);
+    refreshProfileUi();
     updateEditUiState();
     startPolling();
     els.panel.focus();
@@ -974,7 +997,7 @@ function createControllerTester() {
     const activeCodes = getActiveLogicalCodes(gp, baseline, resolvedProfile?.definition?.mapping);
     applyHighlights(activeCodes);
     updateSticks(gp, baseline, resolvedProfile?.definition?.mapping);
-    updateTriggers(gp, baseline);
+    updateTriggers(gp, baseline, resolvedProfile?.definition?.mapping);
     setActiveCodes(activeCodes, gp.index);
 
     updateRawInputDisplay(els.rawPre, gp, baseline);
@@ -1096,9 +1119,17 @@ function createControllerTester() {
     els.rightStickDot.style.transform = `translate(calc(-50% + ${Math.round(rx * 14)}px), calc(-50% + ${Math.round(ry * 14)}px))`;
   }
 
-  function updateTriggers(gamepad, baseline) {
-    const left = clamp01(readButtonDelta(gamepad, baseline, 6));
-    const right = clamp01(readButtonDelta(gamepad, baseline, 7));
+  function getTriggerFillValue(gamepad, baseline, mapping, analogCode, fallbackButtonIndex) {
+    const mappedEntry = mapping?.[analogCode];
+    if (mappedEntry) {
+      return clamp01(readMappingMagnitude(gamepad, baseline, mappedEntry));
+    }
+    return clamp01(readButtonDelta(gamepad, baseline, fallbackButtonIndex));
+  }
+
+  function updateTriggers(gamepad, baseline, mapping = null) {
+    const left = getTriggerFillValue(gamepad, baseline, mapping, 'GP_B6A', 6);
+    const right = getTriggerFillValue(gamepad, baseline, mapping, 'GP_B7A', 7);
     els.l2Fill.style.height = `${Math.round(left * 100)}%`;
     els.r2Fill.style.height = `${Math.round(right * 100)}%`;
   }
@@ -1304,6 +1335,13 @@ function pickGamepad() {
   const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
   if (!pads.length) return null;
   return pads[0];
+}
+
+function resolvePreferredGamepadIndex(preferredIndex = null) {
+  const preferred = getGamepadByIndex(preferredIndex);
+  if (preferred) return preferred.index;
+  const fallback = pickGamepad();
+  return fallback ? fallback.index : null;
 }
 
 function getGamepadByIndex(index) {
@@ -1559,37 +1597,100 @@ async function captureSingleStrongestSignal(gamepadIndex, baseline, durationMs) 
   };
 }
 
-async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000 }) {
-  const els = {
-    modal: document.getElementById('capture-mini-modal'),
-    title: document.getElementById('capture-mini-title'),
-    instruction: document.getElementById('capture-mini-instruction'),
-    countdown: document.getElementById('capture-mini-countdown'),
-    live: document.getElementById('capture-mini-live'),
-    cancelBtn: document.getElementById('capture-mini-cancel-btn'),
-  };
+function ensureCaptureMiniModalElements() {
+  let modal = document.getElementById('capture-mini-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'capture-mini-modal';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div id="capture-mini-panel" role="dialog" aria-modal="true" aria-label="Input Capture" tabindex="-1">
+        <div class="debug-head">
+          <h3 id="capture-mini-title">Capture Input</h3>
+          <button class="hud-btn" id="capture-mini-cancel-btn" type="button">Cancel</button>
+        </div>
+        <div id="capture-mini-instruction">Press and hold input now.</div>
+        <div id="capture-mini-countdown"></div>
+        <div id="capture-mini-live">Waiting for strongest signal...</div>
+        <div class="debug-small">Capture window uses strongest stable input over 5 seconds.</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
 
-  if (!els.modal || !els.title || !els.instruction || !els.countdown || !els.live || !els.cancelBtn) {
+  const panel = document.getElementById('capture-mini-panel');
+  const title = document.getElementById('capture-mini-title');
+  const instruction = document.getElementById('capture-mini-instruction');
+  const countdown = document.getElementById('capture-mini-countdown');
+  const live = document.getElementById('capture-mini-live');
+  const cancelBtn = document.getElementById('capture-mini-cancel-btn');
+
+  if (!modal || !panel || !title || !instruction || !countdown || !live || !cancelBtn) {
+    return null;
+  }
+
+  Object.assign(modal.style, {
+    position: 'fixed',
+    inset: '0',
+    display: 'none',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(0, 0, 0, 0.72)',
+    zIndex: '2147483647',
+    pointerEvents: 'all',
+  });
+
+  Object.assign(panel.style, {
+    width: 'min(560px, 92vw)',
+    maxHeight: '80vh',
+    overflow: 'auto',
+    borderRadius: '12px',
+    border: '1px solid rgba(110, 200, 230, 0.35)',
+    background: 'linear-gradient(180deg, rgba(10, 22, 34, 0.98), rgba(8, 16, 24, 0.98))',
+    color: '#d6ecff',
+    padding: '12px 14px',
+    boxShadow: '0 18px 40px rgba(0, 0, 0, 0.45)',
+  });
+
+  return { modal, panel, title, instruction, countdown, live, cancelBtn };
+}
+
+async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000 }) {
+  const els = ensureCaptureMiniModalElements();
+
+  if (!els) {
     return captureSingleStrongestSignal(gamepadIndex, baseline, durationMs);
   }
 
   const scoreMap = new Map();
   const startedAt = performance.now();
   let cancelled = false;
+  const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   els.title.textContent = title || 'Capture Input';
   els.instruction.textContent = instruction || 'Press and hold input now.';
   els.live.textContent = 'Waiting for strongest signal...';
   els.countdown.textContent = '';
+  els.modal.style.display = 'flex';
   els.modal.classList.add('open');
   els.modal.setAttribute('aria-hidden', 'false');
+  els.panel.focus();
 
   const onCancel = () => {
     cancelled = true;
   };
+  const onKeydown = (event) => {
+    if (event.code !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelled = true;
+  };
   els.cancelBtn.addEventListener('click', onCancel, { once: true });
+  els.panel.addEventListener('keydown', onKeydown);
 
   try {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
     while (!cancelled && performance.now() - startedAt < durationMs) {
       const gp = getGamepadByIndex(gamepadIndex);
       if (!gp) break;
@@ -1624,8 +1725,11 @@ async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline
       await wait(50);
     }
   } finally {
+    els.panel.removeEventListener('keydown', onKeydown);
     els.modal.classList.remove('open');
+    els.modal.style.display = 'none';
     els.modal.setAttribute('aria-hidden', 'true');
+    if (previousActiveElement?.isConnected) previousActiveElement.focus();
   }
 
   if (cancelled) return null;

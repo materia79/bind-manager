@@ -37,6 +37,9 @@ describe('ModalController integration behavior', () => {
     // Start capture on first slot
     bindButtons[0].click();
 
+    const captureOverlay = document.querySelector('.bm-capture-overlay');
+    expect(captureOverlay?.getAttribute('aria-hidden')).toBe('false');
+
     const firstButton = document.querySelector('.bm-bind-btn[data-slot="0"]');
     const secondButton = document.querySelector('.bm-bind-btn[data-slot="1"]');
     const resetAllButton = document.querySelector('.bm-reset-all-btn');
@@ -51,6 +54,60 @@ describe('ModalController integration behavior', () => {
     expect(firstButton.classList.contains('bm-capturing')).toBe(false);
     expect(secondButton.disabled).toBe(false);
     expect(resetAllButton.disabled).toBe(false);
+    expect(captureOverlay?.getAttribute('aria-hidden')).toBe('true');
+
+    manager.destroy();
+  });
+
+  it('keeps the bindings modal open when Escape cancels from the capture dialog', () => {
+    const manager = createBindManager({ namespace: `modal-test-${testCounter}` });
+    manager.registerAction({
+      id: 'forward',
+      slots: 1,
+      gamepadSlots: 1,
+      defaultBindings: ['KeyW'],
+      defaultGamepadBindings: ['GP_B12'],
+    });
+
+    manager.open();
+
+    const keyboardButton = document.querySelector('.bm-bind-btn[data-device="keyboard"]');
+    keyboardButton.click();
+
+    const captureDialog = document.querySelector('.bm-capture-modal');
+    expect(captureDialog).not.toBeNull();
+
+    captureDialog.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', bubbles: true }));
+
+    expect(manager.isOpen()).toBe(true);
+    expect(document.querySelector('.bm-overlay')?.style.display).toBe('flex');
+    expect(document.querySelector('.bm-capture-overlay')?.getAttribute('aria-hidden')).toBe('true');
+
+    manager.destroy();
+  });
+
+  it('opens the dedicated capture dialog for gamepad rebinding and closes it on cancel', () => {
+    const manager = createBindManager({ namespace: `modal-test-${testCounter}` });
+    manager.registerAction({
+      id: 'forward',
+      slots: 1,
+      gamepadSlots: 1,
+      defaultBindings: ['KeyW'],
+      defaultGamepadBindings: ['GP_B12'],
+    });
+
+    manager.open();
+
+    const gamepadButton = document.querySelector('.bm-bind-btn[data-device="gamepad"]');
+    gamepadButton.click();
+
+    expect(document.querySelector('.bm-capture-overlay')?.getAttribute('aria-hidden')).toBe('false');
+
+    const cancelButton = document.querySelector('.bm-capture-cancel-btn');
+    cancelButton.click();
+
+    expect(manager.isOpen()).toBe(true);
+    expect(document.querySelector('.bm-capture-overlay')?.getAttribute('aria-hidden')).toBe('true');
 
     manager.destroy();
   });

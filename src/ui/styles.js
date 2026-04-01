@@ -12,6 +12,7 @@ const CSS = `
 
 :root {
   --bm-z-modal:  9000;
+  --bm-z-capture:  9010;
   --bm-z-hints:  8000;
 
   --bm-overlay-bg:   rgba(0, 0, 0, 0.75);
@@ -419,6 +420,67 @@ const CSS = `
   background: var(--bm-btn-hover);
   border-color: var(--bm-reset-color);
   color: var(--bm-reset-hover);
+}
+
+/* ---- Capture modal ---- */
+.bm-capture-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--bm-z-capture);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.bm-capture-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  border-radius: 10px;
+  border: 1px solid var(--bm-capture-border);
+  background: linear-gradient(180deg, rgba(58, 42, 0, 0.98), rgba(27, 20, 0, 0.98));
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  color: var(--bm-text-primary);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.bm-capture-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bm-capture-title {
+  margin: 0;
+  font-size: 16px;
+  color: var(--bm-capture-text);
+}
+
+.bm-capture-cancel-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--bm-capture-border);
+  background: rgba(255, 208, 96, 0.08);
+  color: var(--bm-capture-text);
+  cursor: pointer;
+}
+
+.bm-capture-cancel-btn:hover {
+  background: rgba(255, 208, 96, 0.14);
+}
+
+.bm-capture-message {
+  margin-top: 14px;
+  font-size: 14px;
+}
+
+.bm-capture-detail {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--bm-text-secondary);
+  white-space: pre-wrap;
 }
 
 /* ====== Action Hints Bar (bottom of screen) ====== */

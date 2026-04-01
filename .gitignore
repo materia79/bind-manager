@@ -7,4 +7,3 @@ dist/bind-manager.js
 !dist/standalone-demo.html
 PLAN.md
 QA_CHECKLIST.md
-package-lock.json

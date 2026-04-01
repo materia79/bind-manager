@@ -56,6 +56,8 @@ const DEFAULT_CAPTURE_PRESET = 'dualsense';
 const DPAD_CODES = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'];
 let sharedCapturePayload = null;
 let syncInputDebuggerFromSharedPayload = null;
+let inputDebug = null;
+let controllerTester = null;
 
 function cloneJson(value) {
   return value == null ? null : JSON.parse(JSON.stringify(value));
@@ -71,6 +73,20 @@ const manager = createBindManager({
   namespace: 'bind-manager-demo',
   debug: true,      // enables F5 toggle
   debugKey: 'F5',
+  footerActions: [
+    {
+      id: 'input-debug',
+      label: 'Input Remap',
+      className: 'debug',
+      onClick: () => inputDebug?.open(),
+    },
+    {
+      id: 'controller-test',
+      label: 'Controller Test',
+      className: 'test',
+      onClick: () => controllerTester?.open(),
+    },
+  ],
   // container defaults to document.body
 });
 
@@ -245,16 +261,8 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 
 // ── 7. Input debugger (guided controller mapping) ───────────────────────────
 
-const inputDebug = createInputDebugger();
-const controllerTester = createControllerTester();
-
-document.getElementById('input-debug-btn').addEventListener('click', () => {
-  inputDebug.open();
-});
-
-document.getElementById('test-btn').addEventListener('click', () => {
-  controllerTester.open();
-});
+inputDebug = createInputDebugger();
+controllerTester = createControllerTester();
 
 function createInputDebugger() {
   const els = {

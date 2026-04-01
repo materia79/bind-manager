@@ -152,4 +152,29 @@ describe('ModalController integration behavior', () => {
 
     manager.destroy();
   });
+
+  it('renders configured footer actions and invokes them', () => {
+    let clicked = 0;
+    const manager = createBindManager({
+      namespace: `modal-test-${testCounter}`,
+      footerActions: [{ id: 'test-action', label: 'Test', onClick: () => { clicked += 1; } }],
+    });
+    manager.registerAction({
+      id: 'forward',
+      slots: 1,
+      gamepadSlots: 1,
+      defaultBindings: ['KeyW'],
+      defaultGamepadBindings: ['GP_B12'],
+    });
+
+    manager.open();
+
+    const footerAction = document.querySelector('.bm-footer-action-btn[data-footer-action-id="test-action"]');
+    expect(footerAction?.textContent).toBe('Test');
+
+    footerAction.click();
+    expect(clicked).toBe(1);
+
+    manager.destroy();
+  });
 });

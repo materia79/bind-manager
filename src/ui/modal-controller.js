@@ -22,12 +22,13 @@ export class ModalController {
    * @param {import('../core/action-registry.js').ActionRegistry} registry
    * @param {import('../input/keyboard-runtime.js').KeyboardRuntime} keyboardRuntime
    */
-  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null) {
+  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = []) {
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
   this._gamepadRuntime = gamepadRuntime;
     this._captureModal = captureModal;
+    this._footerActions = Array.isArray(footerActions) ? footerActions : [];
 
     this._container = null;
     this._overlay = null;
@@ -152,7 +153,10 @@ export class ModalController {
         </div>
         <div class="bm-modal-footer">
           <div class="bm-conflict-warning bm-hidden" role="alert"></div>
-          <button class="bm-reset-all-btn">Reset All</button>
+          <div class="bm-footer-actions">
+            ${this._renderFooterActions()}
+            <button class="bm-reset-all-btn">Reset All</button>
+          </div>
         </div>
       </div>
     `;
@@ -166,6 +170,15 @@ export class ModalController {
         this._store.resetAll();
         this._render();
       });
+
+    for (const btn of this._overlay.querySelectorAll('.bm-footer-action-btn')) {
+      btn.addEventListener('click', () => {
+        if (this._captureTarget) return;
+        const id = btn.dataset.footerActionId;
+        const action = this._footerActions.find((entry) => entry?.id === id);
+        action?.onClick?.();
+      });
+    }
 
     const profileSelect = this._overlay.querySelector('.bm-profile-select');
     if (profileSelect) {
@@ -357,6 +370,18 @@ export class ModalController {
     `;
   }
 
+  _renderFooterActions() {
+    if (!this._footerActions.length) return '';
+    return this._footerActions
+      .filter((action) => action && typeof action.id === 'string' && typeof action.label === 'string')
+      .map((action) => {
+        const className = action.className ? ` bm-footer-action-btn--${_esc(action.className)}` : '';
+        const title = action.title ? ` title="${_esc(action.title)}"` : '';
+        return `<button class="bm-footer-action-btn${className}" data-footer-action-id="${_esc(action.id)}" type="button"${title}>${_esc(action.label)}</button>`;
+      })
+      .join('');
+  }
+
   _startCapture(actionId, slot, buttonEl, device = 'keyboard') {
     if (this._captureTarget) return;
     this._captureTarget = { actionId, slot, device, buttonEl };
@@ -448,6 +473,9 @@ export class ModalController {
     }
     const resetAllBtn = this._overlay.querySelector('.bm-reset-all-btn');
     if (resetAllBtn) resetAllBtn.disabled = capturing;
+    for (const btn of this._overlay.querySelectorAll('.bm-footer-action-btn')) {
+      btn.disabled = capturing;
+    }
   }
 
   _showConflictWarning(conflicts, code, device = 'keyboard') {

@@ -388,6 +388,14 @@ const CSS = `
   gap: 12px;
 }
 
+.bm-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* ---- Conflict warning ---- */
 .bm-conflict-warning {
   flex: 1;
@@ -415,6 +423,39 @@ const CSS = `
   padding: 6px 14px;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   flex-shrink: 0;
+}
+.bm-footer-action-btn {
+  background: var(--bm-btn-bg);
+  border: 1px solid var(--bm-btn-border);
+  border-radius: 6px;
+  color: var(--bm-text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 6px 14px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.bm-footer-action-btn:hover {
+  background: var(--bm-btn-hover);
+  border-color: var(--bm-accent);
+}
+.bm-footer-action-btn--debug {
+  color: #ffd3a4;
+  border-color: rgba(250, 170, 90, 0.55);
+  background: rgba(250, 170, 90, 0.12);
+}
+.bm-footer-action-btn--debug:hover {
+  background: rgba(250, 170, 90, 0.22);
+  border-color: rgba(255, 192, 120, 0.95);
+}
+.bm-footer-action-btn--test {
+  color: #b8f2ff;
+  border-color: rgba(100, 210, 235, 0.5);
+  background: rgba(100, 210, 235, 0.12);
+}
+.bm-footer-action-btn--test:hover {
+  background: rgba(100, 210, 235, 0.22);
+  border-color: rgba(130, 235, 255, 0.95);
 }
 .bm-reset-all-btn:hover {
   background: var(--bm-btn-hover);

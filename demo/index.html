@@ -112,30 +112,10 @@
       border-color: rgba(40,200,100,0.8);
     }
 
-    #input-debug-btn {
-      background: rgba(250, 170, 90, 0.2);
-      border-color: rgba(250, 170, 90, 0.55);
-      color: #ffd3a4;
-    }
-    #input-debug-btn:hover {
-      background: rgba(250, 170, 90, 0.38);
-      border-color: rgba(255, 192, 120, 0.95);
-    }
-
-    #test-btn {
-      background: rgba(100, 210, 235, 0.2);
-      border-color: rgba(100, 210, 235, 0.5);
-      color: #b8f2ff;
-    }
-    #test-btn:hover {
-      background: rgba(100, 210, 235, 0.4);
-      border-color: rgba(130, 235, 255, 0.95);
-    }
-
     #debug-modal {
       position: fixed;
       inset: 0;
-      z-index: 120;
+      z-index: 10020;
       display: none;
       align-items: center;
       justify-content: center;
@@ -256,7 +236,7 @@
     #tester-modal {
       position: fixed;
       inset: 0;
-      z-index: 130;
+      z-index: 10030;
       display: none;
       align-items: center;
       justify-content: center;
@@ -713,8 +693,6 @@
   </div>
 
   <div id="controls">
-    <button class="hud-btn" id="input-debug-btn">Input Debug</button>
-    <button class="hud-btn" id="test-btn">Test</button>
     <button class="hud-btn" id="open-btn">⚙ Key Bindings</button>
     <button class="hud-btn" id="hint-toggle-btn">👁 Toggle Hints</button>
     <button class="hud-btn" id="reset-btn">↺ Reset All</button>

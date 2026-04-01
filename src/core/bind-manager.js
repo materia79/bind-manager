@@ -35,6 +35,7 @@ export function createBindManager(options = {}) {
     debugKey = 'F5',
     container = null,
     storage = null,
+    footerActions = [],
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -66,7 +67,7 @@ export function createBindManager(options = {}) {
 
   // -- UI layer --
   const captureModal = new CaptureModalController();
-  const modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal);
+  const modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, footerActions);
   const hints = new HintsController(store, registry, gamepadRuntime);
 
   // Determine mount target (explicit container or document.body)

@@ -30,6 +30,10 @@ Current input support in this MVP: keyboard plus browser Gamepad API input, incl
 - Exact controller labels from generated device profiles when available
 - Manual gamepad profile override and family/generic fallback behavior
 
+## Online Demo
+
+A [https://materia79.github.io/bind-manager/standalone-demo.html](demo page) is available that exercises all features and serves as a testbed during development.
+
 ## Documentation Map
 
 Use these internal docs when you want implementation details rather than package-level usage guidance.

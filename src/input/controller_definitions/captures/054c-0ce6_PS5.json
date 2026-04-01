@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-03-31T16:22:16.786Z",
+  "generatedAt": "2026-04-01T14:18:25.098Z",
   "runMeta": {
     "targetController": {
       "index": 0,
@@ -27,11 +27,11 @@
       ],
       "axes": [
         0.0039215686274509665,
-        0.0117647058823529,
+        0.0039215686274509665,
         -0.0039215686274509665,
         -1,
         -1,
-        0.019607843137254832,
+        0.0039215686274509665,
         0,
         0,
         0,
@@ -40,8 +40,8 @@
         0
       ]
     },
-    "totalSteps": 25,
-    "completedSteps": 25
+    "totalSteps": 27,
+    "completedSteps": 27
   },
   "sequence": [
     {
@@ -75,14 +75,24 @@
       "instruction": "Press and hold R1."
     },
     {
-      "label": "L2",
+      "label": "L2 (digital)",
       "expectedCode": "GP_B6",
-      "instruction": "Press and hold L2 fully."
+      "instruction": "Press L2 lightly until it clicks (digital threshold only)."
     },
     {
-      "label": "R2",
+      "label": "L2 (analog)",
+      "expectedCode": "GP_B6A",
+      "instruction": "Press L2 fully past the click to record the full analog axis signal."
+    },
+    {
+      "label": "R2 (digital)",
       "expectedCode": "GP_B7",
-      "instruction": "Press and hold R2 fully."
+      "instruction": "Press R2 lightly until it clicks (digital threshold only)."
+    },
+    {
+      "label": "R2 (analog)",
+      "expectedCode": "GP_B7A",
+      "instruction": "Press R2 fully past the click to record the full analog axis signal."
     },
     {
       "label": "Create",
@@ -183,8 +193,8 @@
         "kind": "button",
         "index": 1,
         "direction": null,
-        "score": 49,
-        "frames": 49,
+        "score": 61,
+        "frames": 61,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -201,8 +211,8 @@
         "kind": "button",
         "index": 2,
         "direction": null,
-        "score": 59,
-        "frames": 59,
+        "score": 51,
+        "frames": 51,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -219,8 +229,8 @@
         "kind": "button",
         "index": 0,
         "direction": null,
-        "score": 57,
-        "frames": 57,
+        "score": 58,
+        "frames": 58,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -237,8 +247,8 @@
         "kind": "button",
         "index": 3,
         "direction": null,
-        "score": 67,
-        "frames": 67,
+        "score": 65,
+        "frames": 65,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -255,8 +265,8 @@
         "kind": "button",
         "index": 4,
         "direction": null,
-        "score": 50,
-        "frames": 50,
+        "score": 62,
+        "frames": 62,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -273,35 +283,35 @@
         "kind": "button",
         "index": 5,
         "direction": null,
-        "score": 66,
-        "frames": 66,
+        "score": 59,
+        "frames": 59,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     {
       "step": 7,
-      "label": "L2",
+      "label": "L2 (digital)",
       "expectedCode": "GP_B6",
-      "instruction": "Press and hold L2 fully.",
+      "instruction": "Press L2 lightly until it clicks (digital threshold only).",
       "skipped": false,
       "matched": true,
       "detected": {
-        "code": "GP_A3P",
-        "kind": "axis",
-        "index": 3,
-        "direction": "positive",
-        "score": 125.9059,
-        "frames": 63,
-        "peakDelta": 2,
+        "code": "GP_B6",
+        "kind": "button",
+        "index": 6,
+        "direction": null,
+        "score": 44,
+        "frames": 44,
+        "peakDelta": 1,
         "peakRaw": 1
       }
     },
     {
       "step": 8,
-      "label": "R2",
-      "expectedCode": "GP_B7",
-      "instruction": "Press and hold R2 fully.",
+      "label": "L2 (analog)",
+      "expectedCode": "GP_B6A",
+      "instruction": "Press L2 fully past the click to record the full analog axis signal.",
       "skipped": false,
       "matched": true,
       "detected": {
@@ -309,14 +319,50 @@
         "kind": "axis",
         "index": 3,
         "direction": "positive",
-        "score": 55.7412,
-        "frames": 28,
+        "score": 105.2078,
+        "frames": 53,
         "peakDelta": 2,
         "peakRaw": 1
       }
     },
     {
       "step": 9,
+      "label": "R2 (digital)",
+      "expectedCode": "GP_B7",
+      "instruction": "Press R2 lightly until it clicks (digital threshold only).",
+      "skipped": false,
+      "matched": true,
+      "detected": {
+        "code": "GP_B7",
+        "kind": "button",
+        "index": 7,
+        "direction": null,
+        "score": 50,
+        "frames": 50,
+        "peakDelta": 1,
+        "peakRaw": 1
+      }
+    },
+    {
+      "step": 10,
+      "label": "R2 (analog)",
+      "expectedCode": "GP_B7A",
+      "instruction": "Press R2 fully past the click to record the full analog axis signal.",
+      "skipped": false,
+      "matched": true,
+      "detected": {
+        "code": "GP_A4P",
+        "kind": "axis",
+        "index": 4,
+        "direction": "positive",
+        "score": 125.4118,
+        "frames": 63,
+        "peakDelta": 2,
+        "peakRaw": 1
+      }
+    },
+    {
+      "step": 11,
       "label": "Create",
       "expectedCode": "GP_B8",
       "instruction": "Press and hold Create.",
@@ -327,14 +373,14 @@
         "kind": "button",
         "index": 8,
         "direction": null,
-        "score": 40,
-        "frames": 40,
+        "score": 31,
+        "frames": 31,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     {
-      "step": 10,
+      "step": 12,
       "label": "Options",
       "expectedCode": "GP_B9",
       "instruction": "Press and hold Options.",
@@ -345,14 +391,14 @@
         "kind": "button",
         "index": 9,
         "direction": null,
-        "score": 51,
-        "frames": 51,
+        "score": 63,
+        "frames": 63,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     {
-      "step": 11,
+      "step": 13,
       "label": "L3",
       "expectedCode": "GP_B10",
       "instruction": "Press and hold L3 (left stick click).",
@@ -363,14 +409,14 @@
         "kind": "button",
         "index": 10,
         "direction": null,
-        "score": 49,
-        "frames": 49,
+        "score": 51,
+        "frames": 51,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     {
-      "step": 12,
+      "step": 14,
       "label": "R3",
       "expectedCode": "GP_B11",
       "instruction": "Press and hold R3 (right stick click).",
@@ -381,14 +427,14 @@
         "kind": "button",
         "index": 11,
         "direction": null,
-        "score": 58,
-        "frames": 58,
+        "score": 55,
+        "frames": 55,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     {
-      "step": 13,
+      "step": 15,
       "label": "D-Pad Up",
       "expectedCode": "GP_B12",
       "instruction": "Press and hold D-Pad Up.",
@@ -399,14 +445,14 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 107.4286,
-        "frames": 47,
+        "score": 130.2857,
+        "frames": 57,
         "peakDelta": 2.2857,
         "peakRaw": 1
       }
     },
     {
-      "step": 14,
+      "step": 16,
       "label": "D-Pad Down",
       "expectedCode": "GP_B13",
       "instruction": "Press and hold D-Pad Down.",
@@ -417,14 +463,14 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 93.7143,
+        "score": 90.2857,
         "frames": 73,
         "peakDelta": 2.2857,
         "peakRaw": 1
       }
     },
     {
-      "step": 15,
+      "step": 17,
       "label": "D-Pad Left",
       "expectedCode": "GP_B14",
       "instruction": "Press and hold D-Pad Left.",
@@ -435,14 +481,14 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 46.2857,
-        "frames": 74,
+        "score": 44.5714,
+        "frames": 71,
         "peakDelta": 1.1429,
         "peakRaw": 0.7143
       }
     },
     {
-      "step": 16,
+      "step": 18,
       "label": "D-Pad Right",
       "expectedCode": "GP_B15",
       "instruction": "Press and hold D-Pad Right.",
@@ -453,32 +499,32 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 113.7143,
-        "frames": 73,
+        "score": 118.8571,
+        "frames": 74,
         "peakDelta": 1.7143,
         "peakRaw": 0.7143
       }
     },
     {
-      "step": 17,
+      "step": 19,
       "label": "PS",
       "expectedCode": "GP_B16",
       "instruction": "Press and hold the PS button.",
       "skipped": false,
       "matched": true,
       "detected": {
-        "code": "GP_A9N",
-        "kind": "axis",
-        "index": 9,
-        "direction": "negative",
-        "score": 17.1429,
-        "frames": 10,
-        "peakDelta": 1.7143,
-        "peakRaw": 0.4286
+        "code": "GP_B12",
+        "kind": "button",
+        "index": 12,
+        "direction": null,
+        "score": 19,
+        "frames": 19,
+        "peakDelta": 1,
+        "peakRaw": 1
       }
     },
     {
-      "step": 18,
+      "step": 20,
       "label": "Left Stick Left",
       "expectedCode": "GP_A0N",
       "instruction": "Move and hold the left stick fully left.",
@@ -489,14 +535,14 @@
         "kind": "axis",
         "index": 0,
         "direction": "negative",
-        "score": 49.9137,
-        "frames": 51,
+        "score": 33.7412,
+        "frames": 35,
         "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     {
-      "step": 19,
+      "step": 21,
       "label": "Left Stick Right",
       "expectedCode": "GP_A0P",
       "instruction": "Move and hold the left stick fully right.",
@@ -507,14 +553,14 @@
         "kind": "axis",
         "index": 0,
         "direction": "positive",
-        "score": 61.7961,
-        "frames": 63,
+        "score": 58.3137,
+        "frames": 60,
         "peakDelta": 0.9961,
         "peakRaw": 1
       }
     },
     {
-      "step": 20,
+      "step": 22,
       "label": "Left Stick Up",
       "expectedCode": "GP_A1N",
       "instruction": "Move and hold the left stick fully up.",
@@ -525,14 +571,14 @@
         "kind": "axis",
         "index": 1,
         "direction": "negative",
-        "score": 56.1333,
-        "frames": 56,
-        "peakDelta": 1.0118,
+        "score": 58.1725,
+        "frames": 59,
+        "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     {
-      "step": 21,
+      "step": 23,
       "label": "Left Stick Down",
       "expectedCode": "GP_A1P",
       "instruction": "Move and hold the left stick fully down.",
@@ -543,14 +589,14 @@
         "kind": "axis",
         "index": 1,
         "direction": "positive",
-        "score": 62.6353,
-        "frames": 64,
-        "peakDelta": 0.9882,
+        "score": 60.8549,
+        "frames": 62,
+        "peakDelta": 0.9961,
         "peakRaw": 1
       }
     },
     {
-      "step": 22,
+      "step": 24,
       "label": "Right Stick Left",
       "expectedCode": "GP_A2N",
       "instruction": "Move and hold the right stick fully left.",
@@ -561,14 +607,14 @@
         "kind": "axis",
         "index": 2,
         "direction": "negative",
-        "score": 52.2353,
-        "frames": 54,
+        "score": 45.4745,
+        "frames": 47,
         "peakDelta": 0.9961,
         "peakRaw": 1
       }
     },
     {
-      "step": 23,
+      "step": 25,
       "label": "Right Stick Right",
       "expectedCode": "GP_A2P",
       "instruction": "Move and hold the right stick fully right.",
@@ -579,14 +625,14 @@
         "kind": "axis",
         "index": 2,
         "direction": "positive",
-        "score": 62.6118,
-        "frames": 64,
+        "score": 66.6588,
+        "frames": 68,
         "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     {
-      "step": 24,
+      "step": 26,
       "label": "Right Stick Up",
       "expectedCode": "GP_A3N",
       "instruction": "Move and hold the right stick fully up.",
@@ -597,14 +643,14 @@
         "kind": "axis",
         "index": 5,
         "direction": "negative",
-        "score": 60.1882,
-        "frames": 60,
-        "peakDelta": 1.0196,
+        "score": 58.502,
+        "frames": 59,
+        "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     {
-      "step": 25,
+      "step": 27,
       "label": "Right Stick Down",
       "expectedCode": "GP_A3P",
       "instruction": "Move and hold the right stick fully down.",
@@ -615,9 +661,9 @@
         "kind": "axis",
         "index": 5,
         "direction": "positive",
-        "score": 55.9529,
-        "frames": 58,
-        "peakDelta": 0.9804,
+        "score": 64.1804,
+        "frames": 66,
+        "peakDelta": 0.9961,
         "peakRaw": 1
       }
     }
@@ -635,8 +681,8 @@
         "kind": "button",
         "index": 1,
         "direction": null,
-        "score": 49,
-        "frames": 49,
+        "score": 61,
+        "frames": 61,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -653,8 +699,8 @@
         "kind": "button",
         "index": 2,
         "direction": null,
-        "score": 59,
-        "frames": 59,
+        "score": 51,
+        "frames": 51,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -671,8 +717,8 @@
         "kind": "button",
         "index": 0,
         "direction": null,
-        "score": 57,
-        "frames": 57,
+        "score": 58,
+        "frames": 58,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -689,8 +735,8 @@
         "kind": "button",
         "index": 3,
         "direction": null,
-        "score": 67,
-        "frames": 67,
+        "score": 65,
+        "frames": 65,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -707,8 +753,8 @@
         "kind": "button",
         "index": 4,
         "direction": null,
-        "score": 50,
-        "frames": 50,
+        "score": 62,
+        "frames": 62,
         "peakDelta": 1,
         "peakRaw": 1
       }
@@ -725,17 +771,35 @@
         "kind": "button",
         "index": 5,
         "direction": null,
-        "score": 66,
-        "frames": 66,
+        "score": 59,
+        "frames": 59,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     "GP_B6": {
       "step": 7,
-      "label": "L2",
+      "label": "L2 (digital)",
       "expectedCode": "GP_B6",
-      "instruction": "Press and hold L2 fully.",
+      "instruction": "Press L2 lightly until it clicks (digital threshold only).",
+      "skipped": false,
+      "matched": true,
+      "detected": {
+        "code": "GP_B6",
+        "kind": "button",
+        "index": 6,
+        "direction": null,
+        "score": 44,
+        "frames": 44,
+        "peakDelta": 1,
+        "peakRaw": 1
+      }
+    },
+    "GP_B6A": {
+      "step": 8,
+      "label": "L2 (analog)",
+      "expectedCode": "GP_B6A",
+      "instruction": "Press L2 fully past the click to record the full analog axis signal.",
       "skipped": false,
       "matched": true,
       "detected": {
@@ -743,32 +807,50 @@
         "kind": "axis",
         "index": 3,
         "direction": "positive",
-        "score": 125.9059,
-        "frames": 63,
+        "score": 105.2078,
+        "frames": 53,
         "peakDelta": 2,
         "peakRaw": 1
       }
     },
     "GP_B7": {
-      "step": 8,
-      "label": "R2",
+      "step": 9,
+      "label": "R2 (digital)",
       "expectedCode": "GP_B7",
-      "instruction": "Press and hold R2 fully.",
+      "instruction": "Press R2 lightly until it clicks (digital threshold only).",
       "skipped": false,
       "matched": true,
       "detected": {
-        "code": "GP_A3P",
+        "code": "GP_B7",
+        "kind": "button",
+        "index": 7,
+        "direction": null,
+        "score": 50,
+        "frames": 50,
+        "peakDelta": 1,
+        "peakRaw": 1
+      }
+    },
+    "GP_B7A": {
+      "step": 10,
+      "label": "R2 (analog)",
+      "expectedCode": "GP_B7A",
+      "instruction": "Press R2 fully past the click to record the full analog axis signal.",
+      "skipped": false,
+      "matched": true,
+      "detected": {
+        "code": "GP_A4P",
         "kind": "axis",
-        "index": 3,
+        "index": 4,
         "direction": "positive",
-        "score": 55.7412,
-        "frames": 28,
+        "score": 125.4118,
+        "frames": 63,
         "peakDelta": 2,
         "peakRaw": 1
       }
     },
     "GP_B8": {
-      "step": 9,
+      "step": 11,
       "label": "Create",
       "expectedCode": "GP_B8",
       "instruction": "Press and hold Create.",
@@ -779,14 +861,14 @@
         "kind": "button",
         "index": 8,
         "direction": null,
-        "score": 40,
-        "frames": 40,
+        "score": 31,
+        "frames": 31,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     "GP_B9": {
-      "step": 10,
+      "step": 12,
       "label": "Options",
       "expectedCode": "GP_B9",
       "instruction": "Press and hold Options.",
@@ -797,14 +879,14 @@
         "kind": "button",
         "index": 9,
         "direction": null,
-        "score": 51,
-        "frames": 51,
+        "score": 63,
+        "frames": 63,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     "GP_B10": {
-      "step": 11,
+      "step": 13,
       "label": "L3",
       "expectedCode": "GP_B10",
       "instruction": "Press and hold L3 (left stick click).",
@@ -815,14 +897,14 @@
         "kind": "button",
         "index": 10,
         "direction": null,
-        "score": 49,
-        "frames": 49,
+        "score": 51,
+        "frames": 51,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     "GP_B11": {
-      "step": 12,
+      "step": 14,
       "label": "R3",
       "expectedCode": "GP_B11",
       "instruction": "Press and hold R3 (right stick click).",
@@ -833,14 +915,14 @@
         "kind": "button",
         "index": 11,
         "direction": null,
-        "score": 58,
-        "frames": 58,
+        "score": 55,
+        "frames": 55,
         "peakDelta": 1,
         "peakRaw": 1
       }
     },
     "GP_B12": {
-      "step": 13,
+      "step": 15,
       "label": "D-Pad Up",
       "expectedCode": "GP_B12",
       "instruction": "Press and hold D-Pad Up.",
@@ -851,14 +933,14 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 107.4286,
-        "frames": 47,
+        "score": 130.2857,
+        "frames": 57,
         "peakDelta": 2.2857,
         "peakRaw": 1
       }
     },
     "GP_B13": {
-      "step": 14,
+      "step": 16,
       "label": "D-Pad Down",
       "expectedCode": "GP_B13",
       "instruction": "Press and hold D-Pad Down.",
@@ -869,14 +951,14 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 93.7143,
+        "score": 90.2857,
         "frames": 73,
         "peakDelta": 2.2857,
         "peakRaw": 1
       }
     },
     "GP_B14": {
-      "step": 15,
+      "step": 17,
       "label": "D-Pad Left",
       "expectedCode": "GP_B14",
       "instruction": "Press and hold D-Pad Left.",
@@ -887,14 +969,14 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 46.2857,
-        "frames": 74,
+        "score": 44.5714,
+        "frames": 71,
         "peakDelta": 1.1429,
         "peakRaw": 0.7143
       }
     },
     "GP_B15": {
-      "step": 16,
+      "step": 18,
       "label": "D-Pad Right",
       "expectedCode": "GP_B15",
       "instruction": "Press and hold D-Pad Right.",
@@ -905,32 +987,32 @@
         "kind": "axis",
         "index": 9,
         "direction": "negative",
-        "score": 113.7143,
-        "frames": 73,
+        "score": 118.8571,
+        "frames": 74,
         "peakDelta": 1.7143,
         "peakRaw": 0.7143
       }
     },
     "GP_B16": {
-      "step": 17,
+      "step": 19,
       "label": "PS",
       "expectedCode": "GP_B16",
       "instruction": "Press and hold the PS button.",
       "skipped": false,
       "matched": true,
       "detected": {
-        "code": "GP_A9N",
-        "kind": "axis",
-        "index": 9,
-        "direction": "negative",
-        "score": 17.1429,
-        "frames": 10,
-        "peakDelta": 1.7143,
-        "peakRaw": 0.4286
+        "code": "GP_B12",
+        "kind": "button",
+        "index": 12,
+        "direction": null,
+        "score": 19,
+        "frames": 19,
+        "peakDelta": 1,
+        "peakRaw": 1
       }
     },
     "GP_A0N": {
-      "step": 18,
+      "step": 20,
       "label": "Left Stick Left",
       "expectedCode": "GP_A0N",
       "instruction": "Move and hold the left stick fully left.",
@@ -941,14 +1023,14 @@
         "kind": "axis",
         "index": 0,
         "direction": "negative",
-        "score": 49.9137,
-        "frames": 51,
+        "score": 33.7412,
+        "frames": 35,
         "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     "GP_A0P": {
-      "step": 19,
+      "step": 21,
       "label": "Left Stick Right",
       "expectedCode": "GP_A0P",
       "instruction": "Move and hold the left stick fully right.",
@@ -959,14 +1041,14 @@
         "kind": "axis",
         "index": 0,
         "direction": "positive",
-        "score": 61.7961,
-        "frames": 63,
+        "score": 58.3137,
+        "frames": 60,
         "peakDelta": 0.9961,
         "peakRaw": 1
       }
     },
     "GP_A1N": {
-      "step": 20,
+      "step": 22,
       "label": "Left Stick Up",
       "expectedCode": "GP_A1N",
       "instruction": "Move and hold the left stick fully up.",
@@ -977,14 +1059,14 @@
         "kind": "axis",
         "index": 1,
         "direction": "negative",
-        "score": 56.1333,
-        "frames": 56,
-        "peakDelta": 1.0118,
+        "score": 58.1725,
+        "frames": 59,
+        "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     "GP_A1P": {
-      "step": 21,
+      "step": 23,
       "label": "Left Stick Down",
       "expectedCode": "GP_A1P",
       "instruction": "Move and hold the left stick fully down.",
@@ -995,14 +1077,14 @@
         "kind": "axis",
         "index": 1,
         "direction": "positive",
-        "score": 62.6353,
-        "frames": 64,
-        "peakDelta": 0.9882,
+        "score": 60.8549,
+        "frames": 62,
+        "peakDelta": 0.9961,
         "peakRaw": 1
       }
     },
     "GP_A2N": {
-      "step": 22,
+      "step": 24,
       "label": "Right Stick Left",
       "expectedCode": "GP_A2N",
       "instruction": "Move and hold the right stick fully left.",
@@ -1013,14 +1095,14 @@
         "kind": "axis",
         "index": 2,
         "direction": "negative",
-        "score": 52.2353,
-        "frames": 54,
+        "score": 45.4745,
+        "frames": 47,
         "peakDelta": 0.9961,
         "peakRaw": 1
       }
     },
     "GP_A2P": {
-      "step": 23,
+      "step": 25,
       "label": "Right Stick Right",
       "expectedCode": "GP_A2P",
       "instruction": "Move and hold the right stick fully right.",
@@ -1031,14 +1113,14 @@
         "kind": "axis",
         "index": 2,
         "direction": "positive",
-        "score": 62.6118,
-        "frames": 64,
+        "score": 66.6588,
+        "frames": 68,
         "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     "GP_A3N": {
-      "step": 24,
+      "step": 26,
       "label": "Right Stick Up",
       "expectedCode": "GP_A3N",
       "instruction": "Move and hold the right stick fully up.",
@@ -1049,14 +1131,14 @@
         "kind": "axis",
         "index": 5,
         "direction": "negative",
-        "score": 60.1882,
-        "frames": 60,
-        "peakDelta": 1.0196,
+        "score": 58.502,
+        "frames": 59,
+        "peakDelta": 1.0039,
         "peakRaw": 1
       }
     },
     "GP_A3P": {
-      "step": 25,
+      "step": 27,
       "label": "Right Stick Down",
       "expectedCode": "GP_A3P",
       "instruction": "Move and hold the right stick fully down.",
@@ -1067,9 +1149,9 @@
         "kind": "axis",
         "index": 5,
         "direction": "positive",
-        "score": 55.9529,
-        "frames": 58,
-        "peakDelta": 0.9804,
+        "score": 64.1804,
+        "frames": 66,
+        "peakDelta": 0.9961,
         "peakRaw": 1
       }
     }
@@ -1077,6 +1159,7 @@
   "controllerDefinition": {
     "sourceControllerId": "054c-0ce6-DualSense Wireless Controller",
     "profileHint": "dualsense",
+    "family": "dualsense",
     "buttons": {
       "GP_B0": {
         "buttonIndex": 1,
@@ -1102,6 +1185,14 @@
         "buttonIndex": 5,
         "peakDelta": 1
       },
+      "GP_B6": {
+        "buttonIndex": 6,
+        "peakDelta": 1
+      },
+      "GP_B7": {
+        "buttonIndex": 7,
+        "peakDelta": 1
+      },
       "GP_B8": {
         "buttonIndex": 8,
         "peakDelta": 1
@@ -1117,16 +1208,20 @@
       "GP_B11": {
         "buttonIndex": 11,
         "peakDelta": 1
+      },
+      "GP_B16": {
+        "buttonIndex": 12,
+        "peakDelta": 1
       }
     },
     "axes": {
-      "GP_B6": {
+      "GP_B6A": {
         "axisIndex": 3,
         "direction": "positive",
         "peakDelta": 2
       },
-      "GP_B7": {
-        "axisIndex": 3,
+      "GP_B7A": {
+        "axisIndex": 4,
         "direction": "positive",
         "peakDelta": 2
       },
@@ -1150,11 +1245,6 @@
         "direction": "negative",
         "peakDelta": 1.7143
       },
-      "GP_B16": {
-        "axisIndex": 9,
-        "direction": "negative",
-        "peakDelta": 1.7143
-      },
       "GP_A0N": {
         "axisIndex": 0,
         "direction": "negative",
@@ -1168,12 +1258,12 @@
       "GP_A1N": {
         "axisIndex": 1,
         "direction": "negative",
-        "peakDelta": 1.0118
+        "peakDelta": 1.0039
       },
       "GP_A1P": {
         "axisIndex": 1,
         "direction": "positive",
-        "peakDelta": 0.9882
+        "peakDelta": 0.9961
       },
       "GP_A2N": {
         "axisIndex": 2,
@@ -1188,12 +1278,12 @@
       "GP_A3N": {
         "axisIndex": 5,
         "direction": "negative",
-        "peakDelta": 1.0196
+        "peakDelta": 1.0039
       },
       "GP_A3P": {
         "axisIndex": 5,
         "direction": "positive",
-        "peakDelta": 0.9804
+        "peakDelta": 0.9961
       }
     }
   }

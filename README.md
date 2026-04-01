@@ -9,7 +9,7 @@ It provides:
 - Runtime action events (pressed, held, released)
 - A framework-agnostic API that works in ThreeJS and non-ThreeJS apps
 
-Current input support in this MVP: keyboard only.
+Current input support in this MVP: keyboard plus browser Gamepad API input, including generated exact controller profiles with family and generic fallback labels.
 
 ## Features
 
@@ -21,6 +21,9 @@ Current input support in this MVP: keyboard only.
 - Change subscriptions so host apps can react to rebinds
 - Optional debug modal toggle key (default: F5)
 - Bottom hint overlay with per-action and bulk visibility controls
+- Gamepad binding capture and runtime action events
+- Exact controller labels from generated device profiles when available
+- Manual gamepad profile override and family/generic fallback behavior
 
 ## Install and Run
 
@@ -221,9 +224,50 @@ See style source in [src/ui/styles.js](src/ui/styles.js).
 
 ## Known Scope (Current MVP)
 
-- Keyboard device only
 - Browser environment only (DOM required for built-in UI)
-- No mouse/gamepad binding yet
+- No mouse binding yet
+
+## Controller Profiles
+
+Controller-specific profile generation and runtime matching live under [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md).
+
+Gamepad label resolution currently follows this order:
+- Manual override
+- Exact generated controller profile
+- Family fallback
+- Generic fallback
+
+The demo includes an `Input Debug` flow that exports capture JSON for processing with:
+
+```bash
+npm run process_controller_defs
+```
+
+Processed captures generate profile modules under [src/input/controller_definitions/profiles](src/input/controller_definitions/profiles) and refresh the registry in [src/input/controller_definitions/index.js](src/input/controller_definitions/index.js).
+
+## DualSense Advanced Input Strategy
+
+Bind Manager keeps the browser Gamepad API as the primary runtime path.
+
+Why this is primary:
+- Works across Chromium, Firefox, and Safari with no additional permission prompt.
+- Covers core binding needs (buttons, triggers, sticks, D-pad/hat mapping, profile labels).
+- Keeps the normal binding flow simple and stable for most users.
+
+WebHID remains optional and reference-only in this repo.
+
+Current reference artifact:
+- [docs/reference/dualsense-webhid-tester.html](docs/reference/dualsense-webhid-tester.html)
+
+Scope of the reference file:
+- It is a protocol/debugging reference for DualSense report parsing.
+- It is not part of the primary Bind Manager runtime input path.
+- It may be used later for optional advanced diagnostics (for example gyro/touch telemetry) behind explicit opt-in.
+
+Out of scope for the core runtime:
+- Full migration from Gamepad API to WebHID.
+- Requiring WebHID permissions for standard rebinding.
+- Shipping adaptive trigger effect output as a default feature.
 
 ## QA
 

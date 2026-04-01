@@ -7,6 +7,18 @@ describe('ModalController integration behavior', () => {
   beforeEach(() => {
     testCounter += 1;
     document.body.innerHTML = '';
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [
+        {
+          id: '054c-0ce6-DualSense Wireless Controller',
+          index: 0,
+          connected: true,
+          buttons: [],
+          axes: [],
+        },
+      ],
+    });
   });
 
   it('locks parallel capture and reset while capturing', () => {
@@ -39,6 +51,47 @@ describe('ModalController integration behavior', () => {
     expect(firstButton.classList.contains('bm-capturing')).toBe(false);
     expect(secondButton.disabled).toBe(false);
     expect(resetAllButton.disabled).toBe(false);
+
+    manager.destroy();
+  });
+
+  it('renders exact generated gamepad labels in the modal', () => {
+    const manager = createBindManager({ namespace: `modal-test-${testCounter}` });
+    manager.registerAction({
+      id: 'forward',
+      slots: 1,
+      gamepadSlots: 1,
+      defaultBindings: ['KeyW'],
+      defaultGamepadBindings: ['GP_B12'],
+    });
+
+    manager.open();
+
+    const gamepadButton = document.querySelector('.bm-bind-btn[data-device="gamepad"]');
+    expect(gamepadButton?.textContent).toBe('D-Pad Up');
+
+    manager.destroy();
+  });
+
+  it('allows overriding the active profile from the modal selector', () => {
+    const manager = createBindManager({ namespace: `modal-test-${testCounter}` });
+    manager.registerAction({
+      id: 'forward',
+      slots: 1,
+      gamepadSlots: 1,
+      defaultBindings: ['KeyW'],
+      defaultGamepadBindings: ['GP_B12'],
+    });
+
+    manager.open();
+
+    const select = document.querySelector('.bm-profile-select');
+    expect(select).not.toBeNull();
+    select.value = 'family:dualsense';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const gamepadButton = document.querySelector('.bm-bind-btn[data-device="gamepad"]');
+    expect(gamepadButton?.textContent).toBe('D-Up');
 
     manager.destroy();
   });

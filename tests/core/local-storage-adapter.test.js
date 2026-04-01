@@ -43,4 +43,15 @@ describe('LocalStorageAdapter', () => {
     adapter.clear();
     expect(adapter.load()).toBeNull();
   });
+
+  it('saves and loads gamepad profile overrides', () => {
+    const adapter = new LocalStorageAdapter(`overrides-${testCounter}`);
+    adapter.saveGamepadProfileOverrides({
+      '054c-0ce6': { type: 'family', family: 'dualsense' },
+    });
+
+    expect(adapter.loadGamepadProfileOverrides()).toEqual({
+      '054c-0ce6': { type: 'family', family: 'dualsense' },
+    });
+  });
 });

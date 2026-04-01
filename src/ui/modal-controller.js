@@ -80,6 +80,7 @@ export class ModalController {
         if (typeof window !== 'undefined') {
           window.addEventListener('bm-gamepad-connected',    this._onGamepadChange);
           window.addEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+          window.addEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
         }
     });
   }
@@ -91,6 +92,7 @@ export class ModalController {
         if (this._onGamepadChange && typeof window !== 'undefined') {
           window.removeEventListener('bm-gamepad-connected',    this._onGamepadChange);
           window.removeEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+          window.removeEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
         }
     this._overlay = null;
     this._container = null;
@@ -144,6 +146,7 @@ export class ModalController {
           <button class="bm-close-btn" aria-label="Close">✕</button>
         </div>
         <div class="bm-modal-body">
+          ${this._renderGamepadProfilePanel()}
           ${this._renderGroups(groups)}
         </div>
         <div class="bm-modal-footer">
@@ -162,6 +165,29 @@ export class ModalController {
         this._store.resetAll();
         this._render();
       });
+
+    const profileSelect = this._overlay.querySelector('.bm-profile-select');
+    if (profileSelect) {
+      profileSelect.addEventListener('change', () => {
+        const gamepadIndex = parseInt(profileSelect.dataset.gamepadIndex || '0', 10);
+        const value = profileSelect.value;
+        if (value === '__auto__') {
+          this._gamepadRuntime?.clearProfileOverride(gamepadIndex);
+        } else {
+          this._gamepadRuntime?.setProfileOverride(gamepadIndex, _parseProfileOverrideValue(value));
+        }
+        this._render();
+      });
+    }
+
+    const profileAutoBtn = this._overlay.querySelector('.bm-profile-auto-btn');
+    if (profileAutoBtn) {
+      profileAutoBtn.addEventListener('click', () => {
+        const gamepadIndex = parseInt(profileAutoBtn.dataset.gamepadIndex || '0', 10);
+        this._gamepadRuntime?.clearProfileOverride(gamepadIndex);
+        this._render();
+      });
+    }
 
     for (const btn of this._overlay.querySelectorAll('.bm-bind-btn')) {
       btn.addEventListener('click', () => {
@@ -282,6 +308,54 @@ export class ModalController {
       </div>`;
   }
 
+  _renderGamepadProfilePanel() {
+    const connected = this._gamepadRuntime?.getConnectedGamepads?.() ?? [];
+    if (connected.length === 0) {
+      return `
+        <div class="bm-profile-panel bm-profile-panel-empty">
+          <div class="bm-profile-summary">Gamepad profile: no controller connected.</div>
+        </div>
+      `;
+    }
+
+    const primaryGamepad = connected[0];
+    const resolved = this._gamepadRuntime.getResolvedProfile(primaryGamepad.index);
+    const override = this._gamepadRuntime.getProfileOverride(primaryGamepad.index);
+    const options = this._gamepadRuntime.getAvailableProfileOptions(primaryGamepad.index);
+    const selectedValue = override ? _serialiseProfileOverrideValue(override) : '__auto__';
+    const sourceLabel = {
+      manual: 'Manual override',
+      exact: 'Exact match',
+      family: 'Family fallback',
+      generic: 'Generic fallback',
+    }[resolved.source] ?? resolved.source;
+
+    const exactOptions = options.exactProfiles
+      .map((option) => `<option value="${_esc(_serialiseProfileOverrideValue(option))}" ${selectedValue === _serialiseProfileOverrideValue(option) ? 'selected' : ''}>Exact: ${_esc(option.label)}</option>`)
+      .join('');
+    const familyOptions = options.families
+      .map((option) => `<option value="${_esc(_serialiseProfileOverrideValue(option))}" ${selectedValue === _serialiseProfileOverrideValue(option) ? 'selected' : ''}>Family: ${_esc(option.label)}</option>`)
+      .join('');
+
+    return `
+      <div class="bm-profile-panel">
+        <div class="bm-profile-summary">
+          <strong>Gamepad profile:</strong> ${_esc(sourceLabel)}
+          <span class="bm-profile-meta">${_esc(resolved.definition?.sourceName ?? resolved.family)}</span>
+        </div>
+        <div class="bm-profile-subtitle">${_esc(primaryGamepad.id)}</div>
+        <div class="bm-profile-controls">
+          <select class="bm-profile-select" data-gamepad-index="${primaryGamepad.index}">
+            <option value="__auto__" ${selectedValue === '__auto__' ? 'selected' : ''}>Auto detect</option>
+            ${exactOptions}
+            ${familyOptions}
+          </select>
+          <button class="bm-profile-auto-btn" data-gamepad-index="${primaryGamepad.index}" type="button">Auto</button>
+        </div>
+      </div>
+    `;
+  }
+
   _startCapture(actionId, slot, buttonEl, device = 'keyboard') {
     if (this._captureTarget) return;
     this._captureTarget = { actionId, slot, device, buttonEl };
@@ -383,8 +457,10 @@ export class ModalController {
   }
 
   _getGamepadLabel(code) {
-    const profile = this._gamepadRuntime ? this._gamepadRuntime.getActiveProfile() : 'generic';
-    return getGamepadLabel(code, profile);
+    if (this._gamepadRuntime?.getLabelForCode) {
+      return this._gamepadRuntime.getLabelForCode(code);
+    }
+    return getGamepadLabel(code, 'generic');
   }
 
   _hideConflictWarning() {
@@ -401,4 +477,22 @@ function _esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function _serialiseProfileOverrideValue(override) {
+  if (!override || typeof override !== 'object') return '__auto__';
+  if (override.type === 'profile') return `profile:${override.key}`;
+  if (override.type === 'family') return `family:${override.family}`;
+  return '__auto__';
+}
+
+function _parseProfileOverrideValue(value) {
+  if (typeof value !== 'string') return null;
+  if (value.startsWith('profile:')) {
+    return { type: 'profile', key: value.slice('profile:'.length) };
+  }
+  if (value.startsWith('family:')) {
+    return { type: 'family', family: value.slice('family:'.length) };
+  }
+  return null;
 }

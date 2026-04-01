@@ -43,6 +43,7 @@ export class HintsController {
       if (typeof window !== 'undefined') {
         window.addEventListener('bm-gamepad-connected',    this._onGamepadChange);
         window.addEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+        window.addEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
       }
   }
 
@@ -52,6 +53,7 @@ export class HintsController {
         if (this._onGamepadChange && typeof window !== 'undefined') {
           window.removeEventListener('bm-gamepad-connected',    this._onGamepadChange);
           window.removeEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+          window.removeEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
         }
     this._bar = null;
   }
@@ -113,8 +115,12 @@ export class HintsController {
       const gpBindings = this._store.get(actionId, 'gamepad')  ?? [];
 
       const kbKeys = kbBindings.filter(Boolean).map(getKeyLabel);
-      const profile = this._gamepadRuntime?.getActiveProfile() ?? 'generic';
-      const gpKeys = gpBindings.filter(Boolean).map(code => getGamepadLabel(code, profile));
+      const gpKeys = gpBindings.filter(Boolean).map((code) => {
+        if (this._gamepadRuntime?.getLabelForCode) {
+          return this._gamepadRuntime.getLabelForCode(code);
+        }
+        return getGamepadLabel(code, 'generic');
+      });
 
       if (kbKeys.length === 0 && gpKeys.length === 0) continue;
 

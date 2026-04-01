@@ -87,24 +87,54 @@ function validateCaptureSanity(capture) {
   }
 
   const target = capture?.runMeta?.targetController;
-  if (!target || typeof target !== 'object') {
-    errors.push('runMeta.targetController is missing');
-    return { errors, warnings };
+  const hasTarget = !!target && typeof target === 'object';
+  if (!hasTarget) {
+    warnings.push('runMeta.targetController is missing; processor will attempt VID/PID fallback from capture file name');
+  } else {
+    if (!target.id || typeof target.id !== 'string') {
+      warnings.push('runMeta.targetController.id missing or invalid; processor will attempt VID/PID fallback from capture file name');
+    } else {
+      const idInfo = parseControllerId(target.id || null);
+      if (!idInfo.vendorId || !idInfo.productId) {
+        warnings.push('could not extract vendorId/productId from targetController.id; processor will attempt fallback from capture file name');
+      }
+    }
   }
 
-  if (!target.id || typeof target.id !== 'string') {
-    errors.push('runMeta.targetController.id must be a non-empty string');
-  }
-
-  const idInfo = parseControllerId(target.id || null);
-  if (!idInfo.vendorId || !idInfo.productId) {
-    errors.push('could not extract vendorId/productId from targetController.id');
-  }
+  const hasControllerDefinition = !!capture?.controllerDefinition && typeof capture.controllerDefinition === 'object';
+  const hasControllerDefinitionMappings = hasControllerDefinition
+    && ((capture.controllerDefinition.buttons && Object.keys(capture.controllerDefinition.buttons).length > 0)
+      || (capture.controllerDefinition.axes && Object.keys(capture.controllerDefinition.axes).length > 0));
 
   const captures = Array.isArray(capture.captures) ? capture.captures : null;
   if (!captures || captures.length === 0) {
+    if (hasControllerDefinitionMappings) {
+      warnings.push('captures array is missing/empty; using controllerDefinition mappings as fallback');
+      return { errors, warnings };
+    }
     errors.push('captures array is missing or empty');
     return { errors, warnings };
+  }
+
+  const hasDetectedCapture = captures.some((entry) => entry?.detected && typeof entry.detected === 'object');
+  if (!hasDetectedCapture && hasControllerDefinitionMappings) {
+    warnings.push('captures contain no detected mappings; using controllerDefinition mappings as fallback');
+    return { errors, warnings };
+  }
+
+  const sequence = Array.isArray(capture.sequence) ? capture.sequence : null;
+  if (sequence && sequence.length > 0) {
+    const len = Math.min(sequence.length, captures.length);
+    for (let i = 0; i < len; i++) {
+      const seqExpected = sequence[i]?.expectedCode;
+      const capExpected = captures[i]?.expectedCode;
+      if (typeof seqExpected !== 'string' || typeof capExpected !== 'string') continue;
+      if (seqExpected !== capExpected) {
+        warnings.push(
+          `step ${i + 1}: sequence.expectedCode=${seqExpected} differs from captures.expectedCode=${capExpected} (processor uses captures)`
+        );
+      }
+    }
   }
 
   const expectedSeen = new Set();
@@ -238,10 +268,22 @@ function toControllerDefinition(capture, fileName) {
   const runMeta = capture.runMeta ?? {};
   const targetController = runMeta.targetController ?? {};
   const sourceId = typeof targetController.id === 'string' ? targetController.id : null;
-  const idInfo = parseControllerId(sourceId);
+  let idInfo = parseControllerId(sourceId);
+  if (!idInfo.vendorId || !idInfo.productId) {
+    const fileIdInfo = parseControllerIdFromFileName(fileName);
+    if (fileIdInfo.vendorId && fileIdInfo.productId) {
+      idInfo = {
+        vendorId: fileIdInfo.vendorId,
+        productId: fileIdInfo.productId,
+        name: idInfo.name || 'Unknown Controller',
+      };
+    }
+  }
   if (!idInfo.vendorId || !idInfo.productId) {
     throw new Error('unable to derive vendorId/productId from targetController.id');
   }
+  const key = `${idInfo.vendorId}-${idInfo.productId}`;
+  const existingProfile = readExistingProfileDefinition(key);
 
   const captures = Array.isArray(capture.captures) ? capture.captures : [];
   const mapping = {};
@@ -275,6 +317,46 @@ function toControllerDefinition(capture, fileName) {
     };
   }
 
+  // Fallback: include controllerDefinition mappings (useful for tester edit-mode exports
+  // that only modify a subset of captures or have null detected entries).
+  const fallbackButtons = capture?.controllerDefinition?.buttons;
+  if (fallbackButtons && typeof fallbackButtons === 'object') {
+    for (const [expected, entry] of Object.entries(fallbackButtons)) {
+      if (!Number.isInteger(entry?.buttonIndex)) continue;
+      if (!mapping[expected]) {
+        mapping[expected] = {
+          kind: 'button',
+          index: entry.buttonIndex,
+        };
+      }
+    }
+  }
+  const fallbackAxes = capture?.controllerDefinition?.axes;
+  if (fallbackAxes && typeof fallbackAxes === 'object') {
+    for (const [expected, entry] of Object.entries(fallbackAxes)) {
+      if (!Number.isInteger(entry?.axisIndex)) continue;
+      if (!mapping[expected]) {
+        mapping[expected] = {
+          kind: 'axis',
+          index: entry.axisIndex,
+          direction: entry.direction === 'negative' ? 'negative' : 'positive',
+        };
+      }
+    }
+  }
+
+  // Fallback labels from sequence when captures are sparse.
+  if (Array.isArray(capture.sequence)) {
+    for (const step of capture.sequence) {
+      const expected = step?.expectedCode;
+      const label = step?.label;
+      if (typeof expected !== 'string') continue;
+      if (!labels[expected] && typeof label === 'string' && label.trim()) {
+        labels[expected] = label.trim();
+      }
+    }
+  }
+
   // If D-pad entries collapse to one axis-direction in captures, represent them as
   // hat-value mappings so runtime can resolve all four directions distinctly.
   applyDpadHatHeuristic(mapping);
@@ -283,12 +365,31 @@ function toControllerDefinition(capture, fileName) {
     throw new Error(generatedSanity.errors.join('; '));
   }
 
-  const sourceButtons = Number.isInteger(targetController.buttons) ? targetController.buttons : null;
-  const sourceAxes = Number.isInteger(targetController.axes) ? targetController.axes : null;
+  const mergedMapping = {
+    ...(existingProfile?.mapping && typeof existingProfile.mapping === 'object' ? existingProfile.mapping : {}),
+    ...mapping,
+  };
+  const mergedLabels = {
+    ...(existingProfile?.labels && typeof existingProfile.labels === 'object' ? existingProfile.labels : {}),
+    ...labels,
+  };
+
+  const sourceButtons = Number.isInteger(targetController.buttons)
+    ? targetController.buttons
+    : (Number.isInteger(existingProfile?.sourceButtons) ? existingProfile.sourceButtons : null);
+  const sourceAxes = Number.isInteger(targetController.axes)
+    ? targetController.axes
+    : (Number.isInteger(existingProfile?.sourceAxes) ? existingProfile.sourceAxes : null);
+  const profileHint = typeof capture?.controllerDefinition?.profileHint === 'string'
+    ? capture.controllerDefinition.profileHint.trim().toLowerCase()
+    : (typeof existingProfile?.profileHint === 'string' ? existingProfile.profileHint : null);
+  const family = typeof capture?.controllerDefinition?.family === 'string'
+    ? capture.controllerDefinition.family.trim().toLowerCase()
+    : profileHint;
 
   return {
     captureFile: fileName,
-    key: `${idInfo.vendorId}-${idInfo.productId}`,
+    key,
     vendorId: idInfo.vendorId,
     productId: idInfo.productId,
     sourceName: idInfo.name,
@@ -296,11 +397,39 @@ function toControllerDefinition(capture, fileName) {
     sourceButtons,
     sourceAxes,
     capturedAt: typeof capture.generatedAt === 'string' ? capture.generatedAt : null,
-    profileHint: typeof capture?.controllerDefinition?.profileHint === 'string'
-      ? capture.controllerDefinition.profileHint
-      : null,
-    mapping,
-    labels,
+    profileHint,
+    family,
+    mapping: mergedMapping,
+    labels: mergedLabels,
+  };
+}
+
+function readExistingProfileDefinition(key) {
+  const filePath = path.join(DEFS_DIR, `${key}.js`);
+  if (!fs.existsSync(filePath)) return null;
+  const text = fs.readFileSync(filePath, 'utf8');
+  const marker = 'export const controllerDefinition = ';
+  const start = text.indexOf(marker);
+  if (start < 0) return null;
+  const end = text.indexOf(';', start + marker.length);
+  if (end < 0) return null;
+  const rawObject = text.slice(start + marker.length, end).trim();
+  try {
+    return JSON.parse(rawObject);
+  } catch {
+    return null;
+  }
+}
+
+function parseControllerIdFromFileName(fileName) {
+  const base = String(fileName || '').replace(/\.json$/i, '');
+  const m = base.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})(?:[_-].+)?$/);
+  if (!m) {
+    return { vendorId: null, productId: null };
+  }
+  return {
+    vendorId: m[1].toLowerCase(),
+    productId: m[2].toLowerCase(),
   };
 }
 
@@ -379,6 +508,7 @@ function renderProfileFile(definition) {
     sourceAxes: definition.sourceAxes,
     capturedAt: definition.capturedAt,
     profileHint: definition.profileHint,
+    family: definition.family,
     labels: definition.labels,
     mapping: definition.mapping,
   };
@@ -455,6 +585,27 @@ function renderIndex(definitions, fileNames) {
     ' */',
     'export function getControllerProfiles() {',
     '  return controllerProfiles;',
+    '}',
+    '',
+    '/**',
+    ' * Return one generated controller profile by exact key.',
+    ' */',
+    'export function getControllerProfile(key) {',
+    '  if (typeof key !== "string") return null;',
+    '  return controllerProfiles[key.toLowerCase()] ?? null;',
+    '}',
+    '',
+    '/**',
+    ' * Return generated controller profiles belonging to a family.',
+    ' */',
+    'export function findControllerProfilesByFamily(family) {',
+    '  const f = typeof family === "string" ? family.toLowerCase() : null;',
+    '  if (!f) return [];',
+    '  return Object.values(controllerProfiles).filter((profile) => {',
+    '    if (!profile) return false;',
+    '    const candidate = typeof profile.family === "string" ? profile.family : profile.profileHint;',
+    '    return typeof candidate === "string" && candidate.toLowerCase() === f;',
+    '  });',
     '}',
     '',
     '/**',

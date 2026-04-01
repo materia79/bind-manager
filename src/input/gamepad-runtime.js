@@ -15,11 +15,20 @@
  *   'bm-gamepad-disconnected' { detail: Gamepad }
  */
 import { isGamepadCode } from './gamepad-codes.js';
-import { detectGamepadProfile } from './gamepad-profiles.js';
-import { findControllerProfileByGamepadId } from './controller_definitions/index.js';
+import {
+  getAvailableGamepadProfileOptions,
+  getGamepadIdentityKey,
+  getResolvedGamepadLabel,
+  normaliseGamepadProfileOverride,
+  resolveGamepadProfile,
+} from './gamepad-profile-resolver.js';
 
 const GP_BUTTON_COUNT = 17;
 const GP_AXIS_COUNT   = 4;
+
+function deepClone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
 
 export class GamepadRuntime {
   /**
@@ -32,11 +41,18 @@ export class GamepadRuntime {
     this._registry        = registry;
     this._deadband        = options.deadband        ?? 0.12;
     this._analogThreshold = options.analogThreshold ?? 0.50;
+    this._onProfileOverridesChange = typeof options.onProfileOverridesChange === 'function'
+      ? options.onProfileOverridesChange
+      : null;
 
     /** @type {Map<number, { buttons: boolean[], axes: number[] }>} */
     this._curState = new Map();
     /** @type {Map<number, any>} */
-    this._controllerProfileByGamepadIndex = new Map();
+    this._resolvedProfileByGamepadIndex = new Map();
+    /** @type {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>} */
+    this._profileOverrides = new Map(Object.entries(options.profileOverrides ?? {}));
+    /** @type {Map<string, any>} */
+    this._profileDefinitionOverrides = new Map();
     /** @type {Map<string, CompiledControllerMapping>} */
     this._compiledProfileCache = new Map();
 
@@ -168,10 +184,18 @@ export class GamepadRuntime {
    * @returns {{ index: number, id: string, profile: string }[]}
    */
   getConnectedGamepads() {
-    if (typeof navigator === 'undefined') return [];
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return [];
     return [...navigator.getGamepads()]
       .filter(Boolean)
-      .map(g => ({ index: g.index, id: g.id, profile: detectGamepadProfile(g.id) }));
+      .map((g) => {
+        const resolvedProfile = this._getResolvedProfileForGamepad(g);
+        return {
+          index: g.index,
+          id: g.id,
+          profile: resolvedProfile.family,
+          resolvedProfile,
+        };
+      });
   }
 
   /**
@@ -180,20 +204,172 @@ export class GamepadRuntime {
    * @returns {string}
    */
   getActiveProfile(gamepadIndex = 0) {
-    if (typeof navigator === 'undefined') return 'generic';
+    return this.getResolvedProfile(gamepadIndex).family;
+  }
+
+  /**
+   * Get the resolved profile state for a connected gamepad.
+   * @param {number} [gamepadIndex=0]
+   * @returns {{ source: string, family: string, profileHint: string, profileKey: string | null, definition: any | null, gamepadId: string | null }}
+   */
+  getResolvedProfile(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return resolveGamepadProfile(null);
     const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
-    if (!gp) return 'generic';
-    const mapped = this._getControllerProfile(gp);
-    if (mapped?.profileHint) return mapped.profileHint;
-    return detectGamepadProfile(gp.id);
+    if (!gp) return resolveGamepadProfile(null);
+    return this._getResolvedProfileForGamepad(gp);
+  }
+
+  /**
+   * Resolve a display label for a GP_* code based on the active gamepad profile.
+   * @param {string | null} code
+   * @param {number} [gamepadIndex=0]
+   * @returns {string}
+   */
+  getLabelForCode(code, gamepadIndex = 0) {
+    return getResolvedGamepadLabel(code, this.getResolvedProfile(gamepadIndex));
+  }
+
+  /**
+   * Get available profile override options for the connected gamepad.
+   * @param {number} [gamepadIndex=0]
+   * @returns {{ exactProfiles: Array<{ type: string, key: string, label: string, family: string }>, families: Array<{ type: string, family: string, label: string }>, autoResolved: any }}
+   */
+  getAvailableProfileOptions(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return getAvailableGamepadProfileOptions(null);
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    return getAvailableGamepadProfileOptions(gp?.id ?? null);
+  }
+
+  /**
+   * @param {number} [gamepadIndex=0]
+   * @returns {{ type: 'profile', key: string } | { type: 'family', family: string } | null}
+   */
+  getProfileOverride(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    const identityKey = getGamepadIdentityKey(gp?.id ?? null);
+    return identityKey ? this._profileOverrides.get(identityKey) ?? null : null;
+  }
+
+  /**
+   * @param {number} [gamepadIndex=0]
+   * @param {{ type: 'profile', key: string } | { type: 'family', family: string } | null} override
+   * @returns {boolean}
+   */
+  setProfileOverride(gamepadIndex = 0, override = null) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return false;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    const identityKey = getGamepadIdentityKey(gp?.id ?? null);
+    if (!gp || !identityKey) return false;
+
+    const normalised = normaliseGamepadProfileOverride(override);
+    if (!normalised) {
+      return this.clearProfileOverride(gamepadIndex);
+    }
+
+    this._profileOverrides.set(identityKey, normalised);
+    this._resolvedProfileByGamepadIndex.delete(gp.index);
+    this._emitProfileChange(gp.index, gp.id);
+    return true;
+  }
+
+  /**
+   * @param {number} [gamepadIndex=0]
+   * @returns {boolean}
+   */
+  clearProfileOverride(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return false;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    const identityKey = getGamepadIdentityKey(gp?.id ?? null);
+    if (!gp || !identityKey) return false;
+
+    const deleted = this._profileOverrides.delete(identityKey);
+    this._resolvedProfileByGamepadIndex.delete(gp.index);
+    this._emitProfileChange(gp.index, gp.id);
+    return deleted;
+  }
+
+  /**
+   * Set or replace a single logical mapping entry for the active gamepad profile in memory.
+   * @param {number} [gamepadIndex=0]
+   * @param {string} code
+   * @param {{ kind: 'button' | 'axis' | 'hat', index: number, direction?: 'negative' | 'positive', value?: number, tolerance?: number } | null} entry
+   * @param {{ label?: string | null }} [options]
+   * @returns {boolean}
+   */
+  setProfileMappingEntry(gamepadIndex = 0, code, entry, options = {}) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return false;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    const identityKey = getGamepadIdentityKey(gp?.id ?? null);
+    if (!gp || !identityKey || typeof code !== 'string' || !code.trim()) return false;
+
+    const resolved = this._getResolvedProfileForGamepad(gp);
+    const editable = this._createEditableDefinition(gp, resolved);
+    if (!editable.mapping || typeof editable.mapping !== 'object') editable.mapping = {};
+    if (!editable.labels || typeof editable.labels !== 'object') editable.labels = {};
+
+    if (!entry || typeof entry !== 'object') {
+      delete editable.mapping[code];
+    } else {
+      const normalised = this._normaliseMappingEntry(entry);
+      if (!normalised) return false;
+      if (normalised.kind === 'hat') {
+        editable.mapping[code] = {
+          kind: 'hat',
+          index: normalised.index,
+          value: normalised.value,
+          tolerance: normalised.tolerance,
+        };
+      } else {
+        editable.mapping[code] = {
+          kind: normalised.kind,
+          index: normalised.index,
+          direction: normalised.direction,
+        };
+      }
+    }
+
+    if (typeof options.label === 'string' && options.label.trim()) {
+      editable.labels[code] = options.label.trim();
+    }
+
+    editable.capturedAt = new Date().toISOString();
+    this._profileDefinitionOverrides.set(identityKey, editable);
+    this._resolvedProfileByGamepadIndex.delete(gp.index);
+    this._compiledProfileCache.clear();
+    this._emitProfileChange(gp.index, gp.id);
+    return true;
+  }
+
+  /**
+   * Remove a logical mapping entry from the active gamepad profile in memory.
+   * @param {number} [gamepadIndex=0]
+   * @param {string} code
+   * @returns {boolean}
+   */
+  removeProfileMappingEntry(gamepadIndex = 0, code) {
+    return this.setProfileMappingEntry(gamepadIndex, code, null);
+  }
+
+  /**
+   * Get the current in-memory profile definition for a connected gamepad.
+   * @param {number} [gamepadIndex=0]
+   * @returns {any | null}
+   */
+  getProfileDefinition(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    if (!gp) return null;
+    const resolved = this._getResolvedProfileForGamepad(gp);
+    return resolved?.definition ? deepClone(resolved.definition) : null;
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
 
   _handleConnect(e) {
-    this._controllerProfileByGamepadIndex.set(
+    this._resolvedProfileByGamepadIndex.set(
       e.gamepad.index,
-      findControllerProfileByGamepadId(e.gamepad.id),
+      resolveGamepadProfile(e.gamepad.id, { override: this._getOverrideForGamepadId(e.gamepad.id) }),
     );
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-connected', { detail: e.gamepad }));
@@ -202,7 +378,7 @@ export class GamepadRuntime {
 
   _handleDisconnect(e) {
     this._curState.delete(e.gamepad.index);
-    this._controllerProfileByGamepadIndex.delete(e.gamepad.index);
+    this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-disconnected', { detail: e.gamepad }));
     }
@@ -316,8 +492,8 @@ export class GamepadRuntime {
    * @private
    */
   _snapshotLogicalState(gamepad) {
-    const profile = this._getControllerProfile(gamepad);
-    const compiled = this._compileControllerMapping(profile);
+    const resolvedProfile = this._getResolvedProfileForGamepad(gamepad);
+    const compiled = this._compileControllerMapping(resolvedProfile?.definition ?? null);
 
     if (!compiled) {
       const buttons = new Array(GP_BUTTON_COUNT).fill(false);
@@ -365,13 +541,98 @@ export class GamepadRuntime {
    * @returns {any | null}
    * @private
    */
-  _getControllerProfile(gamepad) {
-    if (this._controllerProfileByGamepadIndex.has(gamepad.index)) {
-      return this._controllerProfileByGamepadIndex.get(gamepad.index);
+  _getResolvedProfileForGamepad(gamepad) {
+    if (this._resolvedProfileByGamepadIndex.has(gamepad.index)) {
+      return this._resolvedProfileByGamepadIndex.get(gamepad.index);
     }
-    const profile = findControllerProfileByGamepadId(gamepad.id);
-    this._controllerProfileByGamepadIndex.set(gamepad.index, profile);
-    return profile;
+    const resolvedProfile = resolveGamepadProfile(gamepad.id, {
+      override: this._getOverrideForGamepadId(gamepad.id),
+    });
+    const identityKey = getGamepadIdentityKey(gamepad.id);
+    const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
+    const finalResolved = editedDefinition
+      ? {
+          ...resolvedProfile,
+          source: 'memory-edit',
+          definition: deepClone(editedDefinition),
+          profileKey: editedDefinition.key ?? resolvedProfile.profileKey ?? null,
+          profileHint: editedDefinition.profileHint ?? resolvedProfile.profileHint,
+          family: editedDefinition.family ?? resolvedProfile.family,
+        }
+      : resolvedProfile;
+    this._resolvedProfileByGamepadIndex.set(gamepad.index, finalResolved);
+    return finalResolved;
+  }
+
+  _getOverrideForGamepadId(gamepadId) {
+    const identityKey = getGamepadIdentityKey(gamepadId);
+    return identityKey ? this._profileOverrides.get(identityKey) ?? null : null;
+  }
+
+  _emitProfileChange(gamepadIndex, gamepadId) {
+    const payload = Object.fromEntries(this._profileOverrides);
+    this._onProfileOverridesChange?.(payload);
+    if (typeof window !== 'undefined') {
+      const identityKey = getGamepadIdentityKey(gamepadId);
+      const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
+      const resolved = resolveGamepadProfile(gamepadId, {
+        override: this._getOverrideForGamepadId(gamepadId),
+      });
+      const resolvedProfile = editedDefinition
+        ? {
+            ...resolved,
+            source: 'memory-edit',
+            definition: deepClone(editedDefinition),
+            profileKey: editedDefinition.key ?? resolved.profileKey ?? null,
+            profileHint: editedDefinition.profileHint ?? resolved.profileHint,
+            family: editedDefinition.family ?? resolved.family,
+          }
+        : resolved;
+      window.dispatchEvent(new CustomEvent('bm-gamepad-profile-changed', {
+        detail: {
+          gamepadIndex,
+          gamepadId,
+          resolvedProfile,
+        },
+      }));
+    }
+  }
+
+  _createEditableDefinition(gamepad, resolvedProfile) {
+    const identityKey = getGamepadIdentityKey(gamepad?.id ?? null);
+    const existing = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
+    if (existing) return deepClone(existing);
+
+    const base = deepClone(resolvedProfile?.definition) || {};
+    const idMatch = typeof gamepad?.id === 'string'
+      ? gamepad.id.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-(.+)$/)
+      : null;
+    const vendorId = idMatch?.[1]?.toLowerCase() ?? null;
+    const productId = idMatch?.[2]?.toLowerCase() ?? null;
+
+    return {
+      key: base.key ?? (vendorId && productId ? `${vendorId}-${productId}` : identityKey ?? 'custom-profile'),
+      vendorId: base.vendorId ?? vendorId,
+      productId: base.productId ?? productId,
+      sourceName: base.sourceName ?? (typeof gamepad?.id === 'string' ? gamepad.id : 'Unknown Controller'),
+      sourceId: base.sourceId ?? (typeof gamepad?.id === 'string' ? gamepad.id : null),
+      sourceButtons: base.sourceButtons ?? (gamepad?.buttons?.length ?? null),
+      sourceAxes: base.sourceAxes ?? (gamepad?.axes?.length ?? null),
+      capturedAt: new Date().toISOString(),
+      profileHint: base.profileHint ?? resolvedProfile?.profileHint ?? resolvedProfile?.family ?? 'generic',
+      family: base.family ?? resolvedProfile?.family ?? 'generic',
+      labels: base.labels && typeof base.labels === 'object' ? base.labels : {},
+      mapping: base.mapping && typeof base.mapping === 'object' ? base.mapping : {},
+    };
+  }
+
+  /**
+   * @param {Gamepad} gamepad
+   * @returns {any | null}
+   * @private
+   */
+  _getControllerProfile(gamepad) {
+    return this._getResolvedProfileForGamepad(gamepad)?.definition ?? null;
   }
 
   /**
@@ -382,7 +643,7 @@ export class GamepadRuntime {
    */
   _compileControllerMapping(profile) {
     if (!profile || typeof profile !== 'object' || !profile.mapping) return null;
-    const key = `${profile.vendorId ?? 'unknown'}-${profile.productId ?? 'unknown'}`;
+    const key = `${profile.vendorId ?? 'unknown'}-${profile.productId ?? 'unknown'}:${JSON.stringify(profile.mapping)}`;
     if (this._compiledProfileCache.has(key)) {
       return this._compiledProfileCache.get(key);
     }

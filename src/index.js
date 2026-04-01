@@ -20,3 +20,8 @@ export {
 	detectGamepadProfile,
 	getGamepadLabel,
 } from './input/gamepad-profiles.js';
+export {
+	getControllerFamily,
+	getResolvedGamepadLabel,
+	resolveGamepadProfile,
+} from './input/gamepad-profile-resolver.js';

@@ -383,6 +383,24 @@
       pointer-events: none;
     }
 
+    #tester-controller.tester-edit-mode .tester-node.editable {
+      pointer-events: auto;
+      cursor: pointer;
+      border-style: dashed;
+    }
+
+    #tester-controller.tester-edit-mode .tester-node.editable:hover {
+      transform: scale(1.06);
+      border-color: rgba(236, 248, 255, 0.86);
+    }
+
+    .tester-node.selected {
+      border-color: #ffd56a;
+      box-shadow: 0 0 14px rgba(255, 213, 106, 0.7);
+      background: rgba(62, 41, 8, 0.92);
+      color: #fff8e5;
+    }
+
     .tester-node.active {
       border-color: #7cf0ff;
       box-shadow: 0 0 14px rgba(124, 240, 255, 0.75);
@@ -471,6 +489,172 @@
       margin-top: 8px;
       font-size: 12px;
       color: #8eb8d4;
+
+        .tester-raw-section {
+          margin-top: 6px;
+          text-align: left;
+        }
+
+        .tester-raw-pre {
+          font-family: 'Courier New', Courier, monospace;
+          font-size: 10px;
+          line-height: 1.5;
+          color: #7cc8ea;
+          background: rgba(7, 15, 23, 0.88);
+          border: 1px solid rgba(100, 180, 220, 0.18);
+          border-radius: 6px;
+          padding: 8px 10px;
+          margin-top: 6px;
+          max-height: 220px;
+          overflow-y: auto;
+          white-space: pre;
+          text-align: left;
+        }
+
+        .tester-trigger-edit {
+          position: absolute;
+          left: 50%;
+          top: 94px;
+          transform: translateX(-50%);
+          display: flex;
+          gap: 6px;
+          align-items: center;
+          padding: 4px 8px;
+          border-radius: 999px;
+          border: 1px solid rgba(100, 180, 220, 0.25);
+          background: rgba(7, 15, 23, 0.82);
+          font-size: 11px;
+          color: #b8def8;
+          z-index: 3;
+        }
+
+        .tester-trigger-edit span {
+          opacity: 0.9;
+          white-space: nowrap;
+        }
+
+        .tester-code-btn {
+          font-size: 11px;
+          padding: 2px 8px;
+          height: 26px;
+        }
+
+        .tester-code-btn.active {
+          border-color: #4dd;
+          background: rgba(0, 30, 40, 0.9);
+          color: #aff;
+        }
+
+        .tester-code-btn.selected {
+          border-color: #ffd56a;
+          background: rgba(62, 41, 8, 0.9);
+          color: #fff8e5;
+        }
+
+        .tester-bindings-section {
+          margin-top: 8px;
+          border: 1px solid rgba(100, 180, 220, 0.2);
+          border-radius: 8px;
+          background: rgba(8, 16, 24, 0.75);
+          padding: 8px;
+        }
+
+        .tester-bindings-head {
+          font-size: 12px;
+          color: #b8def8;
+          margin-bottom: 6px;
+        }
+
+        .tester-bindings-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+          display: grid;
+          gap: 6px;
+        }
+
+        .tester-binding-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid rgba(100, 180, 220, 0.15);
+          border-radius: 6px;
+          padding: 6px 8px;
+          background: rgba(11, 20, 30, 0.8);
+          font-size: 12px;
+          color: #d6ecff;
+        }
+
+        .tester-binding-meta {
+          color: #8eb8d4;
+          font-size: 11px;
+        }
+
+        .tester-binding-remove {
+          height: 24px;
+          padding: 2px 8px;
+          font-size: 11px;
+          flex-shrink: 0;
+        }
+
+        .tester-binding-empty {
+          color: #8eb8d4;
+          font-size: 12px;
+          font-style: italic;
+          border: 1px dashed rgba(100, 180, 220, 0.2);
+          border-radius: 6px;
+          padding: 6px 8px;
+        }
+
+        #capture-mini-modal {
+          position: fixed;
+          inset: 0;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          background: rgba(0, 0, 0, 0.55);
+          z-index: 4500;
+        }
+
+        #capture-mini-modal.open {
+          display: flex;
+        }
+
+        #capture-mini-panel {
+          width: min(560px, 92vw);
+          max-height: 80vh;
+          overflow: auto;
+          border-radius: 12px;
+          border: 1px solid rgba(110, 200, 230, 0.35);
+          background: linear-gradient(180deg, rgba(10, 22, 34, 0.98), rgba(8, 16, 24, 0.98));
+          color: #d6ecff;
+          padding: 12px 14px;
+          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+        }
+
+        #capture-mini-instruction {
+          margin-top: 6px;
+          font-size: 14px;
+          color: #d6ecff;
+        }
+
+        #capture-mini-countdown {
+          margin-top: 6px;
+          font-size: 13px;
+          color: #8fd6ff;
+        }
+
+        #capture-mini-live {
+          margin-top: 8px;
+          white-space: pre-wrap;
+          font-size: 12px;
+          color: #a7eaff;
+          border: 1px solid rgba(100, 180, 220, 0.2);
+          border-radius: 8px;
+          background: rgba(9, 18, 27, 0.8);
+          padding: 8px;
+        }
     }
 
     @media (max-width: 860px) {
@@ -549,6 +733,16 @@
       <div class="debug-body">
         <div class="debug-card">
           <h3>Guided Test</h3>
+          <div class="debug-small">Resolved controller profile</div>
+          <div id="debug-profile-status">Profile: waiting for controller</div>
+          <div class="debug-actions">
+            <select id="debug-profile-select"></select>
+            <button class="hud-btn" id="debug-profile-auto-btn">Auto</button>
+          </div>
+          <div class="debug-small">Capture preset</div>
+          <div class="debug-actions">
+            <select id="debug-preset-select"></select>
+          </div>
           <div id="debug-status">Press Start Debug to begin the controller mapping routine.</div>
           <div id="debug-progress"></div>
           <div id="debug-countdown"></div>
@@ -556,9 +750,14 @@
           <div id="debug-live">(idle)</div>
           <div class="debug-actions">
             <button class="hud-btn" id="debug-start-btn">Start Debug</button>
-            <button class="hud-btn" id="debug-skip-btn">Skip Step</button>
+            <button class="hud-btn" id="debug-back-btn">Back</button>
+            <button class="hud-btn" id="debug-redo-btn">Redo</button>
+            <button class="hud-btn" id="debug-capture-btn">Capture</button>
+            <button class="hud-btn" id="debug-next-btn">Next</button>
             <button class="hud-btn" id="debug-copy-btn">Copy JSON</button>
+            <button class="hud-btn" id="debug-download-btn">Download JSON</button>
           </div>
+          <div id="debug-validation"></div>
           <div class="debug-small">Release all controls during normalization when prompted. Each control step records for 5 seconds.</div>
         </div>
         <div class="debug-card">
@@ -590,6 +789,13 @@
             </div>
             <div class="tester-node wide" data-code="GP_B6" style="left: 78px; top: 112px;">L2</div>
             <div class="tester-node wide" data-code="GP_B7" style="right: 78px; top: 112px;">R2</div>
+            <div id="tester-trigger-edit" class="tester-trigger-edit" style="display:none;">
+              <span>Trigger analog targets</span>
+              <button class="hud-btn tester-code-btn" data-code="GP_B6">L2</button>
+              <button class="hud-btn tester-code-btn" data-code="GP_B7">R2</button>
+              <button class="hud-btn tester-code-btn" data-code="GP_B6A">L2A</button>
+              <button class="hud-btn tester-code-btn" data-code="GP_B7A">R2A</button>
+            </div>
 
             <div class="tester-node" data-code="GP_B12" style="left: 56px; top: 132px;">U</div>
             <div class="tester-node" data-code="GP_B13" style="left: 56px; top: 190px;">D</div>
@@ -623,19 +829,52 @@
             <div class="tester-node" data-code="GP_B16" style="left: 256px; top: 160px;">PS</div>
             <div class="tester-node wide" data-code="GP_B9" style="left: 292px; top: 134px;">Options</div>
           </div>
+          <div class="tester-raw-section">
+            <button type="button" class="hud-btn" id="tester-raw-toggle-btn" style="font-size:11px;padding:2px 10px;height:26px;margin-top:6px;">Show raw input</button>
+            <pre id="tester-raw-pre" class="tester-raw-pre" hidden></pre>
+          </div>
         </div>
         <div class="tester-card">
           <h3>Signal Details</h3>
+          <div id="tester-profile-status">Profile: waiting for controller</div>
+          <div class="tester-actions">
+            <select id="tester-profile-select"></select>
+            <button class="hud-btn" id="tester-profile-auto-btn">Auto</button>
+          </div>
           <div id="tester-status">Connect a gamepad and press controls to test input mapping.</div>
           <div id="tester-detail">Idle.</div>
           <div class="tester-actions">
             <button class="hud-btn" id="tester-calibrate-btn">Calibrate Baseline</button>
+          </div>
+          <div class="tester-actions">
+            <button class="hud-btn" id="tester-edit-toggle-btn">Enable Edit Mode</button>
+            <button class="hud-btn" id="tester-capture-update-btn" disabled>Capture Update</button>
+            <button class="hud-btn" id="tester-download-updated-btn" disabled>Download Updated JSON</button>
+          </div>
+          <div id="tester-edit-target">Edit target: (none)</div>
+          <div id="tester-edit-status">Edit mode is off.</div>
+          <div id="tester-bindings-section" class="tester-bindings-section" style="display:none;">
+            <div class="tester-bindings-head">Current bindings for selected target</div>
+            <ul id="tester-bindings-list" class="tester-bindings-list"></ul>
           </div>
           <div id="tester-last-signal">Last strongest signal: (none)</div>
           <div id="tester-active-codes">Active codes: (none)</div>
           <div class="tester-help">Tip: keep sticks centered during calibration. Escape closes this modal.</div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="capture-mini-modal" aria-hidden="true">
+    <div id="capture-mini-panel" role="dialog" aria-modal="true" aria-label="Input Capture">
+      <div class="debug-head">
+        <h3 id="capture-mini-title">Capture Input</h3>
+        <button class="hud-btn" id="capture-mini-cancel-btn">Cancel</button>
+      </div>
+      <div id="capture-mini-instruction">Press and hold input now.</div>
+      <div id="capture-mini-countdown"></div>
+      <div id="capture-mini-live">Waiting for strongest signal...</div>
+      <div class="debug-small">Capture window uses strongest stable input over 5 seconds.</div>
     </div>
   </div>
 

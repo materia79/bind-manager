@@ -124,6 +124,69 @@ const CSS = `
   padding: 12px 0;
 }
 
+.bm-profile-panel {
+  margin: 0 20px 12px;
+  padding: 12px;
+  border: 1px solid var(--bm-group-border);
+  border-radius: 8px;
+  background: var(--bm-group-bg);
+}
+
+.bm-profile-panel-empty {
+  color: var(--bm-text-desc);
+}
+
+.bm-profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--bm-text-primary);
+}
+
+.bm-profile-meta,
+.bm-profile-subtitle {
+  color: var(--bm-text-secondary);
+  font-size: 12px;
+}
+
+.bm-profile-subtitle {
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+.bm-profile-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bm-profile-select {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bm-btn-bg);
+  border: 1px solid var(--bm-btn-border);
+  border-radius: 6px;
+  color: var(--bm-text-primary);
+}
+
+.bm-profile-auto-btn {
+  height: 32px;
+  padding: 0 12px;
+  background: var(--bm-btn-bg);
+  border: 1px solid var(--bm-btn-border);
+  border-radius: 6px;
+  color: var(--bm-text-primary);
+  cursor: pointer;
+}
+
+.bm-profile-auto-btn:hover,
+.bm-profile-select:hover {
+  border-color: var(--bm-accent);
+}
+
 /* ---- Group ---- */
 .bm-group {
   margin-bottom: 4px;

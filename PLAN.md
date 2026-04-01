@@ -4,7 +4,7 @@
 
 Build a universal browser bind manager that works for ThreeJS and non-ThreeJS apps, with a built-in modal and hints overlay, while keeping the core API renderer-agnostic.
 
-## Current Status (March 2026)
+## Current Status (April 2026)
 
 ### Done
 
@@ -16,6 +16,11 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 - Runtime input manager implemented for keyboard:
 	- `pressed`, `held`, `released` action events
 	- query support via `isActionPressed`
+- Runtime input manager implemented for browser Gamepad API:
+	- logical action events for digital buttons and analog axes
+	- generated exact controller profiles with family and generic fallback labels
+	- controller-specific label rendering in modal and hints when profile matches
+	- import/export flow for bindings including gamepad codes
 - Modal UI implemented:
 	- grouped action rows
 	- per-slot rebinding capture
@@ -43,7 +48,12 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 
 ### Missing for a stronger v1
 
-- Mouse and gamepad input devices are not implemented.
+- Mouse input device support is not implemented.
+- Advanced DualSense-only sensors/effects are not part of core runtime:
+	- gyroscope and accelerometer streams
+	- touchpad point telemetry
+	- adaptive trigger effect programming
+- Optional Chromium-only WebHID diagnostics are not integrated into the main UX.
 - No release packaging pipeline yet (bundle variants, changelog/release automation).
 - No accessibility verification pass yet (screen reader and keyboard-only audit).
 
@@ -54,6 +64,7 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 - Modal for configuring binds: done.
 - Action groups and descriptions: done.
 - Keyboard input support: done.
+- Gamepad input support (browser Gamepad API): done.
 - Multiple binds per action (usually two): done.
 - Reset to defaults: done.
 - Key naming support: done.
@@ -87,7 +98,13 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 ### Milestone 3: Input device expansion
 
 - Add mouse binding support.
-- Add gamepad/controller support (Web Gamepad API).
+- Expand gamepad/controller quality and profile coverage.
+
+### Milestone 4: Optional advanced controller diagnostics
+
+- Keep Gamepad API as primary runtime path for rebinding.
+- Add optional WebHID-only diagnostics page for advanced telemetry (Chromium-only).
+- Keep optional diagnostics isolated from core binding and gameplay input path.
 
 ## Future Feature Backlog
 
@@ -104,6 +121,10 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 - Trigger threshold configuration (for analog triggers).
 - Per-device profile switching for multi-controller setups.
 - Controller disconnect/reconnect handling and UI feedback.
+- Optional advanced telemetry (future, opt-in only):
+	- gyro and accelerometer readouts
+	- touchpad point diagnostics
+	- battery and extra device metadata where available
 
 ### Input system features
 
@@ -138,5 +159,5 @@ Build a universal browser bind manager that works for ThreeJS and non-ThreeJS ap
 
 1. Add tests and QA checklist.
 2. Implement JSON export/import.
-3. Implement gamepad support starting with Xbox and PlayStation mapping presets.
+3. Expand hardware validation coverage for exact generated profiles and fallback paths.
 4. Add context action maps and combos.

@@ -46,10 +46,22 @@ export function createBindManager(options = {}) {
   // Load persisted bindings before any actions are registered so initAction()
   // can merge them with defaults when each action registers.
   store.init(storageAdapter.load());
+  const savedProfileOverrides = typeof storageAdapter.loadGamepadProfileOverrides === 'function'
+    ? storageAdapter.loadGamepadProfileOverrides()
+    : {};
 
   // -- Input layer --
   const runtime = new KeyboardRuntime(store);
-  const gamepadRuntime = new GamepadRuntime(store, registry, { deadband, analogThreshold });
+  const gamepadRuntime = new GamepadRuntime(store, registry, {
+    deadband,
+    analogThreshold,
+    profileOverrides: savedProfileOverrides,
+    onProfileOverridesChange: (overrides) => {
+      if (typeof storageAdapter.saveGamepadProfileOverrides === 'function') {
+        storageAdapter.saveGamepadProfileOverrides(overrides);
+      }
+    },
+  });
 
   // -- UI layer --
   const modal = new ModalController(store, registry, runtime, gamepadRuntime);
@@ -146,11 +158,89 @@ export function createBindManager(options = {}) {
     },
 
     /**
+     * Get the resolved profile object for a connected gamepad.
+     * @param {number} [gamepadIndex=0]
+     * @returns {{ source: string, family: string, profileHint: string, profileKey: string | null, definition: any | null, gamepadId: string | null }}
+     */
+    getResolvedGamepadProfile(gamepadIndex = 0) {
+      return gamepadRuntime.getResolvedProfile(gamepadIndex);
+    },
+
+    /**
+     * Resolve a human-readable label for a gamepad code using the active profile.
+     * @param {string | null} code
+     * @param {number} [gamepadIndex=0]
+     * @returns {string}
+     */
+    getGamepadLabel(code, gamepadIndex = 0) {
+      return gamepadRuntime.getLabelForCode(code, gamepadIndex);
+    },
+
+    /**
      * Get info about all currently connected gamepads.
      * @returns {{ index: number, id: string, profile: string }[]}
      */
     getConnectedGamepads() {
       return gamepadRuntime.getConnectedGamepads();
+    },
+
+    /**
+     * Get available exact/family profile options for a connected gamepad.
+     * @param {number} [gamepadIndex=0]
+     * @returns {{ exactProfiles: Array<{ type: string, key: string, label: string, family: string }>, families: Array<{ type: string, family: string, label: string }>, autoResolved: any }}
+     */
+    getAvailableGamepadProfileOptions(gamepadIndex = 0) {
+      return gamepadRuntime.getAvailableProfileOptions(gamepadIndex);
+    },
+
+    /**
+     * Persist a manual profile override for a connected gamepad.
+     * @param {number} [gamepadIndex=0]
+     * @param {{ type: 'profile', key: string } | { type: 'family', family: string } | null} override
+     * @returns {boolean}
+     */
+    setGamepadProfileOverride(gamepadIndex = 0, override = null) {
+      return gamepadRuntime.setProfileOverride(gamepadIndex, override);
+    },
+
+    /**
+     * Clear a manual profile override for a connected gamepad.
+     * @param {number} [gamepadIndex=0]
+     * @returns {boolean}
+     */
+    clearGamepadProfileOverride(gamepadIndex = 0) {
+      return gamepadRuntime.clearProfileOverride(gamepadIndex);
+    },
+
+    /**
+     * Set/replace a logical mapping entry for the active gamepad profile in memory.
+     * @param {number} [gamepadIndex=0]
+     * @param {string} code
+     * @param {{ kind: 'button' | 'axis' | 'hat', index: number, direction?: 'negative' | 'positive', value?: number, tolerance?: number } | null} entry
+     * @param {{ label?: string | null }} [options]
+     * @returns {boolean}
+     */
+    setGamepadProfileMappingEntry(gamepadIndex = 0, code, entry, options = {}) {
+      return gamepadRuntime.setProfileMappingEntry(gamepadIndex, code, entry, options);
+    },
+
+    /**
+     * Remove a logical mapping entry from the active gamepad profile in memory.
+     * @param {number} [gamepadIndex=0]
+     * @param {string} code
+     * @returns {boolean}
+     */
+    removeGamepadProfileMappingEntry(gamepadIndex = 0, code) {
+      return gamepadRuntime.removeProfileMappingEntry(gamepadIndex, code);
+    },
+
+    /**
+     * Get the current in-memory resolved gamepad profile definition.
+     * @param {number} [gamepadIndex=0]
+     * @returns {any | null}
+     */
+    getGamepadProfileDefinition(gamepadIndex = 0) {
+      return gamepadRuntime.getProfileDefinition(gamepadIndex);
     },
 
     /**

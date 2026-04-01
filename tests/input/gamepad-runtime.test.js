@@ -78,6 +78,10 @@ function setup(options = {}) {
 
 beforeEach(() => {
   __mockControllerProfile = null;
+  Object.defineProperty(navigator, 'getGamepads', {
+    configurable: true,
+    value: () => [],
+  });
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -358,6 +362,64 @@ describe('GamepadRuntime — onAnyAction', () => {
 });
 
 describe('GamepadRuntime — controller definition mapping', () => {
+  it('exposes resolved profile details and exact labels for the active gamepad', () => {
+    __mockControllerProfile = {
+      key: '054c-0ce6',
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      family: 'dualsense',
+      labels: {
+        GP_B12: 'D-Pad Up',
+      },
+      mapping: {},
+    };
+
+    const { runtime } = setup();
+    const gamepad = makeMappedGamepad(undefined, 0, {}, {});
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [gamepad],
+    });
+
+    const resolved = runtime.getResolvedProfile(0);
+
+    expect(resolved.source).toBe('exact');
+    expect(resolved.profileKey).toBe('054c-0ce6');
+    expect(runtime.getActiveProfile(0)).toBe('dualsense');
+    expect(runtime.getLabelForCode('GP_B12', 0)).toBe('D-Pad Up');
+  });
+
+  it('applies manual family overrides ahead of exact generated labels', () => {
+    __mockControllerProfile = {
+      key: '054c-0ce6',
+      vendorId: '054c',
+      productId: '0ce6',
+      profileHint: 'dualsense',
+      family: 'dualsense',
+      labels: {
+        GP_B12: 'D-Pad Up',
+      },
+      mapping: {},
+    };
+
+    const { runtime } = setup({
+      profileOverrides: {
+        '054c-0ce6': { type: 'family', family: 'dualsense' },
+      },
+    });
+    const gamepad = makeMappedGamepad(undefined, 0, {}, {});
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [gamepad],
+    });
+
+    const resolved = runtime.getResolvedProfile(0);
+
+    expect(resolved.source).toBe('manual');
+    expect(runtime.getLabelForCode('GP_B12', 0)).toBe('D-Up');
+  });
+
   it('dispatches logical GP_B0 when mapped physical button index is pressed', () => {
     __mockControllerProfile = {
       vendorId: '054c',

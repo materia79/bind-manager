@@ -41,6 +41,33 @@ npm run demo
 http://localhost:3000/demo/
 ```
 
+## Build Single-File Library
+
+Generate browser-ready single-file bundles:
+
+```bash
+npm run build
+```
+
+Build output:
+- `dist/bind-manager.js` readable bundle (global `window.BindManager`)
+- `dist/bind-manager.min.js` minified bundle for hosting
+
+Watch mode for local build iteration:
+
+```bash
+npm run build:watch
+```
+
+Script-tag usage:
+
+```html
+<script src="/path/to/dist/bind-manager.min.js"></script>
+<script>
+	const binds = window.BindManager.createBindManager({ namespace: 'my-game' });
+</script>
+```
+
 ## Quick Start
 
 ```js

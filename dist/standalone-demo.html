@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Bind Manager Demo</title>
+    <style>
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: #0d0d1a;
+        color: #c8c8e0;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      #game-canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(ellipse at 50% 40%, #0f2a4a 0%, #050510 70%);
+      }
+
+      #game-canvas::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(80, 120, 255, 0.07) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(80, 120, 255, 0.07) 1px, transparent 1px);
+        background-size: 60px 60px;
+      }
+
+      #log {
+        position: fixed;
+        top: 14px;
+        left: 14px;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.65);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 10px 14px;
+        min-width: 300px;
+        width: min(44vw, 560px);
+        max-height: 50vh;
+        overflow-y: auto;
+        backdrop-filter: blur(8px);
+      }
+
+      #log-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #5c7cfa;
+        margin-bottom: 6px;
+      }
+
+      #controls {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+      }
+
+      .hud-btn {
+        background: rgba(92, 124, 250, 0.2);
+        border: 1px solid rgba(92, 124, 250, 0.5);
+        border-radius: 7px;
+        color: #c0ccff;
+        font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+        padding: 7px 16px;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .hud-btn:hover {
+        background: rgba(92, 124, 250, 0.4);
+        border-color: #5c7cfa;
+      }
+
+      #toggle-hints {
+        background: rgba(40, 140, 80, 0.2);
+        border-color: rgba(40, 200, 100, 0.4);
+        color: #80dca0;
+      }
+
+      #toggle-hints:hover {
+        background: rgba(40, 140, 80, 0.4);
+        border-color: rgba(40, 200, 100, 0.8);
+      }
+
+      .hud-label {
+        position: fixed;
+        left: 14px;
+        bottom: 14px;
+        z-index: 100;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8ea3f0;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 7px;
+        padding: 6px 10px;
+      }
+
+      .log-entry {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 4px 0;
+      }
+
+      .log-entry:last-child {
+        border-bottom: 0;
+      }
+
+      .log-entry.pressed {
+        color: #7de3a8;
+      }
+
+      .log-entry.released {
+        color: #ff9f9f;
+      }
+
+      .log-entry.held {
+        color: #d9b6ff;
+      }
+
+      .log-entry.changed {
+        color: #ffd18a;
+      }
+
+      .log-entry.info {
+        color: #9fb7f2;
+      }
+
+    </style>
+  </head>
+  <body>
+    <div id="game-canvas" aria-hidden="true"></div>
+
+    <div id="log" aria-live="polite">
+      <div id="log-title">Event Log</div>
+      <div id="log-entries"></div>
+    </div>
+
+    <div id="controls">
+      <button id="open-binds" class="hud-btn" type="button">Open Key Bindings</button>
+      <button id="toggle-hints" class="hud-btn" type="button">Hide Hints</button>
+      <button id="reset-all" class="hud-btn" type="button">Reset All Bindings</button>
+      <button id="clear-log" class="hud-btn" type="button">Clear Log</button>
+    </div>
+
+    <div class="hud-label">Bind Manager Demo</div>
+
+    <script src="./bind-manager.min.js"></script>
+    <script>
+      (function () {
+        const logPanelEl = document.getElementById('log');
+        const logEl = document.getElementById('log-entries');
+        const MAX_LOG_LINES = 80;
+
+        const appendLog = (text, type) => {
+          const stamp = new Date().toLocaleTimeString();
+          const line = document.createElement('div');
+          line.className = `log-entry ${type || 'info'}`;
+          line.textContent = `[${stamp}] ${text}`;
+          logEl.appendChild(line);
+
+          while (logEl.childElementCount > MAX_LOG_LINES) {
+            logEl.removeChild(logEl.firstElementChild);
+          }
+
+          logPanelEl.scrollTop = logPanelEl.scrollHeight;
+        };
+
+        if (!window.BindManager || !window.BindManager.createBindManager) {
+          appendLog('ERROR: bind-manager.min.js is missing or invalid.', 'released');
+          return;
+        }
+
+        const binds = window.BindManager.createBindManager({
+          namespace: 'standalone-demo',
+          debug: true,
+          debugKey: 'F5',
+        });
+
+        const moveForward = binds.registerAction({
+          id: 'move-forward',
+          label: 'Move Forward',
+          description: 'Move character forward',
+          group: 'Movement',
+          slots: 2,
+          defaultBindings: ['KeyW', 'ArrowUp'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_A1N'],
+        });
+
+        const moveBackward = binds.registerAction({
+          id: 'move-backward',
+          label: 'Move Backward',
+          description: 'Move character backward',
+          group: 'Movement',
+          slots: 2,
+          defaultBindings: ['KeyS', 'ArrowDown'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_A1P'],
+        });
+
+        const jump = binds.registerAction({
+          id: 'jump',
+          label: 'Jump',
+          description: 'Jump action',
+          group: 'Movement',
+          slots: 1,
+          defaultBindings: ['Space'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_B0'],
+        });
+
+        const attack = binds.registerAction({
+          id: 'attack',
+          label: 'Attack',
+          description: 'Primary attack',
+          group: 'Combat',
+          slots: 1,
+          defaultBindings: ['KeyF'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_B2'],
+        });
+
+        const block = binds.registerAction({
+          id: 'block',
+          label: 'Block',
+          description: 'Hold to block',
+          group: 'Combat',
+          slots: 1,
+          defaultBindings: ['KeyG'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_B1'],
+        });
+
+        const interact = binds.registerAction({
+          id: 'interact',
+          label: 'Interact',
+          description: 'Interact with world objects',
+          group: 'Interface',
+          slots: 1,
+          defaultBindings: ['KeyE'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_B3'],
+        });
+
+        const openMap = binds.registerAction({
+          id: 'open-map',
+          label: 'Open Map',
+          description: 'Toggle world map',
+          group: 'Interface',
+          slots: 1,
+          defaultBindings: ['KeyM'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_B9'],
+        });
+
+        const sprint = binds.registerAction({
+          id: 'sprint',
+          label: 'Sprint',
+          description: 'Hold to sprint',
+          group: 'Movement',
+          slots: 1,
+          defaultBindings: ['ShiftLeft'],
+          gamepadSlots: 1,
+          defaultGamepadBindings: ['GP_B5'],
+        });
+
+        moveForward.showHint();
+        moveBackward.showHint();
+        jump.showHint();
+        attack.showHint();
+        interact.showHint();
+
+        moveForward.onPressed(() => appendLog('[action] move-forward pressed', 'pressed'));
+        moveForward.onReleased(() => appendLog('[action] move-forward released', 'released'));
+        moveForward.onHeld(() => appendLog('[action] move-forward held', 'held'));
+        moveBackward.onPressed(() => appendLog('[action] move-backward pressed', 'pressed'));
+        jump.onPressed(() => appendLog('[action] jump pressed', 'pressed'));
+        attack.onPressed(() => appendLog('[action] attack pressed', 'pressed'));
+        block.onPressed(() => appendLog('[action] block start', 'pressed'));
+        block.onReleased(() => appendLog('[action] block stop', 'released'));
+        interact.onPressed(() => appendLog('[action] interact pressed', 'pressed'));
+        openMap.onPressed(() => appendLog('[action] open-map toggled', 'pressed'));
+        sprint.onPressed(() => appendLog('[action] sprint start', 'pressed'));
+        sprint.onReleased(() => appendLog('[action] sprint stop', 'released'));
+
+        binds.subscribe((event) => {
+          if (event.type === 'binding-changed') {
+            const value = event.newCode == null ? 'unbound' : String(event.newCode);
+            appendLog(`[bind] ${event.actionId} slot ${event.slot} => ${value}`, 'changed');
+          } else if (event.type === 'reset') {
+            appendLog(`[info] ${event.actionId} reset to defaults`, 'info');
+          }
+        });
+
+        document.getElementById('open-binds').addEventListener('click', () => binds.open());
+
+        let hintsVisible = true;
+        const hintsButton = document.getElementById('toggle-hints');
+        hintsButton.addEventListener('click', () => {
+          hintsVisible = !hintsVisible;
+          if (hintsVisible) {
+            binds.showAllHints();
+            hintsButton.textContent = 'Hide Hints';
+          } else {
+            binds.hideAllHints();
+            hintsButton.textContent = 'Show Hints';
+          }
+          appendLog(`[info] hints ${hintsVisible ? 'shown' : 'hidden'}`, 'info');
+        });
+
+        document.getElementById('reset-all').addEventListener('click', () => {
+          binds.resetAll();
+          appendLog('[info] reset all bindings', 'info');
+        });
+
+        document.getElementById('clear-log').addEventListener('click', () => {
+          logEl.textContent = '';
+          appendLog('[info] log cleared', 'info');
+        });
+
+        appendLog('Demo ready. Press F5 to toggle Bind Manager UI.', 'info');
+        appendLog('Try W/ArrowUp, Space, F, G, E, M, ShiftLeft, or connected gamepad defaults.', 'info');
+      })();
+    </script>
+  </body>
+</html>

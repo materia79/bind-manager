@@ -8,12 +8,15 @@
     ".": "./src/index.js"
   },
   "scripts": {
+    "build": "node scripts/build.js",
+    "build:watch": "node scripts/build.js --watch",
     "demo": "npx --yes serve . -p 3001 --no-clipboard",
     "process_controller_defs": "node scripts/process-controller-defs.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "esbuild": "^0.25.3",
     "jsdom": "^24.1.1",
     "vitest": "^2.1.8"
   },

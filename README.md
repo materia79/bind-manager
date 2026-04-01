@@ -64,7 +64,13 @@ Script-tag usage:
 ```html
 <script src="/path/to/dist/bind-manager.min.js"></script>
 <script>
-	const binds = window.BindManager.createBindManager({ namespace: 'my-game' });
+	const binds = window.BindManager.createBindManager({
+		namespace: 'my-game',
+		builtInTools: {
+			inputRemap: true,
+			controllerTest: true,
+		},
+	});
 </script>
 ```
 
@@ -77,6 +83,10 @@ const binds = createBindManager({
 	namespace: 'my-game',
 	debug: true,      // enables F5 modal toggle
 	debugKey: 'F5',
+	builtInTools: {
+		inputRemap: true,
+		controllerTest: true,
+	},
 });
 
 const moveForward = binds.registerAction({
@@ -120,6 +130,7 @@ Options:
 - `debugKey?: string` `KeyboardEvent.code` used for modal toggle, default `F5`
 - `container?: HTMLElement | null` mount target for modal and hints, default `document.body`
 - `storage?: { load, save, clear } | null` custom persistence adapter
+- `builtInTools?: { inputRemap?: boolean, controllerTest?: boolean } | null` enable the bundled Input Remap and Controller Test tools
 
 Returns a manager object with methods below.
 
@@ -150,6 +161,10 @@ Action definition fields:
 - `close()`
 - `toggle()`
 - `isOpen()`
+- `openInputRemap()`
+- `openControllerTest()`
+
+When `builtInTools` is enabled, these tools are bundled into the library output and surfaced as footer actions inside the bindings modal.
 
 ### Binding queries and mutations
 

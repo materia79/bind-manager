@@ -158,6 +158,8 @@
 
     <div id="controls">
       <button id="open-binds" class="hud-btn" type="button">Open Key Bindings</button>
+      <button id="open-remap" class="hud-btn" type="button">Input Remap</button>
+      <button id="open-tester" class="hud-btn" type="button">Controller Test</button>
       <button id="toggle-hints" class="hud-btn" type="button">Hide Hints</button>
       <button id="reset-all" class="hud-btn" type="button">Reset All Bindings</button>
       <button id="clear-log" class="hud-btn" type="button">Clear Log</button>
@@ -195,6 +197,10 @@
           namespace: 'standalone-demo',
           debug: true,
           debugKey: 'F5',
+          builtInTools: {
+            inputRemap: true,
+            controllerTest: true,
+          },
         });
 
         const moveForward = binds.registerAction({
@@ -314,6 +320,8 @@
         });
 
         document.getElementById('open-binds').addEventListener('click', () => binds.open());
+        document.getElementById('open-remap').addEventListener('click', () => binds.openInputRemap());
+        document.getElementById('open-tester').addEventListener('click', () => binds.openControllerTest());
 
         let hintsVisible = true;
         const hintsButton = document.getElementById('toggle-hints');

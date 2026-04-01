@@ -73,20 +73,10 @@ const manager = createBindManager({
   namespace: 'bind-manager-demo',
   debug: true,      // enables F5 toggle
   debugKey: 'F5',
-  footerActions: [
-    {
-      id: 'input-debug',
-      label: 'Input Remap',
-      className: 'debug',
-      onClick: () => inputDebug?.open(),
-    },
-    {
-      id: 'controller-test',
-      label: 'Controller Test',
-      className: 'test',
-      onClick: () => controllerTester?.open(),
-    },
-  ],
+  builtInTools: {
+    inputRemap: true,
+    controllerTest: true,
+  },
   // container defaults to document.body
 });
 
@@ -259,10 +249,9 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   log('All bindings reset', 'info');
 });
 
-// ── 7. Input debugger (guided controller mapping) ───────────────────────────
-
-inputDebug = createInputDebugger();
-controllerTester = createControllerTester();
+// ── 7. Legacy demo debugger helpers ─────────────────────────────────────────
+// These remain below for development reference, but the demo now uses the
+// library's built-in tools via the builtInTools option above.
 
 function createInputDebugger() {
   const els = {

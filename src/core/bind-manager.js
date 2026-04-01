@@ -6,6 +6,7 @@ import { ModalController } from '../ui/modal-controller.js';
 import { CaptureModalController } from '../ui/capture-modal-controller.js';
 import { HintsController } from '../ui/hints-controller.js';
 import { GamepadRuntime } from '../input/gamepad-runtime.js';
+import { createBuiltInToolsController } from '../ui/built-in-tools-controller.js';
 
 /**
  * Creates and returns a Bind Manager instance.
@@ -36,6 +37,7 @@ export function createBindManager(options = {}) {
     container = null,
     storage = null,
     footerActions = [],
+    builtInTools = null,
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -65,18 +67,10 @@ export function createBindManager(options = {}) {
     },
   });
 
-  // -- UI layer --
-  const captureModal = new CaptureModalController();
-  const modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, footerActions);
-  const hints = new HintsController(store, registry, gamepadRuntime);
-
-  // Determine mount target (explicit container or document.body)
-  const mountTarget = container ?? (typeof document !== 'undefined' ? document.body : null);
-  if (mountTarget) {
-    captureModal.mount(mountTarget);
-    modal.mount(mountTarget);
-    hints.mount(mountTarget);
-  }
+  let captureModal = null;
+  let modal = null;
+  let hints = null;
+  let builtInToolsController = null;
 
   // Start global keyboard listeners
   runtime.start();
@@ -89,15 +83,6 @@ export function createBindManager(options = {}) {
 
   // Debug toggle: F5 opens/closes the modal (prevents browser refresh in debug mode)
   let _debugListener = null;
-  if (debug && typeof window !== 'undefined') {
-    _debugListener = (e) => {
-      if (e.code === debugKey) {
-        e.preventDefault();
-        modal.toggle();
-      }
-    };
-    window.addEventListener('keydown', _debugListener);
-  }
 
   // -- Public API --
 
@@ -136,6 +121,10 @@ export function createBindManager(options = {}) {
     toggle() { modal.toggle(); },
     /** @returns {boolean} */
     isOpen() { return modal.isOpen(); },
+    /** Open the bundled Input Remap tool when enabled. */
+    openInputRemap() { builtInToolsController?.openInputRemap(); },
+    /** Open the bundled Controller Test tool when enabled. */
+    openControllerTest() { builtInToolsController?.openControllerTest(); },
 
     // ── Binding queries ──────────────────────────────────────────────────────
 
@@ -449,12 +438,38 @@ export function createBindManager(options = {}) {
       unsubPersist();
       if (_debugListener) window.removeEventListener('keydown', _debugListener);
       runtime.stop();
-        gamepadRuntime.stop();
+      gamepadRuntime.stop();
+      builtInToolsController?.unmount();
       captureModal.unmount();
       modal.unmount();
       hints.unmount();
     },
   };
+
+  // -- UI layer --
+  builtInToolsController = createBuiltInToolsController(manager, { builtInTools });
+  const mergedFooterActions = [...footerActions, ...builtInToolsController.getFooterActions()];
+  captureModal = new CaptureModalController();
+  modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions);
+  hints = new HintsController(store, registry, gamepadRuntime);
+
+  const mountTarget = container ?? (typeof document !== 'undefined' ? document.body : null);
+  if (mountTarget) {
+    captureModal.mount(mountTarget);
+    modal.mount(mountTarget);
+    hints.mount(mountTarget);
+    builtInToolsController.mount(mountTarget);
+  }
+
+  if (debug && typeof window !== 'undefined') {
+    _debugListener = (e) => {
+      if (e.code === debugKey) {
+        e.preventDefault();
+        modal.toggle();
+      }
+    };
+    window.addEventListener('keydown', _debugListener);
+  }
 
   return manager;
 

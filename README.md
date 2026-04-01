@@ -59,6 +59,23 @@ Watch mode for local build iteration:
 npm run build:watch
 ```
 
+## Release Automation
+
+This repository automatically publishes the latest minified bundle as a rolling GitHub Release asset.
+
+Behavior:
+- Trigger: every push to `main`
+- CI gates: `npm test` and `npm run build`
+- Release tag: `main-latest`
+- Published asset: `dist/bind-manager.min.js`
+
+Workflow file:
+- [release-main-latest.yml](.github/workflows/release-main-latest.yml)
+
+Notes:
+- The `main-latest` release is updated in place on each push to `main`.
+- `standalone-demo.html` is not auto-deployed; publish it manually to your pages repository when needed.
+
 Script-tag usage:
 
 ```html

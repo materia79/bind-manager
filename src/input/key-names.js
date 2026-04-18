@@ -1,4 +1,18 @@
 /**
+ * Canonical modifier ordering for combo code strings.
+ * When multiple modifiers are held, they are joined in this order before the primary key.
+ */
+export const MODIFIER_ORDER = [
+  'ControlLeft', 'ControlRight',
+  'ShiftLeft', 'ShiftRight',
+  'AltLeft', 'AltRight',
+  'MetaLeft', 'MetaRight',
+];
+
+/** Set of all modifier key codes for fast lookup. */
+export const MODIFIER_CODES = new Set(MODIFIER_ORDER);
+
+/**
  * Maps KeyboardEvent.code values to human-readable display labels.
  * Uses KeyboardEvent.code (physical key position, layout-independent)
  * rather than KeyboardEvent.key (character output) for reliable rebinding.
@@ -64,24 +78,58 @@ export const KEY_DISPLAY_NAMES = {
   ScrollLock: 'Scroll Lock',
   Pause: 'Pause',
   ContextMenu: 'Menu',
+
+  // Mouse buttons
+  MouseButton0: 'Mouse Left',
+  MouseButton1: 'Mouse Middle',
+  MouseButton2: 'Mouse Right',
+  MouseButton3: 'Mouse 4',
+  MouseButton4: 'Mouse 5',
+
+  // Mouse wheel
+  MouseWheelUp: 'Wheel Up',
+  MouseWheelDown: 'Wheel Down',
 };
 
 /**
- * Returns a human-readable label for a KeyboardEvent.code value.
+ * Returns a human-readable label for a key code or combo code.
+ * Combo codes (e.g. "ShiftLeft+KeyC") are split and each part is labeled,
+ * then joined with " + ".
  * Falls back to the raw code string if no label is defined.
  * @param {string | null} code
  * @returns {string}
  */
 export function getKeyLabel(code) {
   if (!code) return '—';
+  if (code.includes('+')) {
+    return code.split('+').map(part => KEY_DISPLAY_NAMES[part] ?? part).join(' + ');
+  }
   return KEY_DISPLAY_NAMES[code] ?? code;
 }
 
 /**
- * Returns true if the given string is a known KeyboardEvent.code value.
+ * Returns true if the given string is a known key code or a valid combo code
+ * where every part is a known code.
  * @param {string} code
  * @returns {boolean}
  */
 export function isKnownCode(code) {
-  return typeof code === 'string' && Object.prototype.hasOwnProperty.call(KEY_DISPLAY_NAMES, code);
+  if (typeof code !== 'string') return false;
+  if (code.includes('+')) {
+    return code.split('+').every(part => Object.prototype.hasOwnProperty.call(KEY_DISPLAY_NAMES, part));
+  }
+  return Object.prototype.hasOwnProperty.call(KEY_DISPLAY_NAMES, code);
+}
+
+/**
+ * Build a canonical combo code string from an array of modifier codes and a primary code.
+ * Modifiers are sorted according to MODIFIER_ORDER. If no modifiers, returns the primary code alone.
+ * @param {string[]} modifiers
+ * @param {string} primaryCode
+ * @returns {string}
+ */
+export function buildComboCode(modifiers, primaryCode) {
+  if (!modifiers || modifiers.length === 0) return primaryCode;
+  const sorted = MODIFIER_ORDER.filter(m => modifiers.includes(m));
+  return [...sorted, primaryCode].join('+');
 }

@@ -6,7 +6,7 @@
  *   import { getKeyLabel, isKnownCode } from 'bind-manager/key-names';
  */
 export { createBindManager } from './core/bind-manager.js';
-export { getKeyLabel, isKnownCode, KEY_DISPLAY_NAMES } from './input/key-names.js';
+export { getKeyLabel, isKnownCode, KEY_DISPLAY_NAMES, MODIFIER_ORDER, MODIFIER_CODES, buildComboCode } from './input/key-names.js';
 export {
 	GP_CODES,
 	GP_B0, GP_B1, GP_B2, GP_B3, GP_B4, GP_B5, GP_B6, GP_B7,

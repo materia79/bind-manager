@@ -22,11 +22,12 @@ export class ModalController {
    * @param {import('../core/action-registry.js').ActionRegistry} registry
    * @param {import('../input/keyboard-runtime.js').KeyboardRuntime} keyboardRuntime
    */
-  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = []) {
+  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = [], mouseRuntime = null) {
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
   this._gamepadRuntime = gamepadRuntime;
+    this._mouseRuntime = mouseRuntime;
     this._captureModal = captureModal;
     this._footerActions = Array.isArray(footerActions) ? footerActions : [];
 
@@ -107,6 +108,7 @@ export class ModalController {
     this._open = true;
     this._runtime.setGameplaySuppressed(true);
       this._gamepadRuntime?.setGameplaySuppressed(true);
+      this._mouseRuntime?.setGameplaySuppressed(true);
     // Focus the modal so Escape works without a mouse click first
     this._overlay.querySelector('.bm-modal')?.focus();
   }
@@ -118,6 +120,7 @@ export class ModalController {
     this._open = false;
     this._runtime.setGameplaySuppressed(false);
     this._gamepadRuntime?.setGameplaySuppressed(false);
+    this._mouseRuntime?.setGameplaySuppressed(false);
   }
 
   toggle() {
@@ -235,7 +238,7 @@ export class ModalController {
       );
       if (btn) {
         btn.classList.add('bm-capturing');
-        btn.textContent = device === 'gamepad' ? 'Press a button…' : 'Press a key…';
+        btn.textContent = device === 'gamepad' ? 'Press a button…' : 'Press a key or click…';
         this._captureTarget.buttonEl = btn;
       }
       this._setCaptureUiState(true, btn);
@@ -421,14 +424,23 @@ export class ModalController {
         this._updateBindButtons();
       });
     } else {
-      buttonEl.textContent = 'Press a key…';
+      buttonEl.textContent = 'Press a key or click…';
       this._captureModal?.open({
-        title: 'Capture Keyboard Input',
-        message: 'Press the key to bind now.',
-        detail: 'This capture stays open until a key is detected or Escape cancels it.',
+        title: 'Capture Input',
+        message: 'Press a key or mouse button to bind now.',
+        detail: 'Modifier combos supported. Escape cancels.',
         onCancel: () => this._cancelCapture(),
       });
-      this._runtime.startCapture((code) => {
+      let captured = false;
+      const commitCapture = (code, device) => {
+        if (captured) return;
+        captured = true;
+        // Cancel the other runtime
+        if (device === 'keyboard') {
+          this._mouseRuntime?.cancelCapture();
+        } else {
+          this._runtime.cancelCapture();
+        }
         this._captureModal?.close();
         this._captureTarget = null;
         this._setCaptureUiState(false, null);
@@ -440,7 +452,9 @@ export class ModalController {
           this._hideConflictWarning();
         }
         this._updateBindButtons();
-      });
+      };
+      this._runtime.startCapture((code) => commitCapture(code, 'keyboard'));
+      this._mouseRuntime?.startCapture((code) => commitCapture(code, 'mouse'));
     }
   }
 
@@ -450,6 +464,7 @@ export class ModalController {
         this._gamepadRuntime?.cancelCapture();
       } else {
         this._runtime.cancelCapture();
+        this._mouseRuntime?.cancelCapture();
       }
       this._captureModal?.close();
       this._captureTarget = null;

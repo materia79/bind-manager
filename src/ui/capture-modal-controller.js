@@ -18,6 +18,8 @@ export class CaptureModalController {
 
     this._handleOverlayKeydown = this._handleOverlayKeydown.bind(this);
     this._handleCancelClick = this._handleCancelClick.bind(this);
+    this._handleContextMenu = this._handleContextMenu.bind(this);
+    this._handleAuxClick = this._handleAuxClick.bind(this);
   }
 
   /** @param {HTMLElement} container */
@@ -47,15 +49,17 @@ export class CaptureModalController {
     this._cancelBtn = this._overlay.querySelector('.bm-capture-cancel-btn');
 
     this._overlay.addEventListener('keydown', this._handleOverlayKeydown);
-    this._cancelBtn?.addEventListener('click', this._handleCancelClick);
+    this._cancelBtn?.addEventListener('pointerdown', this._handleCancelClick);
 
     container.appendChild(this._overlay);
   }
 
   unmount() {
     this.close({ restoreFocus: false });
-    this._cancelBtn?.removeEventListener('click', this._handleCancelClick);
+    this._cancelBtn?.removeEventListener('pointerdown', this._handleCancelClick);
     this._overlay?.removeEventListener('keydown', this._handleOverlayKeydown);
+    window.removeEventListener('contextmenu', this._handleContextMenu, true);
+    window.removeEventListener('auxclick', this._handleAuxClick, true);
     this._overlay?.remove();
     this._overlay = null;
     this._container = null;
@@ -73,6 +77,9 @@ export class CaptureModalController {
     this.update(options);
     this._overlay.style.display = 'flex';
     this._overlay.setAttribute('aria-hidden', 'false');
+    // Suppress right-click, middle-click, and other mouse defaults while capture is active
+    window.addEventListener('contextmenu', this._handleContextMenu, true);
+    window.addEventListener('auxclick', this._handleAuxClick, true);
     this._overlay.querySelector('.bm-capture-modal')?.focus();
   }
 
@@ -94,6 +101,13 @@ export class CaptureModalController {
     if (!this._overlay) return;
     this._open = false;
     this._onCancel = null;
+    // Defer removal so handlers survive the mouseup → contextmenu event gap
+    const ctxHandler = this._handleContextMenu;
+    const auxHandler = this._handleAuxClick;
+    setTimeout(() => {
+      window.removeEventListener('contextmenu', ctxHandler, true);
+      window.removeEventListener('auxclick', auxHandler, true);
+    }, 0);
     this._overlay.style.display = 'none';
     this._overlay.setAttribute('aria-hidden', 'true');
     if (options.restoreFocus !== false && this._returnFocusEl?.isConnected) {
@@ -104,6 +118,16 @@ export class CaptureModalController {
 
   isOpen() {
     return this._open;
+  }
+
+  _handleContextMenu(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  _handleAuxClick(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
   }
 
   _handleOverlayKeydown(event) {

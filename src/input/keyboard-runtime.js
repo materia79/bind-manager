@@ -8,8 +8,11 @@
  * - keyup                                → 'released'
  * - Window blur clears all pressed state to avoid stuck keys
  * - Gameplay dispatch is suppressed while the bind modal is open
- * - A single capture callback intercepts the next key for rebinding
+ * - Capture fires on key release so modifier combos can be recorded
+ * - Escape cancels capture immediately on keydown (not release)
  */
+import { MODIFIER_CODES, MODIFIER_ORDER, buildComboCode } from './key-names.js';
+
 export class KeyboardRuntime {
   /** @param {import('../core/binding-store.js').BindingStore} bindingStore */
   constructor(bindingStore) {
@@ -22,8 +25,12 @@ export class KeyboardRuntime {
     this._anyListeners = new Set();
     this._active = false;
     this._suppressGameplay = false;
-    /** @type {Function | null} called with (code | null) after next key capture */
+    /** @type {Function | null} called with (code | null) after capture completes */
     this._captureCallback = null;
+    /** @type {{ code: string, modifiers: string[] } | null} pending capture waiting for keyup */
+    this._capturePending = null;
+    /** @type {Map<string, string>} rawCode → dispatched combo code for active gameplay bindings */
+    this._activeBindings = new Map();
 
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onKeyUp = this._onKeyUp.bind(this);
@@ -45,6 +52,8 @@ export class KeyboardRuntime {
     this._active = false;
     this._pressed.clear();
     this._captureCallback = null;
+    this._capturePending = null;
+    this._activeBindings.clear();
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('blur', this._onBlur);
@@ -60,33 +69,52 @@ export class KeyboardRuntime {
     this._suppressGameplay = suppressed;
     if (suppressed) {
       // Release everything currently held so nothing stays "pressed" in the game
-      for (const code of this._pressed) {
-        this._dispatch(code, 'released', null);
+      for (const [rawCode, comboCode] of this._activeBindings) {
+        this._dispatch(comboCode, 'released', null);
       }
+      this._activeBindings.clear();
       this._pressed.clear();
     }
   }
 
   /**
    * Begin key capture for rebinding.
-   * The next keydown (that isn't Escape) calls callback(code).
-   * Escape calls callback(null) to signal cancellation.
+   * Capture commits on key release so modifier combos can be detected.
+   * Escape cancels immediately on keydown.
    * @param {(code: string | null) => void} callback
    */
   startCapture(callback) {
     this._captureCallback = callback;
+    this._capturePending = null;
   }
 
   /** Cancel any active key capture without invoking its callback. */
   cancelCapture() {
     this._captureCallback = null;
+    this._capturePending = null;
+  }
+
+  /**
+   * Returns the currently held modifier codes in canonical MODIFIER_ORDER.
+   * Used by MouseRuntime to build combo codes during capture/gameplay.
+   * @returns {string[]}
+   */
+  getHeldModifiers() {
+    return MODIFIER_ORDER.filter(m => this._pressed.has(m));
   }
 
   /**
    * Returns true if the given key code is currently held down.
+   * For combo codes, checks the _activeBindings values.
    * @param {string} code
    */
   isPressed(code) {
+    if (code.includes('+')) {
+      for (const comboCode of this._activeBindings.values()) {
+        if (comboCode === code) return true;
+      }
+      return false;
+    }
     return this._pressed.has(code);
   }
 
@@ -121,14 +149,26 @@ export class KeyboardRuntime {
     // --- Capture mode: intercept for rebinding ---
     if (this._captureCallback) {
       event.preventDefault();
+      // Escape cancels immediately on press
       if (code === 'Escape') {
         const cb = this._captureCallback;
         this._captureCallback = null;
+        this._capturePending = null;
         cb(null);
-      } else if (!event.repeat) {
-        const cb = this._captureCallback;
-        this._captureCallback = null;
-        cb(code);
+        return;
+      }
+      if (event.repeat) return;
+
+      if (MODIFIER_CODES.has(code)) {
+        // Modifier pressed: track it but don't commit yet
+        this._pressed.add(code);
+      } else {
+        // Non-modifier pressed: snapshot held modifiers, wait for release
+        this._pressed.add(code);
+        this._capturePending = {
+          code,
+          modifiers: this.getHeldModifiers(),
+        };
       }
       return;
     }
@@ -137,19 +177,64 @@ export class KeyboardRuntime {
 
     if (!event.repeat) {
       this._pressed.add(code);
-      this._dispatch(code, 'pressed', event);
+      if (MODIFIER_CODES.has(code)) {
+        // Dispatch modifier as simple code
+        this._activeBindings.set(code, code);
+        this._dispatch(code, 'pressed', event);
+      } else {
+        const dispatchCode = this._resolveDispatchCode(code);
+        this._activeBindings.set(code, dispatchCode);
+        this._dispatch(dispatchCode, 'pressed', event);
+      }
     } else {
-      this._dispatch(code, 'held', event);
+      const dispatchCode = this._activeBindings.get(code) ?? code;
+      this._dispatch(dispatchCode, 'held', event);
     }
   }
 
   /** @private */
   _onKeyUp(event) {
     const code = event.code;
-    // Don't dispatch releases during capture; the key was never "pressed" for gameplay.
-    if (!this._captureCallback && !this._suppressGameplay) {
-      this._dispatch(code, 'released', event);
+
+    // --- Capture mode: commit on release ---
+    if (this._captureCallback) {
+      event.preventDefault();
+
+      if (this._capturePending && this._capturePending.code === code) {
+        // Primary (non-modifier) key released: commit combo
+        const cb = this._captureCallback;
+        this._captureCallback = null;
+        const pending = this._capturePending;
+        this._capturePending = null;
+        this._pressed.delete(code);
+        const comboCode = buildComboCode(pending.modifiers, pending.code);
+        cb(comboCode);
+        return;
+      }
+
+      if (MODIFIER_CODES.has(code) && !this._capturePending) {
+        // Modifier released with no non-modifier pending: modifier-only bind
+        const cb = this._captureCallback;
+        this._captureCallback = null;
+        this._capturePending = null;
+        this._pressed.delete(code);
+        cb(code);
+        return;
+      }
+
+      // Other release during capture (e.g. releasing a modifier while primary is still held)
+      this._pressed.delete(code);
+      return;
     }
+
+    if (this._suppressGameplay) {
+      this._pressed.delete(code);
+      return;
+    }
+
+    const dispatchCode = this._activeBindings.get(code) ?? code;
+    this._activeBindings.delete(code);
+    this._dispatch(dispatchCode, 'released', event);
     this._pressed.delete(code);
   }
 
@@ -157,11 +242,31 @@ export class KeyboardRuntime {
   _onBlur() {
     // Window lost focus: release all held keys to avoid stuck inputs.
     if (!this._suppressGameplay) {
-      for (const code of this._pressed) {
-        this._dispatch(code, 'released', null);
+      for (const [rawCode, comboCode] of this._activeBindings) {
+        this._dispatch(comboCode, 'released', null);
       }
     }
+    this._activeBindings.clear();
     this._pressed.clear();
+    this._capturePending = null;
+  }
+
+  /**
+   * Resolve the dispatch code for a non-modifier key press.
+   * If modifiers are held and a combo binding exists, return the combo code.
+   * Otherwise return the simple code.
+   * @private
+   * @param {string} code
+   * @returns {string}
+   */
+  _resolveDispatchCode(code) {
+    const modifiers = this.getHeldModifiers();
+    if (modifiers.length > 0) {
+      const comboCode = buildComboCode(modifiers, code);
+      const actions = this._store.getActionsByCode(comboCode);
+      if (actions.length > 0) return comboCode;
+    }
+    return code;
   }
 
   /** @private */

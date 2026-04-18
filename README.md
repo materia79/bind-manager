@@ -14,7 +14,7 @@ It provides:
 - Runtime action events (pressed, held, released)
 - A framework-agnostic API that works in ThreeJS and non-ThreeJS apps
 
-Current input support in this MVP: keyboard plus browser Gamepad API input, including generated exact controller profiles with family and generic fallback labels.
+Current input support in this MVP: keyboard, mouse buttons, mouse wheel, and browser Gamepad API input, including modifier key combos (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`) with capture-on-release semantics, and generated exact controller profiles with family and generic fallback labels.
 
 ## Online Demo
 
@@ -33,6 +33,11 @@ A [demo page](https://materia79.github.io/projects/bind-manager/standalone-demo.
 - Gamepad binding capture and runtime action events
 - Exact controller labels from generated device profiles when available
 - Manual gamepad profile override and family/generic fallback behavior
+- Mouse button and wheel bindings (buttons 0–4, wheel up/down)
+- Modifier key combos for keyboard and mouse (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`)
+- Capture-on-release: binding commits when the primary key/button is released, allowing modifier selection
+- Cancel button fires on pointer-down to prevent accidental bind commits
+- `active` getter and `onActiveChange` subscription for host cursor management
 
 ## Documentation Map
 
@@ -201,6 +206,12 @@ Action definition fields:
 - `openInputRemap()`
 - `openControllerTest()`
 
+### Active state and cursor persistence
+
+- `active` (getter) — `true` when the binding modal or capture session is open. Use this to show/hide your game cursor.
+- `keepCursorAfterClose` (getter/setter) — when `true`, bind-manager will not force cursor teardown on close.
+- `onActiveChange(callback)` — subscribe to active-state transitions. Callback receives `(active: boolean)`. Returns an unsubscribe function.
+
 When `builtInTools` is enabled, these tools are bundled into the library output and surfaced as footer actions inside the bindings modal.
 
 ### Binding queries and mutations
@@ -304,7 +315,6 @@ See style source in [src/ui/styles.js](src/ui/styles.js).
 ## Known Scope (Current MVP)
 
 - Browser environment only (DOM required for built-in UI)
-- No mouse binding yet
 
 ## Controller Profiles
 
@@ -341,6 +351,18 @@ Out of scope for the core runtime:
 - Shipping adaptive trigger effect output as a default feature.
 
 ## QA
+
+Run unit tests:
+
+```bash
+npm test
+```
+
+Run E2E tests (requires Chromium, auto-installed via Playwright):
+
+```bash
+npm run test:e2e
+```
 
 Release checklist: [QA_CHECKLIST.md](QA_CHECKLIST.md)
 

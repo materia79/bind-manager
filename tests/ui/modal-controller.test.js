@@ -104,7 +104,7 @@ describe('ModalController integration behavior', () => {
     expect(document.querySelector('.bm-capture-overlay')?.getAttribute('aria-hidden')).toBe('false');
 
     const cancelButton = document.querySelector('.bm-capture-cancel-btn');
-    cancelButton.click();
+    cancelButton.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 
     expect(manager.isOpen()).toBe(true);
     expect(document.querySelector('.bm-capture-overlay')?.getAttribute('aria-hidden')).toBe('true');

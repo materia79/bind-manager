@@ -1,6 +1,7 @@
 import { ActionRegistry } from './action-registry.js';
 import { BindingStore } from './binding-store.js';
 import { KeyboardRuntime } from '../input/keyboard-runtime.js';
+import { MouseRuntime } from '../input/mouse-runtime.js';
 import { LocalStorageAdapter } from '../storage/local-storage-adapter.js';
 import { ModalController } from '../ui/modal-controller.js';
 import { CaptureModalController } from '../ui/capture-modal-controller.js';
@@ -72,9 +73,18 @@ export function createBindManager(options = {}) {
   let hints = null;
   let builtInToolsController = null;
 
-  // Start global keyboard listeners
+  // -- Mouse input layer --
+  const mouseRuntime = new MouseRuntime(store, runtime);
+
+  // -- Active state + cursor persistence --
+  let _keepCursorAfterClose = false;
+  /** @type {Set<Function>} */
+  const _activeChangeListeners = new Set();
+
+  // Start global input listeners
   runtime.start();
   gamepadRuntime.start();
+  mouseRuntime.start();
 
   // Persist to storage on every binding change
   const unsubPersist = store.subscribe(() => {
@@ -125,6 +135,34 @@ export function createBindManager(options = {}) {
     openInputRemap() { builtInToolsController?.openInputRemap(); },
     /** Open the bundled Controller Test tool when enabled. */
     openControllerTest() { builtInToolsController?.openControllerTest(); },
+
+    // ── Active state + cursor persistence ────────────────────────────────────
+
+    /**
+     * True when the bind-manager UI or a capture session is active.
+     * Host apps can read this to decide whether to show/hide their own cursor.
+     * @type {boolean}
+     */
+    get active() { return modal?.isOpen() || captureModal?.isOpen() || false; },
+
+    /**
+     * When true, bind-manager will not force cursor teardown on close.
+     * Host apps set this to preserve their cursor state across bind-manager sessions.
+     * @type {boolean}
+     */
+    get keepCursorAfterClose() { return _keepCursorAfterClose; },
+    set keepCursorAfterClose(value) { _keepCursorAfterClose = !!value; },
+
+    /**
+     * Subscribe to active-state transitions.
+     * Callback receives (active: boolean) whenever the active state changes.
+     * @param {(active: boolean) => void} callback
+     * @returns {() => void} unsubscribe
+     */
+    onActiveChange(callback) {
+      _activeChangeListeners.add(callback);
+      return () => _activeChangeListeners.delete(callback);
+    },
 
     // ── Binding queries ──────────────────────────────────────────────────────
 
@@ -412,6 +450,7 @@ export function createBindManager(options = {}) {
       const unsubs = [
         runtime.onAnyAction(listener),
         gamepadRuntime.onAnyAction(listener),
+        mouseRuntime.onAnyAction(listener),
       ];
       return () => unsubs.forEach(fn => fn());
     },
@@ -424,7 +463,7 @@ export function createBindManager(options = {}) {
     isActionPressed(actionId) {
         const kbBindings = store.get(actionId, 'keyboard') ?? [];
         const gpBindings = store.get(actionId, 'gamepad')  ?? [];
-        return kbBindings.some(code => code && runtime.isPressed(code))
+        return kbBindings.some(code => code && (runtime.isPressed(code) || mouseRuntime.isPressed(code)))
           || gpBindings.some(code => code && gamepadRuntime.isPressed(code));
     },
 
@@ -439,6 +478,7 @@ export function createBindManager(options = {}) {
       if (_debugListener) window.removeEventListener('keydown', _debugListener);
       runtime.stop();
       gamepadRuntime.stop();
+      mouseRuntime.stop();
       builtInToolsController?.unmount();
       captureModal.unmount();
       modal.unmount();
@@ -450,8 +490,26 @@ export function createBindManager(options = {}) {
   builtInToolsController = createBuiltInToolsController(manager, { builtInTools });
   const mergedFooterActions = [...footerActions, ...builtInToolsController.getFooterActions()];
   captureModal = new CaptureModalController();
-  modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions);
+  modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime);
   hints = new HintsController(store, registry, gamepadRuntime);
+
+  // Wire active-change notifications around modal open/close
+  let _prevActive = false;
+  const _emitActiveChange = () => {
+    const nowActive = manager.active;
+    if (nowActive !== _prevActive) {
+      _prevActive = nowActive;
+      for (const cb of _activeChangeListeners) {
+        try { cb(nowActive); } catch (err) {
+          console.error('[BindManager] onActiveChange listener threw:', err);
+        }
+      }
+    }
+  };
+  const _origOpen = modal.open.bind(modal);
+  const _origClose = modal.close.bind(modal);
+  modal.open = () => { _origOpen(); _emitActiveChange(); };
+  modal.close = () => { _origClose(); _emitActiveChange(); };
 
   const mountTarget = container ?? (typeof document !== 'undefined' ? document.body : null);
   if (mountTarget) {
@@ -496,6 +554,7 @@ export function createBindManager(options = {}) {
         const unsubs = [
           runtime.onAction(actionId, (e) => { if (e.type === 'pressed') cb(e); }),
           gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'pressed') cb(e); }),
+          mouseRuntime.onAction(actionId, (e) => { if (e.type === 'pressed') cb(e); }),
         ];
         return () => unsubs.forEach(fn => fn());
       },
@@ -508,6 +567,7 @@ export function createBindManager(options = {}) {
         const unsubs = [
           runtime.onAction(actionId, (e) => { if (e.type === 'released') cb(e); }),
           gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'released') cb(e); }),
+          mouseRuntime.onAction(actionId, (e) => { if (e.type === 'released') cb(e); }),
         ];
         return () => unsubs.forEach(fn => fn());
       },
@@ -520,6 +580,7 @@ export function createBindManager(options = {}) {
         const unsubs = [
           runtime.onAction(actionId, (e) => { if (e.type === 'held') cb(e); }),
           gamepadRuntime.onAction(actionId, (e) => { if (e.type === 'held') cb(e); }),
+          mouseRuntime.onAction(actionId, (e) => { if (e.type === 'held') cb(e); }),
         ];
         return () => unsubs.forEach(fn => fn());
       },

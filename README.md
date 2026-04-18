@@ -18,7 +18,7 @@ Current input support in this MVP: keyboard plus browser Gamepad API input, incl
 
 ## Online Demo
 
-A [demo page](https://materia79.github.io/bind-manager/standalone-demo.html) is available that exercises all features and serves as a testbed during development.
+A [demo page](https://materia79.github.io/projects/bind-manager/standalone-demo.html) is available that exercises all features and serves as a testbed during development.
 
 ## Features
 

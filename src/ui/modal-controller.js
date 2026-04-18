@@ -39,6 +39,11 @@ export class ModalController {
     this._warningTimeout = null;
     this._unsubscribeStore = null;
     this._onGamepadChange = null;
+
+    // Bound handlers for blocking mouse defaults while modal is open
+    this._handleBlockMouseDown = this._handleBlockMouseDown.bind(this);
+    this._handleBlockContextMenu = this._handleBlockContextMenu.bind(this);
+    this._handleBlockAuxClick = this._handleBlockAuxClick.bind(this);
   }
 
   /** @param {HTMLElement} container */
@@ -91,6 +96,10 @@ export class ModalController {
   unmount() {
     this._unsubscribeStore?.();
     clearTimeout(this._warningTimeout);
+    // Ensure mouse-blocking handlers are removed
+    window.removeEventListener('mousedown', this._handleBlockMouseDown, true);
+    window.removeEventListener('contextmenu', this._handleBlockContextMenu, true);
+    window.removeEventListener('auxclick', this._handleBlockAuxClick, true);
     this._overlay?.remove();
         if (this._onGamepadChange && typeof window !== 'undefined') {
           window.removeEventListener('bm-gamepad-connected',    this._onGamepadChange);
@@ -109,6 +118,10 @@ export class ModalController {
     this._runtime.setGameplaySuppressed(true);
       this._gamepadRuntime?.setGameplaySuppressed(true);
       this._mouseRuntime?.setGameplaySuppressed(true);
+    // Block all mouse defaults (context menu, back/forward thumb buttons, etc.)
+    window.addEventListener('mousedown', this._handleBlockMouseDown, true);
+    window.addEventListener('contextmenu', this._handleBlockContextMenu, true);
+    window.addEventListener('auxclick', this._handleBlockAuxClick, true);
     // Focus the modal so Escape works without a mouse click first
     this._overlay.querySelector('.bm-modal')?.focus();
   }
@@ -121,6 +134,9 @@ export class ModalController {
     this._runtime.setGameplaySuppressed(false);
     this._gamepadRuntime?.setGameplaySuppressed(false);
     this._mouseRuntime?.setGameplaySuppressed(false);
+    window.removeEventListener('mousedown', this._handleBlockMouseDown, true);
+    window.removeEventListener('contextmenu', this._handleBlockContextMenu, true);
+    window.removeEventListener('auxclick', this._handleBlockAuxClick, true);
   }
 
   toggle() {
@@ -526,6 +542,23 @@ export class ModalController {
   _hideConflictWarning() {
     clearTimeout(this._warningTimeout);
     this._overlay?.querySelector('.bm-conflict-warning')?.classList.add('bm-hidden');
+  }
+
+  // ── Mouse-blocking handlers (active while modal is open) ───────────────
+
+  /** Block non-left mousedown defaults (back/forward thumb buttons, middle click). */
+  _handleBlockMouseDown(event) {
+    if (event.button !== 0) {
+      event.preventDefault();
+    }
+  }
+
+  _handleBlockContextMenu(event) {
+    event.preventDefault();
+  }
+
+  _handleBlockAuxClick(event) {
+    event.preventDefault();
   }
 }
 

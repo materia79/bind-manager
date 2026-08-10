@@ -10,6 +10,11 @@
  * - Wheel events dispatch a pressed+released pulse (no held state)
  * - Capture fires on mouse release so modifier combos are captured correctly
  * - During capture, context menu is suppressed to avoid interference
+ * - Bound non-primary buttons suppress the browser default action
+ *   (back/forward navigation on thumb buttons, middle-click autoscroll):
+ *   preventDefault fires on mousedown/mouseup (Firefox) and auxclick
+ *   (Chrome), only when the button resolves to a bound action. The primary
+ *   button is exempt so focus/selection semantics stay intact.
  */
 import { buildComboCode } from './key-names.js';
 
@@ -38,6 +43,7 @@ export class MouseRuntime {
     this._onMouseUp = this._onMouseUp.bind(this);
     this._onWheel = this._onWheel.bind(this);
     this._onContextMenu = this._onContextMenu.bind(this);
+    this._onAuxClick = this._onAuxClick.bind(this);
   }
 
   start() {
@@ -45,6 +51,7 @@ export class MouseRuntime {
     this._active = true;
     window.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
+    window.addEventListener('auxclick', this._onAuxClick);
     window.addEventListener('wheel', this._onWheel);
   }
 
@@ -56,6 +63,7 @@ export class MouseRuntime {
     this._activeBindings.clear();
     window.removeEventListener('mousedown', this._onMouseDown);
     window.removeEventListener('mouseup', this._onMouseUp);
+    window.removeEventListener('auxclick', this._onAuxClick);
     window.removeEventListener('wheel', this._onWheel);
     window.removeEventListener('contextmenu', this._onContextMenu);
   }
@@ -134,6 +142,9 @@ export class MouseRuntime {
 
     const modifiers = this._keyboardRuntime.getHeldModifiers();
     const dispatchCode = this._resolveDispatchCode(rawCode, modifiers);
+    if (this._isBoundNonPrimary(event.button, dispatchCode)) {
+      event.preventDefault();
+    }
     this._activeBindings.set(rawCode, dispatchCode);
     this._dispatch(dispatchCode, 'pressed', event);
   }
@@ -159,8 +170,27 @@ export class MouseRuntime {
     if (this._suppressGameplay) return;
 
     const dispatchCode = this._activeBindings.get(rawCode) ?? rawCode;
+    if (this._isBoundNonPrimary(event.button, dispatchCode)) {
+      event.preventDefault();
+    }
     this._activeBindings.delete(rawCode);
     this._dispatch(dispatchCode, 'released', event);
+  }
+
+  /**
+   * Chrome triggers thumb-button back/forward navigation via the auxclick
+   * default action (after mouseup, when the press is already released), so
+   * bound non-primary buttons must be cancelled here as well.
+   * @private
+   */
+  _onAuxClick(event) {
+    if (this._suppressGameplay) return;
+    const rawCode = this._buttonCode(event.button);
+    const modifiers = this._keyboardRuntime.getHeldModifiers();
+    const dispatchCode = this._resolveDispatchCode(rawCode, modifiers);
+    if (this._isBoundNonPrimary(event.button, dispatchCode)) {
+      event.preventDefault();
+    }
   }
 
   /** @private */
@@ -193,6 +223,18 @@ export class MouseRuntime {
   _onContextMenu(event) {
     // Suppress context menu during capture so right-click can be bound
     event.preventDefault();
+  }
+
+  /**
+   * True when the event's button is non-primary and its dispatch code
+   * resolves to at least one bound action — the gate for suppressing the
+   * browser default (navigation/autoscroll) without touching the primary
+   * button's focus/selection semantics.
+   * @private
+   */
+  _isBoundNonPrimary(button, dispatchCode) {
+    if (button === 0) return false;
+    return this._store.getActionsByCode(dispatchCode).length > 0;
   }
 
   /** @private */

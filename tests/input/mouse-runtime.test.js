@@ -186,6 +186,79 @@ describe('MouseRuntime gameplay dispatch', () => {
     mouseRuntime.stop();
   });
 
+  it('prevents the browser default for bound thumb buttons on mousedown, mouseup and auxclick', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'nav-back', ['MouseButton3']);
+
+    for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+      const event = new MouseEvent(type, { button: 3, bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented, type).toBe(true);
+    }
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('leaves the browser default alone for unbound thumb buttons', () => {
+    const { mouseRuntime, kbRuntime } = setup();
+
+    for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+      const event = new MouseEvent(type, { button: 4, bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented, type).toBe(false);
+    }
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('never prevents the primary button default even when bound', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+
+    const event = new MouseEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('prevents the default for a combo-bound thumb button only while the modifier is held', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'combo-nav', ['ShiftLeft+MouseButton4']);
+
+    const bare = new MouseEvent('mousedown', { button: 4, bubbles: true, cancelable: true });
+    window.dispatchEvent(bare);
+    expect(bare.defaultPrevented).toBe(false);
+    mouseup(4);
+
+    keydown('ShiftLeft');
+    const combo = new MouseEvent('mousedown', { button: 4, bubbles: true, cancelable: true });
+    window.dispatchEvent(combo);
+    expect(combo.defaultPrevented).toBe(true);
+    keyup('ShiftLeft');
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('does not prevent defaults while gameplay is suppressed', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'nav-back', ['MouseButton3']);
+    mouseRuntime.setGameplaySuppressed(true);
+
+    for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+      const event = new MouseEvent(type, { button: 3, bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented, type).toBe(false);
+    }
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
   it('clears active bindings on setGameplaySuppressed(true)', () => {
     const { registry, store, mouseRuntime, kbRuntime } = setup();
     registerAction(registry, store, 'fire', ['MouseButton0']);

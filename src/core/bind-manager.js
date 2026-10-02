@@ -342,7 +342,7 @@ export function createBindManager(options = {}) {
       }
 
       for (const action of knownActions) {
-        const incoming = bindingsObj[action.id];
+        const incoming = _hasOwn(bindingsObj, action.id) ? bindingsObj[action.id] : undefined;
         // Normalise to { keyboard: [...] | null, gamepad: [...] | null }, handling v1 (array) and v2 ({keyboard, gamepad})
         // A null device array means "not provided / invalid" → that device's slots are left unchanged.
         const entry = _normaliseBindingEntry(incoming, payloadVersion, action.id, report.invalidEntries);
@@ -675,7 +675,7 @@ function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntri
   }
   if (typeof incoming === 'object' && payloadVersion >= 2) {
     const pickDevice = (device) => {
-      const value = incoming[device];
+      const value = _hasOwn(incoming, device) ? incoming[device] : undefined;
       if (value === undefined) return null;
       if (Array.isArray(value)) return value;
       invalidEntries.push(`Action "${actionId}" ${device} must be an array`);
@@ -687,6 +687,11 @@ function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntri
     };
   }
   return null;
+}
+
+/** Own-property check (ids like "constructor" must not match Object.prototype members). */
+function _hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
 /**

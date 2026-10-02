@@ -10,8 +10,8 @@ export class BindingStore {
     this._keyboard = new Map();
     /** @type {Map<string, (string|null)[]>} actionId -> per-slot gamepad codes */
     this._gamepad = new Map();
-    /** @type {object} raw saved data from storage */
-    this._saved = {};
+    /** @type {Map<string, unknown>} raw saved data from storage, by action id (own keys only) */
+    this._saved = new Map();
     /** @type {Set<Function>} */
     this._listeners = new Set();
   }
@@ -26,7 +26,11 @@ export class BindingStore {
    * @param {object | null} savedBindings
    */
   init(savedBindings) {
-    this._saved = savedBindings != null && typeof savedBindings === 'object' ? savedBindings : {};
+    // A Map keyed by own properties only: ids like "constructor" or "__proto__"
+    // must not resolve to Object.prototype members.
+    this._saved = new Map(
+      savedBindings != null && typeof savedBindings === 'object' ? Object.entries(savedBindings) : [],
+    );
   }
 
   /**
@@ -35,7 +39,7 @@ export class BindingStore {
    * @param {import('./action-registry.js').ActionDefinition} action
    */
   initAction(action) {
-    const saved = this._saved[action.id];
+    const saved = this._saved.get(action.id);
 
     // ── Keyboard bindings ────────────────────────────────────────────────────
     // saved may be an array (v1 legacy) or { keyboard, gamepad } (v2)
@@ -82,10 +86,16 @@ export class BindingStore {
   getAll() {
     const result = {};
     for (const action of this._registry.getAll()) {
-      result[action.id] = {
-        keyboard: [...(this._keyboard.get(action.id) ?? [])],
-        gamepad:  [...(this._gamepad.get(action.id)  ?? [])],
-      };
+      // defineProperty, not assignment: an id of "__proto__" would hit the prototype setter
+      Object.defineProperty(result, action.id, {
+        value: {
+          keyboard: [...(this._keyboard.get(action.id) ?? [])],
+          gamepad:  [...(this._gamepad.get(action.id)  ?? [])],
+        },
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return result;
   }

@@ -647,3 +647,47 @@ describe('GamepadRuntime — isPressed per gamepad', () => {
     expect(runtime.isPressed(GP_A0N, 1)).toBe(false);
   });
 });
+
+describe('GamepadRuntime — stored profile overrides', () => {
+  const PAD_ID = '054c-0ce6-DualSense Wireless Controller';
+
+  function withPad() {
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [makeGamepad(PAD_ID, 0)],
+    });
+  }
+
+  it('normalises stored overrides like setProfileOverride does', () => {
+    withPad();
+    const { runtime } = setup({
+      profileOverrides: { '054c-0ce6': { type: 'profile', key: '  054C-0CE6 ' } },
+    });
+    expect(runtime.getProfileOverride(0)).toEqual({ type: 'profile', key: '054c-0ce6' });
+  });
+
+  it('drops invalid stored overrides instead of keeping and re-saving them', () => {
+    withPad();
+    const saved = [];
+    const { runtime } = setup({
+      profileOverrides: {
+        '054c-0ce6': { type: 'bogus' },
+        'id:other pad': 'not-an-object',
+        '045e-028e': { type: 'family', family: 'xbox' },
+      },
+      onProfileOverridesChange: (overrides) => saved.push(overrides),
+    });
+    expect(runtime.getProfileOverride(0)).toBeNull();
+
+    runtime.setProfileOverride(0, { type: 'family', family: 'generic' });
+    expect(saved.at(-1)).toEqual({
+      '045e-028e': { type: 'family', family: 'xbox' },
+      '054c-0ce6': { type: 'family', family: 'generic' },
+    });
+  });
+
+  it('ignores a stored value that is not an object map', () => {
+    const { runtime } = setup({ profileOverrides: ['oops'] });
+    expect(runtime._profileOverrides.size).toBe(0);
+  });
+});

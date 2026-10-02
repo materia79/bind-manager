@@ -30,6 +30,23 @@ function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+/**
+ * Build the override map from persisted data, applying the same
+ * normalisation as setProfileOverride(); invalid entries are dropped.
+ * @param {unknown} stored
+ * @returns {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>}
+ */
+function loadProfileOverrides(stored) {
+  const overrides = new Map();
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return overrides;
+  for (const [identityKey, override] of Object.entries(stored)) {
+    if (!identityKey.trim()) continue;
+    const normalised = normaliseGamepadProfileOverride(override);
+    if (normalised) overrides.set(identityKey, normalised);
+  }
+  return overrides;
+}
+
 export class GamepadRuntime {
   /**
    * @param {import('../core/binding-store.js').BindingStore} bindingStore
@@ -52,7 +69,7 @@ export class GamepadRuntime {
     /** @type {Map<number, any>} */
     this._resolvedProfileByGamepadIndex = new Map();
     /** @type {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>} */
-    this._profileOverrides = new Map(Object.entries(options.profileOverrides ?? {}));
+    this._profileOverrides = loadProfileOverrides(options.profileOverrides);
     /** @type {Map<string, any>} */
     this._profileDefinitionOverrides = new Map();
     /** @type {Map<string, CompiledControllerMapping>} */

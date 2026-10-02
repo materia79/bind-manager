@@ -91,6 +91,18 @@ describe('KeyboardRuntime capture-on-release', () => {
     runtime.stop();
   });
 
+  it('clears held modifiers when Escape cancels capture', () => {
+    const { runtime } = setup();
+    runtime.startCapture(() => {});
+
+    keydown('ShiftLeft');
+    expect(runtime.getHeldModifiers()).toEqual(['ShiftLeft']);
+
+    keydown('Escape');
+    expect(runtime.getHeldModifiers()).toEqual([]);
+    runtime.stop();
+  });
+
   it('ignores repeat events during capture', () => {
     const { runtime } = setup();
     let captured = null;

@@ -154,6 +154,7 @@ export class KeyboardRuntime {
         const cb = this._captureCallback;
         this._captureCallback = null;
         this._capturePending = null;
+        this._pressed.clear();  // modifiers held during capture must not stay stuck
         cb(null);
         return;
       }

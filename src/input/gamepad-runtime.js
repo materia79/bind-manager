@@ -47,6 +47,8 @@ export class GamepadRuntime {
 
     /** @type {Map<number, { buttons: boolean[], axes: number[] }>} */
     this._curState = new Map();
+    /** @type {Map<number, Set<string>>} captured codes per gamepad, silent until released */
+    this._latched = new Map();
     /** @type {Map<number, any>} */
     this._resolvedProfileByGamepadIndex = new Map();
     /** @type {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>} */
@@ -378,6 +380,7 @@ export class GamepadRuntime {
 
   _handleDisconnect(e) {
     this._curState.delete(e.gamepad.index);
+    this._latched.delete(e.gamepad.index);
     this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
     if (this._captureCallback) {
       const cb = this._captureCallback;
@@ -399,6 +402,7 @@ export class GamepadRuntime {
   }
 
   _processGamepad(gamepad) {
+    const hasPrev = this._curState.has(gamepad.index);
     const prev = this._curState.get(gamepad.index) ?? {
       buttons: new Array(GP_BUTTON_COUNT).fill(false),
       axes:    new Array(GP_AXIS_COUNT).fill(0),
@@ -411,13 +415,18 @@ export class GamepadRuntime {
 
     // ── Capture mode ─────────────────────────────────────────────────────────
     if (this._captureCallback) {
+      // Without a previous frame there is no edge to detect: anything active now
+      // was already held when capture started, so this frame is only a baseline.
+      if (!hasPrev) return;
       const detected = this._detectCapture(gamepad, prev, cur);
       if (detected != null) {
         const cb = this._captureCallback;
         this._captureCallback = null;
         this._triggerHaptic(gamepad);
-        // Restore prev state so this press doesn't also fire normal events next frame
-        this._curState.set(gamepad.index, prev);
+        // The captured input is still held: keep it silent (no gameplay events,
+        // no re-capture) until it is released.
+        if (!this._latched.has(gamepad.index)) this._latched.set(gamepad.index, new Set());
+        this._latched.get(gamepad.index).add(detected);
         cb(detected);
       }
       return; // Never fire action events during capture
@@ -431,6 +440,7 @@ export class GamepadRuntime {
       const wasPressed = prev.buttons[i] ?? false;
       const isNowPressed  = cur.buttons[i]  ?? false;
       const code = `GP_B${i}`;
+      if (this._isLatched(gamepad.index, code, isNowPressed)) continue;
       if      (!wasPressed && isNowPressed)  this._dispatch(gamepad.index, code, 'pressed',  1);
       else if ( wasPressed && isNowPressed)  this._dispatch(gamepad.index, code, 'held',     1);
       else if ( wasPressed && !isNowPressed) this._dispatch(gamepad.index, code, 'released', 0);
@@ -452,7 +462,9 @@ export class GamepadRuntime {
       const codeN  = `GP_A${a}N`;
       const prevN  = prevVal < -thr;
       const curN   = curVal  < -thr;
-      if      (!prevN && curN)  this._dispatch(gamepad.index, codeN, 'pressed',  Math.abs(curVal));
+      if (this._isLatched(gamepad.index, codeN, curN)) {
+        // latched: no digital events for this direction until released
+      } else if (!prevN && curN)  this._dispatch(gamepad.index, codeN, 'pressed',  Math.abs(curVal));
       else if ( prevN && curN)  this._dispatch(gamepad.index, codeN, 'held',     Math.abs(curVal));
       else if ( prevN && !curN) this._dispatch(gamepad.index, codeN, 'released', 0);
 
@@ -460,7 +472,9 @@ export class GamepadRuntime {
       const codeP  = `GP_A${a}P`;
       const prevP  = prevVal > thr;
       const curP   = curVal  > thr;
-      if      (!prevP && curP)  this._dispatch(gamepad.index, codeP, 'pressed',  curVal);
+      if (this._isLatched(gamepad.index, codeP, curP)) {
+        // latched: no digital events for this direction until released
+      } else if (!prevP && curP)  this._dispatch(gamepad.index, codeP, 'pressed',  curVal);
       else if ( prevP && curP)  this._dispatch(gamepad.index, codeP, 'held',     curVal);
       else if ( prevP && !curP) this._dispatch(gamepad.index, codeP, 'released', 0);
     }
@@ -474,19 +488,37 @@ export class GamepadRuntime {
   _detectCapture(gamepad, prev, cur) {
     const btnLen = Math.min(cur.buttons.length, GP_BUTTON_COUNT);
     for (let i = 0; i < btnLen; i++) {
-      if (!prev.buttons[i] && cur.buttons[i]) return `GP_B${i}`;
+      const code = `GP_B${i}`;
+      if (this._isLatched(gamepad.index, code, cur.buttons[i])) continue;
+      if (!prev.buttons[i] && cur.buttons[i]) return code;
     }
     const axisLen = Math.min(cur.axes.length, GP_AXIS_COUNT);
     for (let a = 0; a < axisLen; a++) {
       const val = cur.axes[a];
+      const latchedN = this._isLatched(gamepad.index, `GP_A${a}N`, val < -this._analogThreshold);
+      const latchedP = this._isLatched(gamepad.index, `GP_A${a}P`, val > this._analogThreshold);
       if (Math.abs(val) > this._analogThreshold) {
+        const code = val < 0 ? `GP_A${a}N` : `GP_A${a}P`;
+        if (val < 0 ? latchedN : latchedP) continue;
         // Only trigger if it crossed the threshold this frame
         if (Math.abs(prev.axes[a] ?? 0) <= this._analogThreshold) {
-          return val < 0 ? `GP_A${a}N` : `GP_A${a}P`;
+          return code;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * True while `code` is latched (captured and not yet released) on this
+   * gamepad; un-latches it once it is seen inactive.
+   * @private
+   */
+  _isLatched(gamepadIndex, code, active) {
+    const latched = this._latched.get(gamepadIndex);
+    if (!latched || !latched.has(code)) return false;
+    if (!active) latched.delete(code);
+    return true;
   }
 
   /**

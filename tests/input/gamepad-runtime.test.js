@@ -268,6 +268,7 @@ describe('GamepadRuntime — capture mode', () => {
     let captured = null;
     runtime.startCapture(code => { captured = code; });
 
+    runtime._processGamepad(makeGamepad('GP', 0));                // baseline frame
     runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
     expect(captured).toBe(GP_B0);
     expect(actionEvents).toHaveLength(0); // no action events during capture
@@ -278,8 +279,71 @@ describe('GamepadRuntime — capture mode', () => {
     let captured = null;
     runtime.startCapture(code => { captured = code; });
 
+    runtime._processGamepad(makeGamepad('GP', 0));                // baseline frame
     runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));
     expect(captured).toBe(GP_A0N);
+  });
+
+  it('does not capture a button already held on the first frame seen after capture starts', () => {
+    const { runtime } = setup();
+    const captured = [];
+    runtime.startCapture(code => captured.push(code));
+
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // held before capture, no prior frame
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // still held
+    expect(captured).toEqual([]);
+
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: false }));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // a genuine new press
+    expect(captured).toEqual([GP_B0]);
+  });
+
+  it('does not capture a button that was already held when capture started', () => {
+    const { runtime } = setup();
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // gameplay frame, held
+    const captured = [];
+    runtime.startCapture(code => captured.push(code));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    expect(captured).toEqual([]);
+  });
+
+  it('does not re-capture the still-held button in an immediately following capture', () => {
+    const { runtime } = setup();
+    const captured = [];
+    runtime._processGamepad(makeGamepad('GP', 0));
+    runtime.startCapture(code => captured.push(code));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // captured
+    runtime.startCapture(code => captured.push(code));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // same press, still held
+    expect(captured).toEqual([GP_B0]);
+  });
+
+  it('can capture the same axis direction again after it returned to rest', () => {
+    const { runtime } = setup({ analogThreshold: 0.5 });
+    const captured = [];
+    runtime._processGamepad(makeGamepad('GP', 0));
+    runtime.startCapture(code => captured.push(code));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));   // captured
+    runtime.startCapture(code => captured.push(code));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));   // still pushed: ignored
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));      // back to rest
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));   // pushed again
+    expect(captured).toEqual([GP_A0N, GP_A0N]);
+  });
+
+  it('does not fire gameplay events for the captured press while it is still held', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0));
+    runtime.startCapture(() => {});
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // captured
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // still held
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: false })); // released
+    expect(events).toEqual([]);
+
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));  // next real press
+    expect(events).toEqual(['pressed']);
   });
 
   it('calls callback with null on cancelCapture', () => {

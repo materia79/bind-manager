@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createBindManager } from '../../src/core/bind-manager.js';
+import { ModalController } from '../../src/ui/modal-controller.js';
 
 let testCounter = 0;
 
@@ -176,5 +177,60 @@ describe('ModalController integration behavior', () => {
     expect(clicked).toBe(1);
 
     manager.destroy();
+  });
+
+  it('registers gamepad change listeners once and removes them on unmount', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const refreshSpy = vi.spyOn(ModalController.prototype, '_updateBindButtons');
+
+    const manager = createBindManager({ namespace: `modal-test-${testCounter}` });
+    manager.registerAction({
+      id: 'forward',
+      slots: 2,
+      gamepadSlots: 1,
+      defaultBindings: ['KeyW', 'ArrowUp'],
+      defaultGamepadBindings: ['GP_B12'],
+    });
+
+    const countAdds = (type) => addSpy.mock.calls.filter(([t]) => t === type).length;
+    const countRemoves = (type) => removeSpy.mock.calls.filter(([t]) => t === type).length;
+
+    // Listeners are registered during mount(), before any binding change
+    const addsAfterMount = countAdds('bm-gamepad-connected');
+    expect(addsAfterMount).toBeGreaterThanOrEqual(1);
+
+    manager.open();
+
+    // Several binding changes must not re-register the gamepad listeners
+    manager.setBinding('forward', 0, 'KeyI');
+    manager.setBinding('forward', 1, 'KeyK');
+    manager.setBinding('forward', 0, 'KeyJ');
+
+    expect(countAdds('bm-gamepad-connected')).toBe(addsAfterMount);
+    expect(countAdds('bm-gamepad-disconnected')).toBe(addsAfterMount);
+    expect(countAdds('bm-gamepad-profile-changed')).toBe(addsAfterMount);
+
+    refreshSpy.mockClear();
+    window.dispatchEvent(new Event('bm-gamepad-connected'));
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new Event('bm-gamepad-connected'));
+    expect(refreshSpy).toHaveBeenCalledTimes(2);
+
+    manager.destroy();
+
+    // Every registered listener is removed again on unmount
+    expect(countRemoves('bm-gamepad-connected')).toBe(addsAfterMount);
+    expect(countRemoves('bm-gamepad-disconnected')).toBe(addsAfterMount);
+    expect(countRemoves('bm-gamepad-profile-changed')).toBe(addsAfterMount);
+
+    refreshSpy.mockClear();
+    window.dispatchEvent(new Event('bm-gamepad-connected'));
+    expect(refreshSpy).not.toHaveBeenCalled();
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+    refreshSpy.mockRestore();
   });
 });

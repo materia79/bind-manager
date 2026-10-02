@@ -82,15 +82,15 @@ export class ModalController {
     // Re-render when any binding changes while modal is open
     this._unsubscribeStore = this._store.subscribe(() => {
       if (this._open) this._updateBindButtons();  // lightweight, avoids full DOM teardown
-
-        // Update button labels when a controller connects/disconnects
-        this._onGamepadChange = () => { if (this._open) this._updateBindButtons(); };
-        if (typeof window !== 'undefined') {
-          window.addEventListener('bm-gamepad-connected',    this._onGamepadChange);
-          window.addEventListener('bm-gamepad-disconnected', this._onGamepadChange);
-          window.addEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
-        }
     });
+
+      // Update button labels when a controller connects/disconnects
+      this._onGamepadChange = () => { if (this._open) this._updateBindButtons(); };
+      if (typeof window !== 'undefined') {
+        window.addEventListener('bm-gamepad-connected',    this._onGamepadChange);
+        window.addEventListener('bm-gamepad-disconnected', this._onGamepadChange);
+        window.addEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
+      }
   }
 
   unmount() {
@@ -106,6 +106,7 @@ export class ModalController {
           window.removeEventListener('bm-gamepad-disconnected', this._onGamepadChange);
           window.removeEventListener('bm-gamepad-profile-changed', this._onGamepadChange);
         }
+    this._onGamepadChange = null;
     this._overlay = null;
     this._container = null;
   }

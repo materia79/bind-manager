@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-main-latest
+  group: release-main-latest-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -43,6 +46,7 @@ jobs:
           fi
 
       - name: Ensure rolling release exists
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -53,11 +57,13 @@ jobs:
           fi
 
       - name: Upload latest minified bundle
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload main-latest dist/bind-manager.min.js --clobber
 
       - name: Refresh release notes
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

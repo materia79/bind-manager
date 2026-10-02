@@ -9,3 +9,4 @@ PLAN.md
 QA_CHECKLIST.md
 docs/*
 !docs/README.md
+test-results/

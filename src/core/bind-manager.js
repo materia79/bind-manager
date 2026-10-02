@@ -544,8 +544,8 @@ export function createBindManager(options = {}) {
   if (debug && typeof window !== 'undefined') {
     _debugListener = (e) => {
       if (e.code === debugKey) {
-        e.preventDefault();
-        modal.toggle();
+        e.preventDefault();  // also on auto-repeat, so a held F5 never reloads the page
+        if (!e.repeat) modal.toggle();
       }
     };
     window.addEventListener('keydown', _debugListener);

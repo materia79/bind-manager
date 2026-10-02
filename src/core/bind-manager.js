@@ -509,6 +509,8 @@ export function createBindManager(options = {}) {
      * Call this if you need to remove the Bind Manager from a running page.
      */
     destroy() {
+      // Close first so `active` drops to false and onActiveChange listeners hear it
+      modal.close();
       unsubPersist();
       if (_debugListener) window.removeEventListener('keydown', _debugListener);
       runtime.stop();

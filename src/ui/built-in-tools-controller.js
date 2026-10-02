@@ -39,6 +39,16 @@ const CAPTURE_PRESETS = {
 
 const DEFAULT_CAPTURE_PRESET = 'dualsense';
 const DPAD_CODES = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'];
+
+function _esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const BUILT_IN_TOOLS_CSS = `
 .bm-debug-modal,
 .bm-tester-modal,
@@ -564,7 +574,7 @@ export function createBuiltInToolsController(manager, options = {}) {
     };
 
     els.presetSelect.innerHTML = Object.values(CAPTURE_PRESETS)
-      .map((preset) => `<option value="${preset.id}">${preset.label}</option>`)
+      .map((preset) => `<option value="${_esc(preset.id)}">${_esc(preset.label)}</option>`)
       .join('');
     els.presetSelect.value = DEFAULT_CAPTURE_PRESET;
 
@@ -1433,10 +1443,10 @@ export function createBuiltInToolsController(manager, options = {}) {
         return `
           <li class="bm-tester-binding-item">
             <div>
-              <div>${describeBindingEntry(entry)}</div>
-              <div class="bm-tester-binding-meta">Source: ${sourceLabel}</div>
+              <div>${_esc(describeBindingEntry(entry))}</div>
+              <div class="bm-tester-binding-meta">Source: ${_esc(sourceLabel)}</div>
             </div>
-            <button class="bm-tool-btn bm-tester-binding-remove" data-remove-binding="${entry.key}">Remove</button>
+            <button class="bm-tool-btn bm-tester-binding-remove" data-remove-binding="${_esc(entry.key)}">Remove</button>
           </li>`;
       }).join('');
     }
@@ -1892,8 +1902,8 @@ export function createBuiltInToolsController(manager, options = {}) {
     const resolved = manager.getResolvedGamepadProfile(gp.index);
     const options = manager.getAvailableGamepadProfileOptions(gp.index);
     const selectedValue = resolved.override ? serialiseProfileOverrideValue(resolved.override) : '__auto__';
-    const exactOptions = options.exactProfiles.map((option) => `<option value="${serialiseProfileOverrideValue(option)}" ${selectedValue === serialiseProfileOverrideValue(option) ? 'selected' : ''}>Exact: ${option.label}</option>`).join('');
-    const familyOptions = options.families.map((option) => `<option value="${serialiseProfileOverrideValue(option)}" ${selectedValue === serialiseProfileOverrideValue(option) ? 'selected' : ''}>Family: ${option.label}</option>`).join('');
+    const exactOptions = options.exactProfiles.map((option) => `<option value="${_esc(serialiseProfileOverrideValue(option))}" ${selectedValue === serialiseProfileOverrideValue(option) ? 'selected' : ''}>Exact: ${_esc(option.label)}</option>`).join('');
+    const familyOptions = options.families.map((option) => `<option value="${_esc(serialiseProfileOverrideValue(option))}" ${selectedValue === serialiseProfileOverrideValue(option) ? 'selected' : ''}>Family: ${_esc(option.label)}</option>`).join('');
     selectEl.innerHTML = `<option value="__auto__" ${selectedValue === '__auto__' ? 'selected' : ''}>Auto detect</option>${exactOptions}${familyOptions}`;
     selectEl.dataset.gamepadIndex = String(gp.index);
     autoBtn.dataset.gamepadIndex = String(gp.index);

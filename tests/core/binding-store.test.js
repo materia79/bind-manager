@@ -51,3 +51,41 @@ describe('BindingStore', () => {
     expect(store.get('forward')).toEqual(['KeyW', 'ArrowUp']);
   });
 });
+
+describe('BindingStore commits', () => {
+  it('resetAll() emits one reset event per action but commits once', () => {
+    const { store } = setup();
+    const events = [];
+    let commits = 0;
+    store.subscribe((e) => events.push(e.type));
+    store.onCommit(() => { commits += 1; });
+
+    store.resetAll();
+
+    expect(events).toEqual(['reset', 'reset']);
+    expect(commits).toBe(1);
+  });
+
+  it('commits once per mutation outside a batch', () => {
+    const { store } = setup();
+    let commits = 0;
+    store.onCommit(() => { commits += 1; });
+    store.set('jump', 0, 'KeyJ');
+    store.clear('jump', 0);
+    store.reset('jump');
+    expect(commits).toBe(3);
+  });
+
+  it('commits a batch even when it throws part-way, and skips empty batches', () => {
+    const { store } = setup();
+    let commits = 0;
+    store.onCommit(() => { commits += 1; });
+    store.batch(() => {});
+    expect(commits).toBe(0);
+    expect(() => store.batch(() => {
+      store.set('jump', 0, 'KeyJ');
+      throw new Error('boom');
+    })).toThrow('boom');
+    expect(commits).toBe(1);
+  });
+});

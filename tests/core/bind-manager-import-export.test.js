@@ -178,3 +178,21 @@ describe('BindManager export/import', () => {
     manager.destroy();
   });
 });
+
+describe('resetAll persistence', () => {
+  it('writes storage once, not once per action', () => {
+    document.body.innerHTML = '';
+    let saves = 0;
+    const storage = { load: () => null, save: () => { saves += 1; }, clear() {} };
+    const manager = createBindManager({ storage });
+    manager.registerActions([
+      { id: 'a', defaultBindings: ['KeyA'] },
+      { id: 'b', defaultBindings: ['KeyB'] },
+      { id: 'c', defaultBindings: ['KeyC'] },
+    ]);
+    saves = 0;
+    manager.resetAll();
+    expect(saves).toBe(1);
+    manager.destroy();
+  });
+});

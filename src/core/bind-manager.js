@@ -91,8 +91,8 @@ export function createBindManager(options = {}) {
   gamepadRuntime.start();
   mouseRuntime.start();
 
-  // Persist to storage on every binding change
-  const unsubPersist = store.subscribe(() => {
+  // Persist to storage once per committed change (resetAll() is a single commit)
+  const unsubPersist = store.onCommit(() => {
     storageAdapter.save(store.getAll());
   });
 

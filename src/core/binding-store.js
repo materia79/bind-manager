@@ -14,6 +14,10 @@ export class BindingStore {
     this._saved = new Map();
     /** @type {Set<Function>} */
     this._listeners = new Set();
+    /** @type {Set<Function>} called once per committed mutation or batch (persistence) */
+    this._commitListeners = new Set();
+    this._batchDepth = 0;
+    this._batchDirty = false;
   }
 
   /**
@@ -164,8 +168,28 @@ export class BindingStore {
 
   /** Reset all registered actions to their defaults on both devices. */
   resetAll() {
-    for (const action of this._registry.getAll()) {
-      this.reset(action.id);
+    this.batch(() => {
+      for (const action of this._registry.getAll()) {
+        this.reset(action.id);
+      }
+    });
+  }
+
+  /**
+   * Run several mutations as one commit: change events are still emitted per
+   * mutation, but commit listeners (persistence) run once at the end.
+   * @param {() => void} fn
+   */
+  batch(fn) {
+    this._batchDepth += 1;
+    try {
+      fn();
+    } finally {
+      this._batchDepth -= 1;
+      if (this._batchDepth === 0 && this._batchDirty) {
+        this._batchDirty = false;
+        this._commit();
+      }
     }
   }
 
@@ -195,6 +219,17 @@ export class BindingStore {
     return () => this._listeners.delete(listener);
   }
 
+  /**
+   * Subscribe to commits: called once after each mutation outside a batch,
+   * and once at the end of a batch that changed something.
+   * @param {() => void} listener
+   * @returns {Function} unsubscribe
+   */
+  onCommit(listener) {
+    this._commitListeners.add(listener);
+    return () => this._commitListeners.delete(listener);
+  }
+
   /** @private */
   _findConflicts(code, excludeActionId, excludeSlot, device = 'keyboard') {
     const map = device === 'gamepad' ? this._gamepad : this._keyboard;
@@ -214,6 +249,17 @@ export class BindingStore {
     for (const listener of this._listeners) {
       try { listener(event); } catch (err) {
         console.error('[BindManager] Subscriber threw an error:', err);
+      }
+    }
+    if (this._batchDepth > 0) this._batchDirty = true;
+    else this._commit();
+  }
+
+  /** @private */
+  _commit() {
+    for (const listener of this._commitListeners) {
+      try { listener(); } catch (err) {
+        console.error('[BindManager] Commit listener threw an error:', err);
       }
     }
   }

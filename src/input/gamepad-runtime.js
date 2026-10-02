@@ -72,8 +72,8 @@ export class GamepadRuntime {
     this._profileOverrides = loadProfileOverrides(options.profileOverrides);
     /** @type {Map<string, any>} */
     this._profileDefinitionOverrides = new Map();
-    /** @type {Map<string, CompiledControllerMapping>} */
-    this._compiledProfileCache = new Map();
+    /** @type {WeakMap<object, CompiledControllerMapping>} compiled mapping per definition object */
+    this._compiledProfileCache = new WeakMap();
 
     /** @type {Map<string, Set<Function>>} per-action listeners */
     this._listeners    = new Map();
@@ -358,7 +358,6 @@ export class GamepadRuntime {
     editable.capturedAt = new Date().toISOString();
     this._profileDefinitionOverrides.set(identityKey, editable);
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._compiledProfileCache.clear();
     this._emitProfileChange(gp.index, gp.id);
     return true;
   }
@@ -694,16 +693,17 @@ export class GamepadRuntime {
 
   /**
    * Convert a controller definition mapping object into fast lookup arrays.
+   * Runs every polled frame, so the result is cached on the definition object
+   * itself (no per-frame serialisation). Definitions are never mutated in
+   * place: edits produce a new cloned definition and so a fresh compile.
    * @param {any | null} profile
    * @returns {CompiledControllerMapping | null}
    * @private
    */
   _compileControllerMapping(profile) {
     if (!profile || typeof profile !== 'object' || !profile.mapping) return null;
-    const key = `${profile.vendorId ?? 'unknown'}-${profile.productId ?? 'unknown'}:${JSON.stringify(profile.mapping)}`;
-    if (this._compiledProfileCache.has(key)) {
-      return this._compiledProfileCache.get(key);
-    }
+    const cached = this._compiledProfileCache.get(profile);
+    if (cached) return cached;
 
     /** @type {CompiledControllerMapping} */
     const compiled = {
@@ -727,7 +727,7 @@ export class GamepadRuntime {
       if (entryP) compiled.axesPos[a] = entryP;
     }
 
-    this._compiledProfileCache.set(key, compiled);
+    this._compiledProfileCache.set(profile, compiled);
     return compiled;
   }
 

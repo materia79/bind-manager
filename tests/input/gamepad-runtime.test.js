@@ -691,3 +691,54 @@ describe('GamepadRuntime — stored profile overrides', () => {
     expect(runtime._profileOverrides.size).toBe(0);
   });
 });
+
+describe('GamepadRuntime — mapped profile hot path', () => {
+  const PAD_ID = '054c-0ce6-DualSense Wireless Controller';
+
+  it('does not serialise or clone the profile on every polled frame', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      family: 'dualsense',
+      mapping: { GP_B0: { kind: 'button', index: 1 } },
+    };
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', (e) => events.push(e.type));
+
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0));       // warms the caches
+    const stringify = vi.spyOn(JSON, 'stringify');
+    const parse = vi.spyOn(JSON, 'parse');
+    for (let i = 0; i < 5; i++) runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 1: true }));
+    expect(stringify).not.toHaveBeenCalled();
+    expect(parse).not.toHaveBeenCalled();
+    stringify.mockRestore();
+    parse.mockRestore();
+
+    expect(events[0]).toBe('pressed');
+  });
+
+  it('recompiles after the mapping is edited', () => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      productId: '0ce6',
+      family: 'dualsense',
+      mapping: { GP_B0: { kind: 'button', index: 1 } },
+    };
+    const { runtime } = setup();
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [makeMappedGamepad(PAD_ID, 0)],
+    });
+    const events = [];
+    runtime.onAction('jump', (e) => events.push(e.type));
+
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0));
+    expect(runtime.setProfileMappingEntry(0, 'GP_B0', { kind: 'button', index: 5 })).toBe(true);
+
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 1: true }));  // old index: nothing
+    expect(events).toEqual([]);
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 5: true }));  // new index
+    expect(events).toEqual(['pressed']);
+  });
+});

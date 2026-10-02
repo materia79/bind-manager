@@ -632,3 +632,18 @@ describe('GamepadRuntime — controller definition mapping', () => {
     expect(captured).toBe('GP_B13');
   });
 });
+
+describe('GamepadRuntime — isPressed per gamepad', () => {
+  it('only considers the given gamepad index when one is passed', () => {
+    const { runtime } = setup();
+    runtime._processGamepad(makeGamepad('GP', 0, { 1: true }));
+    runtime._processGamepad(makeGamepad('GP', 1, {}));
+    expect(runtime.isPressed(GP_B1)).toBe(true);
+    expect(runtime.isPressed(GP_B1, 0)).toBe(true);
+    expect(runtime.isPressed(GP_B1, 1)).toBe(false);
+
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));
+    expect(runtime.isPressed(GP_A0N, 0)).toBe(true);
+    expect(runtime.isPressed(GP_A0N, 1)).toBe(false);
+  });
+});

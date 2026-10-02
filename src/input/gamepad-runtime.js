@@ -159,13 +159,15 @@ export class GamepadRuntime {
    * Check if a gamepad code is currently in the "pressed" state based on the
    * last polled frame. Returns false for unknown codes.
    * @param {string} code
+   * @param {number | null} [gamepadIndex=null] - only consider this gamepad (null = any)
    * @returns {boolean}
    */
-  isPressed(code) {
+  isPressed(code, gamepadIndex = null) {
     if (!code || !isGamepadCode(code)) return false;
     if (code.startsWith('GP_B')) {
       const idx = parseInt(code.slice(4), 10);
-      for (const [, state] of this._curState) {
+      for (const [index, state] of this._curState) {
+        if (gamepadIndex !== null && index !== gamepadIndex) continue;
         if (state.buttons[idx] === true) return true;
       }
     } else {
@@ -173,7 +175,8 @@ export class GamepadRuntime {
       if (!match) return false;
       const axisIdx = parseInt(match[1], 10);
       const neg     = match[2] === 'N';
-      for (const [, state] of this._curState) {
+      for (const [index, state] of this._curState) {
+        if (gamepadIndex !== null && index !== gamepadIndex) continue;
         const val = state.axes[axisIdx] ?? 0;
         if (neg ? val < -this._analogThreshold : val > this._analogThreshold) return true;
       }

@@ -475,14 +475,18 @@ export function createBindManager(options = {}) {
 
     /**
      * Check if the key(s) bound to an action are currently held down.
+     * Gamepad bindings honour the action's playerIndex, like action events do.
+     * Mouse wheel bindings are never "held": the wheel only emits a
+     * pressed+released pulse, so use onPressed() for wheel actions.
      * @param {string} actionId
      * @returns {boolean}
      */
     isActionPressed(actionId) {
         const kbBindings = store.get(actionId, 'keyboard') ?? [];
         const gpBindings = store.get(actionId, 'gamepad')  ?? [];
+        const playerIndex = registry.get(actionId)?.playerIndex ?? null;
         return kbBindings.some(code => code && (runtime.isPressed(code) || mouseRuntime.isPressed(code)))
-          || gpBindings.some(code => code && gamepadRuntime.isPressed(code));
+          || gpBindings.some(code => code && gamepadRuntime.isPressed(code, playerIndex));
     },
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────

@@ -235,7 +235,7 @@ When `builtInTools` is enabled, these tools are bundled into the library output 
 ### Runtime input and subscriptions
 
 - `onAnyAction(callback)`
-- `isActionPressed(actionId)`
+- `isActionPressed(actionId)` — `true` while a bound key, mouse button or gamepad input is held. Gamepad bindings only count on the action's `playerIndex` controller when one is set. Mouse wheel bindings always read `false` here: the wheel has no held state and fires a pressed+released pulse, so listen with `onPressed` instead.
 - `subscribe(callback)` for binding-change events
 
 ### Cleanup

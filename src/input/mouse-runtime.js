@@ -71,7 +71,7 @@ export class MouseRuntime {
   setGameplaySuppressed(suppressed) {
     this._suppressGameplay = suppressed;
     if (suppressed) {
-      for (const [rawCode, comboCode] of this._activeBindings) {
+      for (const comboCode of this._activeBindings.values()) {
         this._dispatch(comboCode, 'released', null);
       }
       this._activeBindings.clear();

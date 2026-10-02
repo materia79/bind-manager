@@ -69,7 +69,7 @@ export class KeyboardRuntime {
     this._suppressGameplay = suppressed;
     if (suppressed) {
       // Release everything currently held so nothing stays "pressed" in the game
-      for (const [rawCode, comboCode] of this._activeBindings) {
+      for (const comboCode of this._activeBindings.values()) {
         this._dispatch(comboCode, 'released', null);
       }
       this._activeBindings.clear();
@@ -243,7 +243,7 @@ export class KeyboardRuntime {
   _onBlur() {
     // Window lost focus: release all held keys to avoid stuck inputs.
     if (!this._suppressGameplay) {
-      for (const [rawCode, comboCode] of this._activeBindings) {
+      for (const comboCode of this._activeBindings.values()) {
         this._dispatch(comboCode, 'released', null);
       }
     }

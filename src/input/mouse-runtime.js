@@ -38,6 +38,10 @@ export class MouseRuntime {
     this._capturePending = null;
     /** @type {Map<string, string>} rawCode → dispatched combo code */
     this._activeBindings = new Map();
+    /** @type {Set<string>} buttons pressed during a cancelled capture whose mouseup must be swallowed */
+    this._swallowRelease = new Set();
+    /** @type {ReturnType<typeof setTimeout> | null} pending deferred contextmenu-listener removal */
+    this._contextMenuTimer = null;
 
     this._onMouseDown = this._onMouseDown.bind(this);
     this._onMouseUp = this._onMouseUp.bind(this);
@@ -56,26 +60,23 @@ export class MouseRuntime {
   }
 
   stop() {
-    if (!this._active) return;
-    this._active = false;
+    // Capture state is torn down even when not started: startCapture() does not require start().
     this._captureCallback = null;
     this._capturePending = null;
-    this._activeBindings.clear();
+    this._swallowRelease.clear();
+    this._detachContextMenu(false);
+    if (!this._active) return;
+    this._active = false;
+    this._releaseAll();
     window.removeEventListener('mousedown', this._onMouseDown);
     window.removeEventListener('mouseup', this._onMouseUp);
     window.removeEventListener('auxclick', this._onAuxClick);
     window.removeEventListener('wheel', this._onWheel);
-    window.removeEventListener('contextmenu', this._onContextMenu);
   }
 
   setGameplaySuppressed(suppressed) {
     this._suppressGameplay = suppressed;
-    if (suppressed) {
-      for (const comboCode of this._activeBindings.values()) {
-        this._dispatch(comboCode, 'released', null);
-      }
-      this._activeBindings.clear();
-    }
+    if (suppressed) this._releaseAll();
   }
 
   /**
@@ -86,14 +87,23 @@ export class MouseRuntime {
   startCapture(callback) {
     this._captureCallback = callback;
     this._capturePending = null;
+    // A removal deferred by the previous capture must not strip this capture's listener
+    this._clearContextMenuTimer();
     // Suppress context menu during capture so right-click can be bound
     window.addEventListener('contextmenu', this._onContextMenu);
   }
 
   cancelCapture() {
+    const pending = this._capturePending;
     this._captureCallback = null;
     this._capturePending = null;
-    window.removeEventListener('contextmenu', this._onContextMenu);
+    if (pending) {
+      // The button is still held: swallow its mouseup (it never dispatched 'pressed')
+      // and keep the context menu suppressed until that release has happened.
+      this._swallowRelease.add(pending.code);
+    } else {
+      this._detachContextMenu(false);
+    }
   }
 
   /**
@@ -159,11 +169,16 @@ export class MouseRuntime {
       const pending = this._capturePending;
       this._capturePending = null;
       // Defer removal so the handler survives the mouseup → contextmenu gap
-      const handler = this._onContextMenu;
-      setTimeout(() => window.removeEventListener('contextmenu', handler), 0);
+      this._detachContextMenu(true);
       const modifiers = this._keyboardRuntime.getHeldModifiers();
       const comboCode = buildComboCode(modifiers, pending.code);
       cb(comboCode);
+      return;
+    }
+
+    if (this._swallowRelease.delete(rawCode)) {
+      event.preventDefault();
+      if (!this._captureCallback && this._swallowRelease.size === 0) this._detachContextMenu(true);
       return;
     }
 
@@ -173,6 +188,8 @@ export class MouseRuntime {
     if (this._isBoundNonPrimary(event.button, dispatchCode)) {
       event.preventDefault();
     }
+    // Only release what was pressed: a button pressed while suppressed never dispatched 'pressed'
+    if (!this._activeBindings.has(rawCode)) return;
     this._activeBindings.delete(rawCode);
     this._dispatch(dispatchCode, 'released', event);
   }
@@ -202,8 +219,7 @@ export class MouseRuntime {
       const cb = this._captureCallback;
       this._captureCallback = null;
       this._capturePending = null;
-      const handler = this._onContextMenu;
-      setTimeout(() => window.removeEventListener('contextmenu', handler), 0);
+      this._detachContextMenu(true);
       const modifiers = this._keyboardRuntime.getHeldModifiers();
       const comboCode = buildComboCode(modifiers, rawCode);
       cb(comboCode);
@@ -217,6 +233,40 @@ export class MouseRuntime {
     // Wheel is a pulse: pressed then immediately released
     this._dispatch(dispatchCode, 'pressed', event);
     this._dispatch(dispatchCode, 'released', event);
+  }
+
+  /**
+   * Remove the capture contextmenu listener, either now or on the next tick
+   * (so it survives the mouseup → contextmenu gap). Only one removal is ever
+   * pending, and startCapture() cancels it.
+   * @private
+   */
+  _detachContextMenu(deferred) {
+    this._clearContextMenuTimer();
+    if (!deferred) {
+      window.removeEventListener('contextmenu', this._onContextMenu);
+      return;
+    }
+    this._contextMenuTimer = setTimeout(() => {
+      this._contextMenuTimer = null;
+      window.removeEventListener('contextmenu', this._onContextMenu);
+    }, 0);
+  }
+
+  /** @private */
+  _clearContextMenuTimer() {
+    if (this._contextMenuTimer !== null) {
+      clearTimeout(this._contextMenuTimer);
+      this._contextMenuTimer = null;
+    }
+  }
+
+  /** Dispatch 'released' for every held binding and forget them. @private */
+  _releaseAll() {
+    for (const comboCode of this._activeBindings.values()) {
+      this._dispatch(comboCode, 'released', null);
+    }
+    this._activeBindings.clear();
   }
 
   /** @private */

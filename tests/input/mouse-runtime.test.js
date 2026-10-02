@@ -274,3 +274,115 @@ describe('MouseRuntime gameplay dispatch', () => {
     mouseRuntime.stop();
   });
 });
+
+describe('MouseRuntime pressed state across capture and suppression', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function contextMenu() {
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    return event;
+  }
+
+  it('keeps suppressing the context menu for a capture started right after another one completed', async () => {
+    const { kbRuntime, mouseRuntime } = setup();
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseup(2);                          // completes, schedules deferred listener removal
+    mouseRuntime.startCapture(() => {}); // next capture in the same tick
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(contextMenu().defaultPrevented).toBe(true);
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('removes the context-menu suppression when capture is cancelled with no button held', () => {
+    const { kbRuntime, mouseRuntime } = setup();
+    mouseRuntime.startCapture(() => {});
+    mouseRuntime.cancelCapture();
+
+    expect(contextMenu().defaultPrevented).toBe(false);
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('swallows the release of a button pressed during a cancelled capture', async () => {
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    const events = [];
+    mouseRuntime.onAction('aim', (e) => events.push(e));
+
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseRuntime.cancelCapture();        // e.g. keyboard Escape while right button is held
+    mouseup(2);
+
+    expect(events).toEqual([]);
+    // the context menu that follows the right-button release is still suppressed
+    expect(contextMenu().defaultPrevented).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(contextMenu().defaultPrevented).toBe(false);
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('does not dispatch released for a button pressed while gameplay was suppressed', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+    const events = [];
+    mouseRuntime.onAction('fire', (e) => events.push(e));
+
+    mouseRuntime.setGameplaySuppressed(true);
+    mousedown(0);
+    mouseRuntime.setGameplaySuppressed(false);
+    mouseup(0);
+
+    expect(events).toEqual([]);
+    expect(mouseRuntime.isPressed('MouseButton0')).toBe(false);
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('stop() removes capture listeners even when the runtime was never started', () => {
+    const registry = new ActionRegistry();
+    const store = new BindingStore(registry);
+    const mouseRuntime = new MouseRuntime(store, new KeyboardRuntime(store));
+    mouseRuntime.startCapture(() => {});
+    mouseRuntime.stop();
+
+    expect(contextMenu().defaultPrevented).toBe(false);
+  });
+
+  it('stop() after cancelCapture leaves no listener or pending timer behind', async () => {
+    const { kbRuntime, mouseRuntime } = setup();
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseRuntime.cancelCapture();
+    mouseRuntime.stop();
+
+    expect(contextMenu().defaultPrevented).toBe(false);
+    expect(mouseRuntime._contextMenuTimer).toBeNull();
+    kbRuntime.stop();
+  });
+
+  it('stop() releases buttons that are still held', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+    const events = [];
+    mouseRuntime.onAction('fire', (e) => events.push(e.type));
+
+    mousedown(0);
+    mouseRuntime.stop();
+
+    expect(events).toEqual(['pressed', 'released']);
+    expect(mouseRuntime.isPressed('MouseButton0')).toBe(false);
+    kbRuntime.stop();
+  });
+});

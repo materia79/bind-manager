@@ -46,14 +46,14 @@ export class KeyboardRuntime {
     window.addEventListener('blur', this._onBlur);
   }
 
-  /** Detach all keyboard listeners and clear pressed state. */
+  /** Detach all keyboard listeners, releasing held bindings and clearing pressed state. */
   stop() {
     if (!this._active) return;
     this._active = false;
+    this._releaseAll();
     this._pressed.clear();
     this._captureCallback = null;
     this._capturePending = null;
-    this._activeBindings.clear();
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('blur', this._onBlur);
@@ -69,10 +69,7 @@ export class KeyboardRuntime {
     this._suppressGameplay = suppressed;
     if (suppressed) {
       // Release everything currently held so nothing stays "pressed" in the game
-      for (const comboCode of this._activeBindings.values()) {
-        this._dispatch(comboCode, 'released', null);
-      }
-      this._activeBindings.clear();
+      this._releaseAll();
       this._pressed.clear();
     }
   }
@@ -233,20 +230,19 @@ export class KeyboardRuntime {
       return;
     }
 
-    const dispatchCode = this._activeBindings.get(code) ?? code;
+    this._pressed.delete(code);
+    // Only release what was pressed: a key pressed while suppressed or during
+    // capture never dispatched 'pressed'
+    if (!this._activeBindings.has(code)) return;
+    const dispatchCode = this._activeBindings.get(code);
     this._activeBindings.delete(code);
     this._dispatch(dispatchCode, 'released', event);
-    this._pressed.delete(code);
   }
 
   /** @private */
   _onBlur() {
     // Window lost focus: release all held keys to avoid stuck inputs.
-    if (!this._suppressGameplay) {
-      for (const comboCode of this._activeBindings.values()) {
-        this._dispatch(comboCode, 'released', null);
-      }
-    }
+    if (!this._suppressGameplay) this._releaseAll();
     this._activeBindings.clear();
     this._pressed.clear();
     this._capturePending = null;
@@ -268,6 +264,14 @@ export class KeyboardRuntime {
       if (actions.length > 0) return comboCode;
     }
     return code;
+  }
+
+  /** Dispatch 'released' for every held binding and forget them. @private */
+  _releaseAll() {
+    for (const comboCode of this._activeBindings.values()) {
+      this._dispatch(comboCode, 'released', null);
+    }
+    this._activeBindings.clear();
   }
 
   /** @private */

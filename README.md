@@ -224,6 +224,7 @@ When `builtInTools` is enabled, these tools are bundled into the library output 
 - `clearBinding(actionId, slot)`
 - `resetAction(actionId)`
 - `resetAll()`
+- `clearStorage()` — delete the persisted bindings and gamepad profile overrides for this namespace (live bindings are kept; call `resetAll()` first to also restore defaults). Returns `false` if a custom storage adapter has no `clear()`.
 
 ### Hint controls
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { LocalStorageAdapter } from '../../src/storage/local-storage-adapter.js';
+import { createBindManager } from '../../src/core/bind-manager.js';
 
 let testCounter = 0;
 let originalLocalStorage;
@@ -53,5 +54,32 @@ describe('LocalStorageAdapter', () => {
     expect(adapter.loadGamepadProfileOverrides()).toEqual({
       '054c-0ce6': { type: 'family', family: 'dualsense' },
     });
+  });
+});
+
+describe('manager.clearStorage()', () => {
+  it('removes persisted bindings and profile overrides for the namespace', () => {
+    document.body.innerHTML = '';
+    localStorage.clear();
+    const manager = createBindManager({ namespace: 'clear-storage' });
+    manager.registerAction({ id: 'jump', defaultBindings: ['Space'] });
+    manager.setBinding('jump', 0, 'KeyJ');
+    localStorage.setItem('bind-manager:clear-storage:gamepad-profile-overrides', '{}');
+    localStorage.setItem('bind-manager:other-namespace', 'kept');
+    expect(localStorage.getItem('bind-manager:clear-storage')).not.toBeNull();
+
+    expect(manager.clearStorage()).toBe(true);
+
+    expect(localStorage.getItem('bind-manager:clear-storage')).toBeNull();
+    expect(localStorage.getItem('bind-manager:clear-storage:gamepad-profile-overrides')).toBeNull();
+    expect(localStorage.getItem('bind-manager:other-namespace')).toBe('kept');
+    expect(manager.getBinding('jump')).toEqual(['KeyJ', null]);
+    manager.destroy();
+  });
+
+  it('returns false for a custom adapter without clear()', () => {
+    const manager = createBindManager({ storage: { load: () => null, save() {} } });
+    expect(manager.clearStorage()).toBe(false);
+    manager.destroy();
   });
 });

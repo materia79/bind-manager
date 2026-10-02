@@ -436,6 +436,19 @@ export function createBindManager(options = {}) {
     /** Reset all actions to their registered defaults. */
     resetAll() { store.resetAll(); },
 
+    /**
+     * Delete everything persisted for this namespace (bindings and gamepad
+     * profile overrides) via the storage adapter's clear(). In-memory
+     * bindings are untouched; the next binding change is persisted again.
+     * Call resetAll() first to also return the live bindings to defaults.
+     * @returns {boolean} false when the storage adapter has no clear()
+     */
+    clearStorage() {
+      if (typeof storageAdapter.clear !== 'function') return false;
+      storageAdapter.clear();
+      return true;
+    },
+
     // ── Change subscriptions ─────────────────────────────────────────────────
 
     /**

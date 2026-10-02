@@ -8,6 +8,11 @@ import { CaptureModalController } from '../ui/capture-modal-controller.js';
 import { HintsController } from '../ui/hints-controller.js';
 import { GamepadRuntime } from '../input/gamepad-runtime.js';
 import { createBuiltInToolsController } from '../ui/built-in-tools-controller.js';
+import { isKnownCode } from '../input/key-names.js';
+import { isGamepadCode } from '../input/gamepad-codes.js';
+
+/** Sentinel: leave the current slot value untouched during import. */
+const KEEP_SLOT = Symbol('keep-slot');
 
 /**
  * Creates and returns a Bind Manager instance.
@@ -327,7 +332,7 @@ export function createBindManager(options = {}) {
       }
 
       const bindingsObj = parsed.value.bindings;
-        const payloadVersion = parsed.value.version;
+      const payloadVersion = parsed.value.version;
       const knownActions = registry.getAll();
       const incomingActionIds = new Set(Object.keys(bindingsObj));
 
@@ -338,8 +343,9 @@ export function createBindManager(options = {}) {
 
       for (const action of knownActions) {
         const incoming = bindingsObj[action.id];
-        // Normalise to { keyboard: [...], gamepad: [...] }, handling v1 (array) and v2 ({keyboard, gamepad})
-        const entry = _normaliseBindingEntry(incoming, payloadVersion);
+        // Normalise to { keyboard: [...] | null, gamepad: [...] | null }, handling v1 (array) and v2 ({keyboard, gamepad})
+        // A null device array means "not provided / invalid" → that device's slots are left unchanged.
+        const entry = _normaliseBindingEntry(incoming, payloadVersion, action.id, report.invalidEntries);
         const hasEntry = entry != null;
         const shouldProcess = hasEntry || (mode === 'replace' && !incomingActionIds.has(action.id));
         if (!shouldProcess) continue;
@@ -347,34 +353,46 @@ export function createBindManager(options = {}) {
         let actionChanged = false;
 
         // ── Keyboard slots ──────────────────────────────────────────────────
-        const kbTarget = Array.from({ length: action.slots }, (_, slot) => {
-          if (!hasEntry) return null;
-          const raw = entry.keyboard[slot];
-          if (raw === null || raw === undefined) return null;
-          if (typeof raw === 'string') return raw;
-          report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has invalid value type`);
-          return null;
-        });
-        for (let slot = 0; slot < kbTarget.length; slot++) {
-          const current = store.get(action.id, 'keyboard')?.[slot] ?? null;
-          const next = kbTarget[slot] ?? null;
-          if (current === next) continue;
-          const result = store.set(action.id, slot, next, 'keyboard');
-          actionChanged = true;
-          report.appliedSlots += 1;
-          report.conflictCount += result.conflicts.length;
+        if (!hasEntry || entry.keyboard) {
+          const kbTarget = Array.from({ length: action.slots }, (_, slot) => {
+            if (!hasEntry) return null;
+            const raw = entry.keyboard[slot];
+            if (raw === null || raw === undefined) return null;
+            if (typeof raw === 'string') {
+              if (isKnownCode(raw)) return raw;
+              report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has unknown code "${raw}"`);
+              return KEEP_SLOT;
+            }
+            report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has invalid value type`);
+            return null;
+          });
+          for (let slot = 0; slot < kbTarget.length; slot++) {
+            if (kbTarget[slot] === KEEP_SLOT) continue;
+            const current = store.get(action.id, 'keyboard')?.[slot] ?? null;
+            const next = kbTarget[slot] ?? null;
+            if (current === next) continue;
+            const result = store.set(action.id, slot, next, 'keyboard');
+            actionChanged = true;
+            report.appliedSlots += 1;
+            report.conflictCount += result.conflicts.length;
+          }
         }
 
         // ── Gamepad slots (v2 only) ─────────────────────────────────────────
-        if (payloadVersion >= 2 && hasEntry) {
+        if (payloadVersion >= 2 && hasEntry && entry.gamepad) {
           const gpTarget = Array.from({ length: action.gamepadSlots }, (_, slot) => {
             const raw = entry.gamepad[slot];
             if (raw === null || raw === undefined) return null;
-            if (typeof raw === 'string') return raw;
+            if (typeof raw === 'string') {
+              if (isGamepadCode(raw)) return raw;
+              report.invalidEntries.push(`Action "${action.id}" gamepad slot ${slot} has unknown code "${raw}"`);
+              return KEEP_SLOT;
+            }
             report.invalidEntries.push(`Action "${action.id}" gamepad slot ${slot} has invalid value type`);
             return null;
           });
           for (let slot = 0; slot < gpTarget.length; slot++) {
+            if (gpTarget[slot] === KEEP_SLOT) continue;
             const current = store.get(action.id, 'gamepad')?.[slot] ?? null;
             const next = gpTarget[slot] ?? null;
             if (current === next) continue;
@@ -616,6 +634,9 @@ function _parseImportPayload(payload) {
   if (typeof parsed.version !== 'number') {
     return { ok: false, reason: 'Payload is missing numeric version' };
   }
+  if (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 2) {
+    return { ok: false, reason: `Unsupported payload version: ${parsed.version} (expected 1 or 2)` };
+  }
   if (!parsed.bindings || typeof parsed.bindings !== 'object') {
     return { ok: false, reason: 'Payload is missing bindings object' };
   }
@@ -631,23 +652,34 @@ function _parseImportPayload(payload) {
 
 /**
  * Normalise a raw binding entry from an import payload into { keyboard, gamepad }.
- * - v1 (array): treated as keyboard-only, gamepad gets empty array
- * - v2 (object with keyboard/gamepad): used directly
+ * - v1 (array): treated as keyboard-only, gamepad is not provided (null)
+ * - v2 (object with keyboard/gamepad): used directly; a missing device field
+ *   is treated as not provided (null) and a present non-array field is reported
+ *   in `invalidEntries` and also treated as not provided
  * Returns null if the entry is missing or unrecognisable.
  * @param {unknown} incoming
  * @param {number} payloadVersion
- * @returns {{ keyboard: unknown[], gamepad: unknown[] } | null}
+ * @param {string} actionId
+ * @param {string[]} invalidEntries
+ * @returns {{ keyboard: unknown[] | null, gamepad: unknown[] | null } | null}
  */
-function _normaliseBindingEntry(incoming, payloadVersion) {
+function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntries) {
   if (incoming == null) return null;
   if (Array.isArray(incoming)) {
     // v1 format — keyboard only
-    return { keyboard: incoming, gamepad: [] };
+    return { keyboard: incoming, gamepad: null };
   }
   if (typeof incoming === 'object' && payloadVersion >= 2) {
+    const pickDevice = (device) => {
+      const value = incoming[device];
+      if (value === undefined) return null;
+      if (Array.isArray(value)) return value;
+      invalidEntries.push(`Action "${actionId}" ${device} must be an array`);
+      return null;
+    };
     return {
-      keyboard: Array.isArray(incoming.keyboard) ? incoming.keyboard : [],
-      gamepad:  Array.isArray(incoming.gamepad)  ? incoming.gamepad  : [],
+      keyboard: pickDevice('keyboard'),
+      gamepad:  pickDevice('gamepad'),
     };
   }
   return null;

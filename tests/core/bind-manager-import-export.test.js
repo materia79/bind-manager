@@ -93,4 +93,88 @@ describe('BindManager export/import', () => {
 
     manager.destroy();
   });
+
+  it('rejects unsupported payload versions without applying changes', () => {
+    const manager = createWithActions();
+
+    const report = manager.importBindings({
+      version: 3,
+      bindings: {
+        forward: { keyboard: ['KeyI', null], gamepad: [] },
+      },
+    });
+
+    expect(report.invalidEntries.length).toBe(1);
+    expect(report.invalidEntries[0]).toMatch(/version/i);
+    expect(report.appliedActions).toBe(0);
+    expect(report.appliedSlots).toBe(0);
+    expect(manager.getBinding('forward')).toEqual(['KeyW', 'ArrowUp']);
+
+    const fractional = manager.importBindings({ version: 1.5, bindings: { forward: ['KeyI'] } });
+    expect(fractional.invalidEntries.length).toBe(1);
+    expect(manager.getBinding('forward')).toEqual(['KeyW', 'ArrowUp']);
+
+    const zero = manager.importBindings({ version: 0, bindings: { forward: ['KeyI'] } });
+    expect(zero.invalidEntries.length).toBe(1);
+    expect(manager.getBinding('forward')).toEqual(['KeyW', 'ArrowUp']);
+
+    manager.destroy();
+  });
+
+  it('reports a non-array device field in v2 entries and leaves those slots untouched', () => {
+    const manager = createWithActions();
+
+    const report = manager.importBindings({
+      version: 2,
+      bindings: {
+        forward: { keyboard: 'KeyI', gamepad: [] },
+        jump: { keyboard: ['KeyJ'], gamepad: { 0: 'GP_B0' } },
+      },
+    });
+
+    expect(report.invalidEntries).toContain('Action "forward" keyboard must be an array');
+    expect(report.invalidEntries).toContain('Action "jump" gamepad must be an array');
+    expect(manager.getBinding('forward')).toEqual(['KeyW', 'ArrowUp']);
+    expect(manager.getBinding('jump')).toEqual(['KeyJ']);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual([null]);
+
+    manager.destroy();
+  });
+
+  it('leaves slots of a missing device field unchanged in v2 entries', () => {
+    const manager = createWithActions();
+    manager.setBinding('jump', 0, 'GP_B0', 'gamepad');
+
+    const report = manager.importBindings({
+      version: 2,
+      bindings: {
+        jump: { keyboard: ['KeyJ'] },
+      },
+    });
+
+    expect(report.invalidEntries).toEqual([]);
+    expect(manager.getBinding('jump')).toEqual(['KeyJ']);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual(['GP_B0']);
+
+    manager.destroy();
+  });
+
+  it('rejects unknown keyboard and gamepad codes and keeps those slots unchanged', () => {
+    const manager = createWithActions();
+
+    const report = manager.importBindings({
+      version: 2,
+      bindings: {
+        forward: { keyboard: ['NotAKey', 'KeyI'], gamepad: ['GP_B99'] },
+      },
+    });
+
+    expect(report.invalidEntries).toContain('Action "forward" keyboard slot 0 has unknown code "NotAKey"');
+    expect(report.invalidEntries).toContain('Action "forward" gamepad slot 0 has unknown code "GP_B99"');
+    expect(manager.getBinding('forward')).toEqual(['KeyW', 'KeyI']);
+    expect(manager.getBinding('forward', 'gamepad')).toEqual([null]);
+    expect(report.appliedSlots).toBe(1);
+
+    manager.destroy();
+  });
 });

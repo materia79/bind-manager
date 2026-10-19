@@ -101,6 +101,46 @@ describe('MouseRuntime capture', () => {
     mouseRuntime.stop();
   });
 
+  it('wheel capture waits for a full notch and cancels scrolling meanwhile', () => {
+    const { mouseRuntime } = setup();
+    let captured = null;
+    mouseRuntime.startCapture((code) => { captured = code; });
+
+    const small = new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true });
+    window.dispatchEvent(small);
+    expect(captured).toBeNull();
+    expect(small.defaultPrevented).toBe(true);
+
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
+    expect(captured).toBe('MouseWheelDown');
+    mouseRuntime.stop();
+  });
+
+  it('captures a Ctrl+wheel chord', () => {
+    const { kbRuntime, mouseRuntime } = setup();
+    let captured = null;
+    mouseRuntime.startCapture((code) => { captured = code; });
+    keydown('ControlLeft');
+    wheel(-120);
+    expect(captured).toBe('ControlLeft+MouseWheelUp');
+    keyup('ControlLeft');
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('captures Shift+wheel even when the browser reports it on deltaX', () => {
+    const { kbRuntime, mouseRuntime } = setup();
+    let captured = null;
+    mouseRuntime.startCapture((code) => { captured = code; });
+    keydown('ShiftLeft');
+    window.dispatchEvent(new WheelEvent('wheel', { deltaX: 120, shiftKey: true, bubbles: true }));
+    expect(captured).toBe('ShiftLeft+MouseWheelDown');
+    keyup('ShiftLeft');
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
   it('cancelCapture prevents callback', () => {
     const { mouseRuntime } = setup();
     let captured = 'not-called';
@@ -168,6 +208,58 @@ describe('MouseRuntime gameplay dispatch', () => {
     expect(events[0].type).toBe('pressed');
     expect(events[1].type).toBe('released');
 
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('dispatches one pulse per notch for line-mode and accumulated trackpad deltas', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'next-weapon', ['MouseWheelDown']);
+    const pressed = [];
+    mouseRuntime.onAction('next-weapon', (e) => { if (e.type === 'pressed') pressed.push(e); });
+
+    // Firefox line mode: 3 lines = one notch
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 3, deltaMode: 1, bubbles: true }));
+    expect(pressed).toHaveLength(1);
+
+    // Trackpad: 4 × 8 px = 32 px → one notch on the 4th event
+    for (let i = 0; i < 3; i++) {
+      window.dispatchEvent(new WheelEvent('wheel', { deltaY: 8, bubbles: true }));
+    }
+    expect(pressed).toHaveLength(1);
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 8, bubbles: true }));
+    expect(pressed).toHaveLength(2);
+
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('dispatches Ctrl+wheel and Shift+wheel chords to combo bindings', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'zoom', ['ControlLeft+MouseWheelUp']);
+    registerAction(registry, store, 'strafe', ['ShiftLeft+MouseWheelDown']);
+    const events = [];
+    mouseRuntime.onAnyAction((e) => { if (e.type === 'pressed') events.push(e.actionId); });
+
+    keydown('ControlLeft');
+    wheel(-120);
+    keyup('ControlLeft');
+    keydown('ShiftLeft');
+    window.dispatchEvent(new WheelEvent('wheel', { deltaX: 120, shiftKey: true, bubbles: true }));
+    keyup('ShiftLeft');
+
+    expect(events).toEqual(['zoom', 'strafe']);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('ignores pure horizontal wheel motion (no spurious Wheel Down)', () => {
+    const { registry, store, mouseRuntime, kbRuntime } = setup();
+    registerAction(registry, store, 'next-weapon', ['MouseWheelDown']);
+    const events = [];
+    mouseRuntime.onAction('next-weapon', (e) => events.push(e));
+    window.dispatchEvent(new WheelEvent('wheel', { deltaX: 120, bubbles: true }));
+    expect(events).toHaveLength(0);
     kbRuntime.stop();
     mouseRuntime.stop();
   });

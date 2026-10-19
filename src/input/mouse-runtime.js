@@ -7,7 +7,10 @@
  * - Mouse wheel codes: MouseWheelUp, MouseWheelDown
  * - Modifier combos use KeyboardRuntime.getHeldModifiers() to build combo codes
  * - Gameplay dispatch mirrors KeyboardRuntime: mousedown → 'pressed', mouseup → 'released'
- * - Wheel events dispatch a pressed+released pulse (no held state)
+ * - Wheel events dispatch a pressed+released pulse (no held state), one pulse
+ *   per notch: raw deltas are normalised by WheelNotchCounter (pixel/line/page
+ *   deltaMode, high-resolution wheels and trackpads accumulate)
+ * - The wheel listener is non-passive so capture can cancel page scrolling
  * - Capture fires on mouse release so modifier combos are captured correctly
  * - During capture, context menu is suppressed to avoid interference
  * - Bound non-primary buttons suppress the browser default action
@@ -17,15 +20,18 @@
  *   button is exempt so focus/selection semantics stay intact.
  */
 import { buildComboCode } from './key-names.js';
+import { WheelNotchCounter } from './wheel-notches.js';
 
 export class MouseRuntime {
   /**
    * @param {import('../core/binding-store.js').BindingStore} bindingStore
    * @param {import('./keyboard-runtime.js').KeyboardRuntime} keyboardRuntime
+   * @param {{ wheelPixelThreshold?: number }} [options]
    */
-  constructor(bindingStore, keyboardRuntime) {
+  constructor(bindingStore, keyboardRuntime, options = {}) {
     this._store = bindingStore;
     this._keyboardRuntime = keyboardRuntime;
+    this._wheelNotches = new WheelNotchCounter({ pixelThreshold: options.wheelPixelThreshold });
     /** @type {Map<string, Set<Function>>} per-action listeners */
     this._actionListeners = new Map();
     /** @type {Set<Function>} listeners for any action event */
@@ -56,7 +62,9 @@ export class MouseRuntime {
     window.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
     window.addEventListener('auxclick', this._onAuxClick);
-    window.addEventListener('wheel', this._onWheel);
+    // Window-level wheel listeners default to passive in Chromium, which would
+    // make preventDefault during capture a no-op.
+    window.addEventListener('wheel', this._onWheel, { passive: false });
   }
 
   stop() {
@@ -76,12 +84,13 @@ export class MouseRuntime {
 
   setGameplaySuppressed(suppressed) {
     this._suppressGameplay = suppressed;
+    this._wheelNotches.reset();
     if (suppressed) this._releaseAll();
   }
 
   /**
    * Begin mouse capture for rebinding.
-   * Buttons commit on mouseup; wheel commits immediately.
+   * Buttons commit on mouseup; wheel commits on the first full notch.
    * @param {(code: string | null) => void} callback
    */
   startCapture(callback) {
@@ -89,6 +98,7 @@ export class MouseRuntime {
     this._capturePending = null;
     // A removal deferred by the previous capture must not strip this capture's listener
     this._clearContextMenuTimer();
+    this._wheelNotches.reset();
     // Suppress context menu during capture so right-click can be bound
     window.addEventListener('contextmenu', this._onContextMenu);
   }
@@ -212,10 +222,11 @@ export class MouseRuntime {
 
   /** @private */
   _onWheel(event) {
-    const rawCode = event.deltaY < 0 ? 'MouseWheelUp' : 'MouseWheelDown';
-
     if (this._captureCallback) {
+      // Keep the page/modal from scrolling while waiting for a notch
       event.preventDefault();
+      const rawCode = this._wheelNotches.push(event);
+      if (!rawCode) return;
       const cb = this._captureCallback;
       this._captureCallback = null;
       this._capturePending = null;
@@ -228,6 +239,8 @@ export class MouseRuntime {
 
     if (this._suppressGameplay) return;
 
+    const rawCode = this._wheelNotches.push(event);
+    if (!rawCode) return;
     const modifiers = this._keyboardRuntime.getHeldModifiers();
     const dispatchCode = this._resolveDispatchCode(rawCode, modifiers);
     // Wheel is a pulse: pressed then immediately released

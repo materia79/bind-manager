@@ -6,6 +6,13 @@
  *   import { getKeyLabel, isKnownCode } from 'bind-manager/key-names';
  */
 export { createBindManager } from './core/bind-manager.js';
+export {
+	DEFAULT_BLOCKED_SHORTCUTS,
+	DEFAULT_KEYBOARD_LOCK_KEYS,
+	parseShortcutPattern,
+	matchesShortcutPattern,
+} from './input/browser-shortcut-guard.js';
+export { WheelNotchCounter, DEFAULT_WHEEL_PIXEL_THRESHOLD } from './input/wheel-notches.js';
 export { getKeyLabel, isKnownCode, KEY_DISPLAY_NAMES, MODIFIER_ORDER, MODIFIER_CODES, buildComboCode } from './input/key-names.js';
 export {
 	GP_CODES,

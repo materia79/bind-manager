@@ -97,6 +97,15 @@
       padding: 7px 16px;
       transition: background 0.15s, border-color 0.15s;
     }
+    .guard-status {
+      font-size: 11px;
+      color: #7090c0;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 6px;
+      padding: 4px 10px;
+    }
+    #game-canvas:focus { outline: none; }
+
     .hud-btn:hover {
       background: rgba(92, 124, 250, 0.4);
       border-color: #5c7cfa;
@@ -686,7 +695,7 @@
 </head>
 <body>
 
-  <div id="game-canvas"></div>
+  <div id="game-canvas" tabindex="0" title="Click to capture the cursor (Esc releases)"></div>
 
   <div id="log">
     <div id="log-title">Event Log</div>
@@ -696,6 +705,9 @@
     <button class="hud-btn" id="open-btn">⚙ Key Bindings</button>
     <button class="hud-btn" id="hint-toggle-btn">👁 Toggle Hints</button>
     <button class="hud-btn" id="reset-btn">↺ Reset All</button>
+    <button class="hud-btn" id="fullscreen-btn">⛶ Fullscreen + Keyboard Lock</button>
+    <button class="hud-btn" id="leave-guard-btn">🚪 Arm Leave Guard</button>
+    <div id="guard-status" class="guard-status">Guard: idle</div>
   </div>
 
   <div id="center-text">

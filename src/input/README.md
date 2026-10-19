@@ -92,6 +92,37 @@ It exports:
 
 The UI layer uses this file whenever it needs to render a keyboard binding label.
 
+### `mouse-runtime.js`
+
+This file defines `MouseRuntime`, the mouse counterpart of `KeyboardRuntime`.
+
+- buttons become `MouseButton0`–`MouseButton4` (`pressed` on mousedown, `released` on mouseup)
+- wheel notches become `MouseWheelUp` / `MouseWheelDown`, dispatched as a `pressed` + `released` pulse per notch
+- held keyboard modifiers (from `KeyboardRuntime.getHeldModifiers()`) form combos such as `ControlLeft+MouseWheelUp`
+- capture commits on mouseup for buttons and on the first full notch for the wheel
+- bound non-primary buttons cancel the browser default (back/forward, autoscroll)
+- the wheel listener is registered with `{ passive: false }` so capture can cancel scrolling
+
+### `wheel-notches.js`
+
+`WheelNotchCounter` normalises raw `WheelEvent`s into notches:
+
+- pixel events of at least 30 px (`wheelPixelThreshold`), line events of at least one whole line, and every page event count as **one** notch
+- smaller deltas (trackpads, high-resolution wheels) accumulate per direction. The total resets on a direction change or after 200 ms idle
+- Shift+wheel on `deltaX` (Chromium/Safari) is treated as vertical. Pure horizontal motion is ignored
+
+### `browser-shortcut-guard.js`
+
+`BrowserShortcutGuard` cancels browser shortcuts and default actions while the game owns input. It is opt-in through the `browserGuard` option and exposed as `manager.browserGuard`.
+
+- capture-phase `window` listeners for keydown/keyup, mousedown/mouseup/auxclick, wheel (non-passive) and contextmenu
+- engagement: enabled, bind-manager UI closed, no text field focused, and pointer lock / fullscreen / focus on the target, or `setGameOwnsInput(true)` (`when: 'auto'`)
+- patterns (`Mod+KeyR`, `Shift+MouseWheel`, `Alt`, …) match with *at least* their modifiers, `allow` wins over block, and bound actions are cancelled too (`blockBound`)
+- Keyboard Lock (`navigator.keyboard.lock`) while JS fullscreen is active, feature-detected, released on exit
+- optional `beforeunload` leave-site prompt
+
+See the root README section "Browser Shortcut Guard" for the default list and the documented browser limits.
+
 ### `gamepad-codes.js`
 
 This file defines the logical code vocabulary for gamepad input.
@@ -350,6 +381,7 @@ If you want to understand this folder from simplest to most complex, read in thi
 1. `gamepad-codes.js`
 2. `key-names.js`
 3. `keyboard-runtime.js`
+   - then `wheel-notches.js`, `mouse-runtime.js`, `browser-shortcut-guard.js`
 4. `gamepad-profiles.js`
 5. `gamepad-profile-resolver.js`
 6. `gamepad-runtime.js`

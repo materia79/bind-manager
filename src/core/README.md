@@ -500,6 +500,7 @@ The manager returned by `createBindManager(...)` currently covers these responsi
 - inspect connected gamepads and resolved profiles
 - override gamepad profile resolution
 - edit mapping entries in the active gamepad profile definition
+- cancel browser shortcuts while the game owns input, enter fullscreen with Keyboard Lock, and arm a leave-site prompt (`browserGuard`, opt-in)
 - tear everything down with `destroy()`
 
 This means `/src/core/bind-manager.js` is the single best reference for the supported capabilities of the library.

@@ -77,6 +77,11 @@ const manager = createBindManager({
     inputRemap: true,
     controllerTest: true,
   },
+  // Cancel browser shortcuts (reload, find, zoom, scroll, context menu, …) while
+  // the game area has focus, pointer lock or fullscreen.
+  browserGuard: {
+    target: document.getElementById('game-canvas'),
+  },
   // container defaults to document.body
 });
 
@@ -184,6 +189,32 @@ const sprint = manager.registerAction({
   defaultBindings: ['ShiftLeft'],
 });
 
+// Mouse wheel (one notch = one press) and a Ctrl+wheel chord
+const nextItem = manager.registerAction({
+  id: 'next-item',
+  label: 'Next Item',
+  group: 'Inventory',
+  slots: 2,
+  defaultBindings: ['MouseWheelDown', 'BracketRight'],
+});
+
+const prevItem = manager.registerAction({
+  id: 'prev-item',
+  label: 'Previous Item',
+  group: 'Inventory',
+  slots: 2,
+  defaultBindings: ['MouseWheelUp', 'BracketLeft'],
+});
+
+const zoomCamera = manager.registerAction({
+  id: 'zoom-camera',
+  label: 'Zoom Camera',
+  description: 'Ctrl + wheel would zoom the page without the browser guard',
+  group: 'Camera',
+  slots: 2,
+  defaultBindings: ['ControlLeft+MouseWheelUp', 'ControlLeft+MouseWheelDown'],
+});
+
 // ── 3. Configure which hints are visible by default ──────────────────────────
 
 moveForward.showHint();
@@ -214,6 +245,9 @@ openInventory.onPressed(() => log('open-inventory toggled', 'pressed'));
 openInventory.onReleased(() => log('open-inventory released', 'released'));
 sprint.onPressed(() => log('sprint start', 'pressed'));
 sprint.onReleased(() => log('sprint stop', 'released'));
+nextItem.onPressed(() => log('next item (wheel notch)', 'pressed'));
+prevItem.onPressed(() => log('previous item (wheel notch)', 'pressed'));
+zoomCamera.onPressed((e) => log(`zoom camera ${e.code.endsWith('Up') ? 'in' : 'out'}`, 'pressed'));
 
 // ── 5. Binding change subscription ───────────────────────────────────────────
 
@@ -248,6 +282,61 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   manager.resetAll();
   log('All bindings reset', 'info');
 });
+
+// ── 6b. Browser shortcut guard ──────────────────────────────────────────────
+
+const gameArea = document.getElementById('game-canvas');
+const guardStatus = document.getElementById('guard-status');
+const leaveGuardBtn = document.getElementById('leave-guard-btn');
+
+function updateGuardStatus() {
+  const guard = manager.browserGuard;
+  const parts = [`Guard: ${guard.isEngaged() ? 'engaged' : 'idle'}`];
+  if (document.pointerLockElement) parts.push('pointer lock');
+  if (document.fullscreenElement) parts.push('fullscreen');
+  parts.push(guard.keyboardLockSupported
+    ? `keyboard lock ${guard.isKeyboardLocked() ? 'on' : 'off'}`
+    : 'keyboard lock n/a');
+  guardStatus.textContent = parts.join(' · ');
+  leaveGuardBtn.textContent = guard.isLeaveGuardArmed() ? '🚪 Disarm Leave Guard' : '🚪 Arm Leave Guard';
+}
+
+gameArea.addEventListener('click', () => {
+  gameArea.focus();
+  gameArea.requestPointerLock?.();
+});
+document.addEventListener('pointerlockchange', () => {
+  log(document.pointerLockElement ? 'Cursor captured (Esc releases)' : 'Cursor released', 'info');
+  updateGuardStatus();
+});
+document.addEventListener('fullscreenchange', () => setTimeout(updateGuardStatus, 50));
+gameArea.addEventListener('focus', updateGuardStatus);
+gameArea.addEventListener('blur', updateGuardStatus);
+manager.onActiveChange((active) => {
+  // Free the cursor so the bindings modal can be used (debug key opens it in-game)
+  if (active && document.pointerLockElement) document.exitPointerLock();
+  updateGuardStatus();
+});
+
+document.getElementById('fullscreen-btn').addEventListener('click', async () => {
+  if (document.fullscreenElement) {
+    await manager.browserGuard.exitFullscreen();
+    return;
+  }
+  const result = await manager.browserGuard.enterFullscreen(document.documentElement);
+  gameArea.focus();
+  log(`Fullscreen: ${result.fullscreen}, keyboard lock: ${result.keyboardLocked}`, 'info');
+  updateGuardStatus();
+});
+
+leaveGuardBtn.addEventListener('click', () => {
+  const guard = manager.browserGuard;
+  if (guard.isLeaveGuardArmed()) guard.disarmLeaveGuard(); else guard.armLeaveGuard();
+  log(`Leave guard ${guard.isLeaveGuardArmed() ? 'armed' : 'disarmed'}`, 'info');
+  updateGuardStatus();
+});
+
+updateGuardStatus();
 
 // ── 7. Legacy demo debugger helpers ─────────────────────────────────────────
 // These remain below for development reference, but the demo now uses the

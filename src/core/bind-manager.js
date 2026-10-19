@@ -7,6 +7,7 @@ import { ModalController } from '../ui/modal-controller.js';
 import { CaptureModalController } from '../ui/capture-modal-controller.js';
 import { HintsController } from '../ui/hints-controller.js';
 import { GamepadRuntime } from '../input/gamepad-runtime.js';
+import { BrowserShortcutGuard } from '../input/browser-shortcut-guard.js';
 import { createBuiltInToolsController } from '../ui/built-in-tools-controller.js';
 import { isKnownCode } from '../input/key-names.js';
 import { isGamepadCode } from '../input/gamepad-codes.js';
@@ -44,6 +45,8 @@ export function createBindManager(options = {}) {
     storage = null,
     footerActions = [],
     builtInTools = null,
+    browserGuard = false,
+    wheelPixelThreshold,
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -79,7 +82,14 @@ export function createBindManager(options = {}) {
   let builtInToolsController = null;
 
   // -- Mouse input layer --
-  const mouseRuntime = new MouseRuntime(store, runtime);
+  const mouseRuntime = new MouseRuntime(store, runtime, { wheelPixelThreshold });
+
+  // -- Browser shortcut guard (opt-in) --
+  const guard = new BrowserShortcutGuard(store, runtime, {
+    ..._normaliseBrowserGuardOption(browserGuard),
+    isUiActive: () => manager.active || !!builtInToolsController?.isAnyOpen?.(),
+  });
+  const guardApi = _makeBrowserGuardApi(guard);
 
   // -- Active state + cursor persistence --
   let _keepCursorAfterClose = false;
@@ -90,6 +100,7 @@ export function createBindManager(options = {}) {
   runtime.start();
   gamepadRuntime.start();
   mouseRuntime.start();
+  guard.start();
 
   // Persist to storage once per committed change (resetAll() is a single commit)
   const unsubPersist = store.onCommit(() => {
@@ -168,6 +179,16 @@ export function createBindManager(options = {}) {
       _activeChangeListeners.add(callback);
       return () => _activeChangeListeners.delete(callback);
     },
+
+    // ── Browser shortcut guard ───────────────────────────────────────────────
+
+    /**
+     * Browser shortcut guard: cancels browser shortcuts / defaults while the game
+     * owns input, Keyboard Lock in fullscreen, optional leave-site prompt.
+     * Always present; inert until enabled via the `browserGuard` option or setEnabled(true).
+     * @type {BrowserGuardApi}
+     */
+    get browserGuard() { return guardApi; },
 
     // ── Binding queries ──────────────────────────────────────────────────────
 
@@ -516,6 +537,7 @@ export function createBindManager(options = {}) {
       runtime.stop();
       gamepadRuntime.stop();
       mouseRuntime.stop();
+      guard.stop();
       builtInToolsController?.unmount();
       captureModal.unmount();
       modal.unmount();
@@ -634,6 +656,41 @@ export function createBindManager(options = {}) {
 }
 
 /**
+ * `browserGuard: true` → enabled with defaults; object → enabled unless `enabled: false`.
+ * @param {boolean | import('../input/browser-shortcut-guard.js').BrowserGuardOptions | null | undefined} value
+ */
+function _normaliseBrowserGuardOption(value) {
+  if (value === true) return { enabled: true };
+  if (value && typeof value === 'object') return { ...value, enabled: value.enabled ?? true };
+  return { enabled: false };
+}
+
+/**
+ * Public facade over BrowserShortcutGuard (keeps private state off the manager).
+ * @param {BrowserShortcutGuard} guard
+ * @returns {BrowserGuardApi}
+ */
+function _makeBrowserGuardApi(guard) {
+  return {
+    get enabled() { return guard.enabled; },
+    setEnabled(enabled) { guard.setEnabled(enabled); },
+    setTarget(target) { guard.setTarget(target); },
+    isEngaged() { return guard.isEngaged(); },
+    setGameOwnsInput(owned) { guard.setGameOwnsInput(owned); },
+    block(patterns) { guard.block(patterns); },
+    allow(patterns) { guard.allow(patterns); },
+    getShortcutPolicy() { return guard.getShortcutPolicy(); },
+    get keyboardLockSupported() { return guard.keyboardLockSupported; },
+    isKeyboardLocked() { return guard.isKeyboardLocked(); },
+    enterFullscreen(element) { return guard.enterFullscreen(element); },
+    exitFullscreen() { return guard.exitFullscreen(); },
+    armLeaveGuard() { guard.armLeaveGuard(); },
+    disarmLeaveGuard() { guard.disarmLeaveGuard(); },
+    isLeaveGuardArmed() { return guard.isLeaveGuardArmed(); },
+  };
+}
+
+/**
  * @param {object | string} payload
  * @returns {{ ok: true, value: { version: number, bindings: Record<string, unknown> } } | { ok: false, reason: string }}
  */
@@ -718,6 +775,26 @@ function _hasOwn(obj, key) {
  * @property {object | null} [storage=null]         - Custom storage adapter (load/save/clear)
  * @property {number} [deadband=0.12]              - Gamepad axis deadband (ignore drift below this)
  * @property {number} [analogThreshold=0.50]       - Axis value threshold for digital events
+ * @property {boolean | import('../input/browser-shortcut-guard.js').BrowserGuardOptions} [browserGuard=false]
+ *           - Cancel browser shortcuts while the game owns input (opt-in)
+ * @property {number} [wheelPixelThreshold=30]     - Pixel delta that counts as one wheel notch
+ *
+ * @typedef {object} BrowserGuardApi
+ * @property {boolean} enabled
+ * @property {(enabled: boolean) => void} setEnabled
+ * @property {(target: HTMLElement | null) => void} setTarget
+ * @property {() => boolean} isEngaged
+ * @property {(owned: boolean) => void} setGameOwnsInput
+ * @property {(patterns: string | string[]) => void} block
+ * @property {(patterns: string | string[]) => void} allow
+ * @property {() => { shortcuts: string[], block: string[], allow: string[] }} getShortcutPolicy
+ * @property {boolean} keyboardLockSupported
+ * @property {() => boolean} isKeyboardLocked
+ * @property {(element?: HTMLElement) => Promise<{ fullscreen: boolean, keyboardLocked: boolean, error?: unknown }>} enterFullscreen
+ * @property {() => Promise<void>} exitFullscreen
+ * @property {() => void} armLeaveGuard
+ * @property {() => void} disarmLeaveGuard
+ * @property {() => boolean} isLeaveGuardArmed
  *
  * @typedef {object} ActionDef
  * @property {string} id

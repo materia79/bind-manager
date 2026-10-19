@@ -493,6 +493,11 @@ export function createBuiltInToolsController(manager, options = {}) {
     controllerTester?.open();
   }
 
+  /** True while the Input Remap or Controller Test tool is open. */
+  function isAnyOpen() {
+    return !!(inputDebug?.isOpen() || controllerTester?.isOpen());
+  }
+
   function getFooterActions() {
     const actions = [];
     if (enabledTools.inputRemap) {
@@ -924,7 +929,7 @@ export function createBuiltInToolsController(manager, options = {}) {
 
     syncInputDebuggerFromSharedPayload = syncFromSharedPayload;
     renderOutput();
-    return { open, close };
+    return { open, close, isOpen: () => state.isOpen };
   }
 
   function createControllerTester() {
@@ -1521,7 +1526,7 @@ export function createBuiltInToolsController(manager, options = {}) {
       els.r2Fill.style.height = '0%';
     }
 
-    return { open, close };
+    return { open, close, isOpen: () => state.isOpen };
   }
 
   function pickGamepad() {
@@ -2034,7 +2039,7 @@ export function createBuiltInToolsController(manager, options = {}) {
     return { vendorId: vendorMatch ? vendorMatch[1].toLowerCase() : null, productId: productMatch ? productMatch[1].toLowerCase() : null };
   }
 
-  return { mount, unmount, getFooterActions, openInputRemap, openControllerTest, enabledTools };
+  return { mount, unmount, getFooterActions, openInputRemap, openControllerTest, isAnyOpen, enabledTools };
 }
 
 function normalizeBuiltInToolsOption(value) {

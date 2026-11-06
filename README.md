@@ -638,9 +638,9 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 
 **Events**
 
-- Opening the bindings modal (gameplay suppressed) and disconnecting a pad now fire `released` for every gamepad code that fired `pressed`, and one final `analog` event with value 0 for every axis that last reported a non-zero value. 0.1.0 left them pressed.
+- Opening the bindings modal (gameplay suppressed) and disconnecting a pad now fire `released` for every gamepad code that fired `pressed`, and one final `analog` event with value 0 to every analog action whose value (its half of the axis, or the whole axis) was non-zero. 0.1.0 left them pressed.
 - An input still held when gameplay resumes (modal closed) or after a capture is *latched*: it stays silent until it is released and pressed anew, so no `held` arrives without a `pressed`. Analog events are not latched. A code released while the modal was open is unlatched at once.
-- An axis that returns into the deadband sends exactly one `analog` event with value 0; 0.1.0 left the last non-zero value standing.
+- An analog action whose value returns to 0 (the axis back in the deadband, or the stick on its other half) gets exactly one `analog` event with value 0; 0.1.0 left the last non-zero value standing.
 - Hat D-pad diagonals now press both directions (up-right = `GP_B12` and `GP_B15`); a hat value between grid positions (the resting value) is neutral.
 - A button in an exact or edited mapping counts as pressed by the same rule as an unmapped one (`pressed` or value above 0.5); 0.1.0 used the analog threshold for mapped buttons and ignored `pressed`.
 
@@ -699,6 +699,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - `importBindings()` accepts only payload versions 1 and 2 and validates the device arrays and codes: an unknown code keeps the slot and is reported in `invalidEntries`.
 - `isActionPressed()` honours the action's `playerIndex`.
 - New: `clearStorage()`. `resetAll()` writes storage once.
+- Half-axis analog actions: an analog action bound to one half of an axis (`GP_A0N` or `GP_A0P`) gets only that half, the signed value clamped to `[-1, 0]` or `[0, 1]` (`code` names the half); an action bound to both halves gets the full value; one `value: 0` event fires when the value returns to 0. 0.1.0 sent the full signed value to every action on either half. When an action gains slots after its bindings were saved, the new slots take their defaults (unless that code is already saved in another slot); 0.1.0 left them empty. These came from the public branch `two-half-axis-analog` (commit 4efef61), which was not in `main`.
 - `destroy()` closes the modal first, so `active` ends `false` and `onActiveChange` listeners get `false`.
 - A key or mouse button pressed while the modal was open or during a capture no longer produces a lone `released` when it is let go; Escape cancelling a keyboard capture clears the held keys.
 - Holding the debug key no longer toggles the modal on every key repeat.

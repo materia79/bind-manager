@@ -89,3 +89,32 @@ describe('BindingStore commits', () => {
     expect(commits).toBe(1);
   });
 });
+
+describe('BindingStore — slots added after saving', () => {
+  function withSaved(saved) {
+    const registry = new ActionRegistry();
+    const store = new BindingStore(registry);
+    store.init(saved);
+    store.initAction(registry.register({
+      id: 'left', slots: 2, defaultBindings: ['ArrowLeft', 'KeyA'],
+      gamepadSlots: 2, defaultGamepadBindings: ['GP_A0N', 'GP_B14'],
+    }));
+    return store;
+  }
+
+  it('keeps a saved single gamepad slot and fills the new slot with its default', () => {
+    const store = withSaved({ left: { keyboard: ['KeyJ', null], gamepad: ['GP_B4'] } });
+    expect(store.get('left', 'gamepad')).toEqual(['GP_B4', 'GP_B14']);
+    expect(store.get('left', 'keyboard')).toEqual(['KeyJ', null]);
+  });
+
+  it('does not duplicate a default the user already saved in another slot', () => {
+    const store = withSaved({ left: { keyboard: ['KeyJ', null], gamepad: ['GP_B14'] } });
+    expect(store.get('left', 'gamepad')).toEqual(['GP_B14', null]);
+  });
+
+  it('keeps explicitly cleared slots cleared', () => {
+    const store = withSaved({ left: { keyboard: [null, null], gamepad: ['GP_A0N', null] } });
+    expect(store.get('left', 'gamepad')).toEqual(['GP_A0N', null]);
+  });
+});

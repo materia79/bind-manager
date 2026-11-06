@@ -51,22 +51,13 @@ export class BindingStore {
       ? saved
       : (saved && Array.isArray(saved.keyboard) ? saved.keyboard : null);
 
-    const kbBindings = Array.from({ length: action.slots }, (_, i) => {
-      if (savedKb) return typeof savedKb[i] === 'string' ? savedKb[i] : null;
-      return typeof action.defaultBindings[i] === 'string' ? action.defaultBindings[i] : null;
-    });
-    this._keyboard.set(action.id, kbBindings);
+    this._keyboard.set(action.id, _mergeSlots(action.slots, savedKb, action.defaultBindings));
 
     // ── Gamepad bindings ─────────────────────────────────────────────────────
     const savedGp = saved && !Array.isArray(saved) && Array.isArray(saved.gamepad)
       ? saved.gamepad : null;
 
-    const gpBindings = Array.from({ length: action.gamepadSlots }, (_, i) => {
-      if (savedGp) return typeof savedGp[i] === 'string' ? savedGp[i] : null;
-      return typeof action.defaultGamepadBindings[i] === 'string'
-        ? action.defaultGamepadBindings[i] : null;
-    });
-    this._gamepad.set(action.id, gpBindings);
+    this._gamepad.set(action.id, _mergeSlots(action.gamepadSlots, savedGp, action.defaultGamepadBindings));
   }
 
   /**
@@ -311,6 +302,30 @@ export class BindingStore {
 /** defineProperty, not assignment: an id of "__proto__" would hit the prototype setter. */
 function _defineOwn(obj, key, value) {
   Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * Per-slot bindings from saved data, falling back to the defaults. Slots the saved array does
+ * not cover (the action gained slots since it was saved) take their default, unless that code
+ * is already saved in another slot; saved slots, including explicitly cleared (null) ones, win.
+ * An empty saved array keeps every slot cleared.
+ * @param {number} count
+ * @param {(string|null)[] | null} saved
+ * @param {(string|null)[]} defaults
+ * @returns {(string|null)[]}
+ */
+function _mergeSlots(count, saved, defaults) {
+  const def = (i) => (typeof defaults[i] === 'string' ? defaults[i] : null);
+  if (!saved) return Array.from({ length: count }, (_, i) => def(i));
+  const out = Array.from({ length: count }, (_, i) => (typeof saved[i] === 'string' ? saved[i] : null));
+  // An empty saved array is a device cleared on purpose (a replace-mode import of
+  // `gamepad: []` or of an entry without that device): no defaults come back.
+  if (saved.length === 0) return out;
+  for (let i = saved.length; i < count; i++) {
+    const d = def(i);
+    if (d !== null && !out.includes(d)) out[i] = d;
+  }
+  return out;
 }
 
 /**

@@ -222,7 +222,7 @@ export class GamepadRuntime {
     this._latched = new Map();
     /** @type {Map<number, Set<string>>} codes that fired 'pressed' and not yet 'released', per gamepad */
     this._pressedCodes = new Map();
-    /** @type {Map<number, Set<number>>} axes whose last analog event was non-zero, per gamepad */
+    /** @type {Map<number, Map<number, number>>} per gamepad: axis -> the non-zero live value last sent */
     this._analogActive = new Map();
     /** @type {Map<number, any>} */
     this._resolvedProfileByGamepadIndex = new Map();
@@ -735,13 +735,11 @@ export class GamepadRuntime {
       const curVal  = cur.axes[a]  ?? 0;
       const thr = this._analogThreshold;
 
-      // Continuous analog event (above deadband, direction-agnostic), and one
-      // final 0 when the axis comes back into the deadband.
-      if (Math.abs(curVal) > this._deadband) {
-        this._dispatchAnalog(gamepad.index, a, curVal);
-      } else if (this._analogActive.get(gamepad.index)?.has(a)) {
-        this._dispatchAnalog(gamepad.index, a, 0);
-      }
+      // Continuous analog events while the axis is outside the deadband, plus one value-0
+      // event on the frame it returns inside, so listeners never keep a stale value.
+      // "Before" is the value last sent for this axis, not the previous frame: after a
+      // suppress or a disconnect already sent the 0, it is not sent again.
+      this._dispatchAnalog(gamepad.index, a, curVal, this._lastAnalog(gamepad.index, a));
 
       // Negative direction (e.g. stick left or stick up)
       const codeN  = `GP_A${a}N`;
@@ -818,7 +816,8 @@ export class GamepadRuntime {
 
   /**
    * Fire 'released' for every code of this gamepad that fired 'pressed', and a
-   * final analog 0 for every axis whose last analog event was non-zero.
+   * final analog 0 to every analog action whose half (or whole axis) last got
+   * a non-zero value.
    * @private
    */
   _releaseActiveInputs(gamepadIndex) {
@@ -828,7 +827,8 @@ export class GamepadRuntime {
     }
     const analog = this._analogActive.get(gamepadIndex);
     if (analog) {
-      for (const axisIndex of [...analog]) this._dispatchAnalog(gamepadIndex, axisIndex, 0);
+      // Each action whose half was non-zero gets its final 0, once.
+      for (const [axisIndex, last] of [...analog]) this._dispatchAnalog(gamepadIndex, axisIndex, 0, last);
     }
   }
 
@@ -1152,31 +1152,42 @@ export class GamepadRuntime {
   }
 
   /**
-   * Resolve both axis-direction codes to bound actions and fire analog events.
-   * Only fires if action.analog is true. Tracks which axes are non-zero so a
-   * final 0 can be sent when they return into the deadband.
+   * Fire analog events for the actions bound to this axis (only actions with analog: true).
+   * An action bound to one half (GP_AxN or GP_AxP) receives only that half: the signed value
+   * clamped to [-1, 0] or [0, 1], so 0 while the stick points the other way. An action bound to
+   * both halves receives the full signed value. Values inside the deadband read as 0; an action
+   * gets events while its value is non-zero and one final 0 event when it returns to 0.
+   * `prevValue` is the value last sent for this axis; the live value is remembered as the
+   * next one, so a release (suppress, disconnect) can send each action's final 0 once.
    * @private
    */
-  _dispatchAnalog(gamepadIndex, axisIndex, value) {
-    if (value !== 0) {
-      if (!this._analogActive.has(gamepadIndex)) this._analogActive.set(gamepadIndex, new Set());
-      this._analogActive.get(gamepadIndex).add(axisIndex);
-    } else {
-      this._analogActive.get(gamepadIndex)?.delete(axisIndex);
+  _dispatchAnalog(gamepadIndex, axisIndex, value, prevValue = 0) {
+    const db = this._deadband;
+    const live = (v) => (Math.abs(v) > db ? v : 0);
+    const cur = live(value), prev = live(prevValue);
+    if (!this._analogActive.has(gamepadIndex)) this._analogActive.set(gamepadIndex, new Map());
+    if (cur === 0) this._analogActive.get(gamepadIndex).delete(axisIndex);
+    else this._analogActive.get(gamepadIndex).set(axisIndex, cur);
+    const codeN = `GP_A${axisIndex}N`, codeP = `GP_A${axisIndex}P`;
+    const onN = new Set(this._store.getActionsByCode(codeN, 'gamepad'));
+    const onP = new Set(this._store.getActionsByCode(codeP, 'gamepad'));
+    for (const actionId of new Set([...onN, ...onP])) {
+      const action = this._registry.get(actionId);
+      if (!action || !action.analog) continue;
+      if (action.playerIndex !== null && action.playerIndex !== gamepadIndex) continue;
+      const both = onN.has(actionId) && onP.has(actionId);
+      const half = (v) => (both ? v : onN.has(actionId) ? Math.min(0, v) : Math.max(0, v));
+      const v = half(cur);
+      if (v === 0 && half(prev) === 0) continue;
+      const code = both ? undefined : onN.has(actionId) ? codeN : codeP;
+      const event = { type: 'analog', actionId, code, axisIndex, value: v, device: 'gamepad', gamepadIndex };
+      this._fire(actionId, event);
     }
-    const codes = [`GP_A${axisIndex}N`, `GP_A${axisIndex}P`];
-    const seenActions = new Set();
-    for (const code of codes) {
-      for (const actionId of this._store.getActionsByCode(code, 'gamepad')) {
-        if (seenActions.has(actionId)) continue;
-        seenActions.add(actionId);
-        const action = this._registry.get(actionId);
-        if (!action || !action.analog) continue;
-        if (action.playerIndex !== null && action.playerIndex !== gamepadIndex) continue;
-        const event = { type: 'analog', actionId, axisIndex, value, device: 'gamepad', gamepadIndex };
-        this._fire(actionId, event);
-      }
-    }
+  }
+
+  /** The live value last sent for an axis of a gamepad (0 when none). @private */
+  _lastAnalog(gamepadIndex, axisIndex) {
+    return this._analogActive.get(gamepadIndex)?.get(axisIndex) ?? 0;
   }
 
   /** @private */

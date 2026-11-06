@@ -207,6 +207,52 @@ describe('GamepadRuntime — analog events', () => {
   });
 });
 
+describe('GamepadRuntime — half-axis analog actions', () => {
+  function halves() {
+    const registry = new ActionRegistry();
+    const store    = new BindingStore(registry);
+    registry.register({ id: 'left',  slots: 1, gamepadSlots: 2, analog: true });
+    registry.register({ id: 'right', slots: 1, gamepadSlots: 2, analog: true });
+    registry.register({ id: 'steer', slots: 1, gamepadSlots: 2, analog: true });
+    store.init({});
+    for (const action of registry.getAll()) store.initAction(action);
+    store.set('left',  0, GP_A0N, 'gamepad');
+    store.set('right', 0, GP_A0P, 'gamepad');
+    store.set('steer', 0, GP_A0N, 'gamepad');
+    store.set('steer', 1, GP_A0P, 'gamepad');
+    const runtime = new GamepadRuntime(store, registry, { deadband: 0.12 });
+    const last = {};
+    for (const id of ['left', 'right', 'steer']) {
+      runtime.onAction(id, e => { if (e.type === 'analog') last[id] = e.value; });
+    }
+    return { runtime, last };
+  }
+
+  it('sends each half-axis action only its own half', () => {
+    const { runtime, last } = halves();
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.3]));
+    expect(last.right).toBeCloseTo(0.3);
+    expect(last.left).toBeUndefined();
+    expect(last.steer).toBeCloseTo(0.3);
+
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.4]));
+    expect(last.left).toBeCloseTo(-0.4);
+    expect(last.right).toBe(0);
+    expect(last.steer).toBeCloseTo(-0.4);
+  });
+
+  it('fires one value-0 event when the axis returns inside the deadband', () => {
+    const { runtime, last } = halves();
+    const events = [];
+    runtime.onAction('left', e => { if (e.type === 'analog') events.push(e.value); });
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.6]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.05]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    expect(events).toEqual([-0.6, 0]);
+    expect(last.steer).toBe(0);
+  });
+});
+
 describe('GamepadRuntime — playerIndex filtering', () => {
   it('fires events for playerIndex-matched gamepad only', () => {
     const { runtime } = setup();

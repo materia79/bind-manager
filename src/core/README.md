@@ -524,6 +524,14 @@ Each action has independent slot arrays for keyboard and gamepad. Reset and impo
 
 Axis movement can trigger digital-style events through threshold crossing, but continuous `analog` callbacks only fire for actions marked `analog: true`.
 
+An action bound to one half of an axis (`GP_A0N` or `GP_A0P`) receives only that half: the signed value clamped to `[-1, 0]` or `[0, 1]`. An action bound to both halves receives the full signed value. Values inside the deadband read as 0, and an action gets one final `value: 0` event when its axis returns there, so the last value never sticks.
+
+With `gamepadSlots: 2` one action can hold a stick half and a button (for example `GP_A0N` and the D-pad `GP_B14`): the stick drives the analog callback and both drive `pressed`/`isActionPressed`.
+
+### Slots added after saving
+
+When an action gains slots after bindings were saved (for example `gamepadSlots` 1 → 2), the saved slots are kept and each new slot takes its default unless that code is already saved in another slot. Explicitly cleared (null) saved slots stay cleared.
+
 ### Player routing is explicit
 
 If an action sets `playerIndex`, only that controller index will trigger it. If `playerIndex` is `null`, any controller can trigger it.

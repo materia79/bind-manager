@@ -443,10 +443,9 @@ export class GamepadRuntime {
       const curVal  = cur.axes[a]  ?? 0;
       const thr = this._analogThreshold;
 
-      // Continuous analog event (above deadband, direction-agnostic)
-      if (Math.abs(curVal) > this._deadband) {
-        this._dispatchAnalog(gamepad.index, a, curVal);
-      }
+      // Continuous analog events while the axis is outside the deadband, plus one value-0
+      // event on the frame it returns inside, so listeners never keep a stale value
+      this._dispatchAnalog(gamepad.index, a, curVal, prevVal);
 
       // Negative direction (e.g. stick left or stick up)
       const codeN  = `GP_A${a}N`;
@@ -762,23 +761,31 @@ export class GamepadRuntime {
   }
 
   /**
-   * Resolve both axis-direction codes to bound actions and fire analog events.
-   * Only fires if action.analog is true.
+   * Fire analog events for the actions bound to this axis (only actions with analog: true).
+   * An action bound to one half (GP_AxN or GP_AxP) receives only that half: the signed value
+   * clamped to [-1, 0] or [0, 1], so 0 while the stick points the other way. An action bound to
+   * both halves receives the full signed value. Values inside the deadband read as 0; an action
+   * gets events while its value is non-zero and one final 0 event when it returns to 0.
    * @private
    */
-  _dispatchAnalog(gamepadIndex, axisIndex, value) {
-    const codes = [`GP_A${axisIndex}N`, `GP_A${axisIndex}P`];
-    const seenActions = new Set();
-    for (const code of codes) {
-      for (const actionId of this._store.getActionsByCode(code, 'gamepad')) {
-        if (seenActions.has(actionId)) continue;
-        seenActions.add(actionId);
-        const action = this._registry.get(actionId);
-        if (!action || !action.analog) continue;
-        if (action.playerIndex !== null && action.playerIndex !== gamepadIndex) continue;
-        const event = { type: 'analog', actionId, axisIndex, value, device: 'gamepad', gamepadIndex };
-        this._fire(actionId, event);
-      }
+  _dispatchAnalog(gamepadIndex, axisIndex, value, prevValue = 0) {
+    const db = this._deadband;
+    const live = (v) => (Math.abs(v) > db ? v : 0);
+    const cur = live(value), prev = live(prevValue);
+    const codeN = `GP_A${axisIndex}N`, codeP = `GP_A${axisIndex}P`;
+    const onN = new Set(this._store.getActionsByCode(codeN, 'gamepad'));
+    const onP = new Set(this._store.getActionsByCode(codeP, 'gamepad'));
+    for (const actionId of new Set([...onN, ...onP])) {
+      const action = this._registry.get(actionId);
+      if (!action || !action.analog) continue;
+      if (action.playerIndex !== null && action.playerIndex !== gamepadIndex) continue;
+      const both = onN.has(actionId) && onP.has(actionId);
+      const half = (v) => (both ? v : onN.has(actionId) ? Math.min(0, v) : Math.max(0, v));
+      const v = half(cur);
+      if (v === 0 && half(prev) === 0) continue;
+      const code = both ? undefined : onN.has(actionId) ? codeN : codeP;
+      const event = { type: 'analog', actionId, code, axisIndex, value: v, device: 'gamepad', gamepadIndex };
+      this._fire(actionId, event);
     }
   }
 

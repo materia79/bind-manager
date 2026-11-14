@@ -54,6 +54,21 @@ function makeMappedGamepad(id = '054c-0ce6-DualSense Wireless Controller', index
   };
 }
 
+function makeWideGamepad(id = 'Wide Pad (STANDARD GAMEPAD)', index = 0, pressed = []) {
+  return {
+    id,
+    index,
+    connected: true,
+    mapping: 'standard',
+    buttons: Array.from({ length: 24 }, (_, i) => ({
+      pressed: pressed.includes(i),
+      value: pressed.includes(i) ? 1 : 0,
+    })),
+    axes: [0, 0, 0, 0],
+    vibrationActuator: null,
+  };
+}
+
 // ── Test setup ───────────────────────────────────────────────────────────────
 
 function setup(options = {}) {
@@ -259,6 +274,82 @@ describe('GamepadRuntime — gameplay suppression', () => {
   });
 });
 
+describe('GamepadRuntime — A1: no stuck actions on suppress / disconnect', () => {
+  it('releases held buttons when gameplay is suppressed', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    expect(events).toEqual(['pressed']);
+
+    runtime.setGameplaySuppressed(true);
+    expect(events).toEqual(['pressed', 'released']);
+  });
+
+  it('a button still held after un-suppress stays silent until released and pressed anew', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));     // pressed
+    runtime.setGameplaySuppressed(true);                             // released
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime.setGameplaySuppressed(false);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));     // still held: silent
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: false }));    // release: silent (already released)
+    expect(events).toEqual(['pressed', 'released']);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));     // new press
+    expect(events).toEqual(['pressed', 'released', 'pressed']);
+  });
+
+  it('a button pressed during suppression and held after it does not fire held without pressed', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0));
+    runtime.setGameplaySuppressed(true);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime.setGameplaySuppressed(false);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: false }));
+    expect(events).toEqual([]);
+  });
+
+  it('releases a held axis direction and zeroes analog actions on suppress', () => {
+    const { runtime } = setup({ analogThreshold: 0.5, deadband: 0.12 });
+    const events = [];
+    runtime.onAction('moveX', e => events.push(`${e.type}:${e.value}`));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));
+    events.length = 0;
+    runtime.setGameplaySuppressed(true);
+    expect(events).toContain('released:0');
+    expect(events).toContain('analog:0');
+  });
+
+  it('releases held inputs when the pad disconnects', () => {
+    const { runtime } = setup({ analogThreshold: 0.5, deadband: 0.12 });
+    const events = [];
+    runtime.onAnyAction(e => events.push(`${e.actionId}:${e.type}:${e.value}`));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }, [-0.9]));
+    events.length = 0;
+    runtime._handleDisconnect({ gamepad: makeGamepad('GP', 0) });
+    expect(events).toContain('jump:released:0');
+    expect(events).toContain('moveX:released:0');
+    expect(events).toContain('moveX:analog:0');
+    expect(runtime.isPressed(GP_B0)).toBe(false);
+  });
+
+  it('does not release inputs of another pad on disconnect', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(`${e.gamepadIndex}:${e.type}`));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime._processGamepad(makeGamepad('GP', 1, { 0: true }));
+    events.length = 0;
+    runtime._handleDisconnect({ gamepad: makeGamepad('GP', 1) });
+    expect(events).toEqual(['1:released']);
+  });
+});
+
 describe('GamepadRuntime — capture mode', () => {
   it('delivers first button press to capture callback and suppresses actions', () => {
     const { runtime } = setup();
@@ -440,6 +531,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
     __mockControllerProfile = {
       key: '054c-0ce6',
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       family: 'dualsense',
@@ -468,6 +561,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
     __mockControllerProfile = {
       key: '054c-0ce6',
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       family: 'dualsense',
@@ -497,6 +592,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('dispatches logical GP_B0 when mapped physical button index is pressed', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -518,6 +615,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('treats mapped axis direction as logical button for digital dispatch', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -539,6 +638,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('maps logical axis GP_A0N/GP_A0P from configured physical axis and supports analog events', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -563,6 +664,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('distinguishes D-pad directions when mapped as hat values on one axis', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -612,6 +715,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('capture returns the intended hat-mapped D-pad code instead of always GP_B12', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -686,6 +791,28 @@ describe('GamepadRuntime — stored profile overrides', () => {
     });
   });
 
+  it('applies an override stored under the legacy id: key of a Chrome-form id and migrates it on change', () => {
+    const chromeId = 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)';
+    const legacyKey = `id:${chromeId.toLowerCase()}`;
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [makeGamepad(chromeId, 0)],
+    });
+    const saved = [];
+    const { runtime } = setup({
+      profileOverrides: { [legacyKey]: { type: 'family', family: 'xbox' } },
+      onProfileOverridesChange: (overrides) => saved.push(overrides),
+    });
+    expect(runtime.getProfileOverride(0)).toEqual({ type: 'family', family: 'xbox' });
+    expect(runtime.getActiveProfile(0)).toBe('xbox');
+
+    runtime.setProfileOverride(0, { type: 'family', family: 'dualsense' });
+    expect(saved.at(-1)).toEqual({ '054c-0ce6': { type: 'family', family: 'dualsense' } });
+
+    expect(runtime.clearProfileOverride(0)).toBe(true);
+    expect(saved.at(-1)).toEqual({});
+  });
+
   it('ignores a stored value that is not an object map', () => {
     const { runtime } = setup({ profileOverrides: ['oops'] });
     expect(runtime._profileOverrides.size).toBe(0);
@@ -698,6 +825,8 @@ describe('GamepadRuntime — mapped profile hot path', () => {
   it('does not serialise or clone the profile on every polled frame', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       family: 'dualsense',
       mapping: { GP_B0: { kind: 'button', index: 1 } },
@@ -721,6 +850,8 @@ describe('GamepadRuntime — mapped profile hot path', () => {
   it('recompiles after the mapping is edited', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       family: 'dualsense',
       mapping: { GP_B0: { kind: 'button', index: 1 } },
@@ -740,5 +871,180 @@ describe('GamepadRuntime — mapped profile hot path', () => {
     expect(events).toEqual([]);
     runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 5: true }));  // new index
     expect(events).toEqual(['pressed']);
+  });
+});
+
+describe('GamepadRuntime — extra buttons GP_B17..GP_B23', () => {
+  const EXTRA = ['GP_B17', 'GP_B18', 'GP_B19', 'GP_B20', 'GP_B21', 'GP_B22', 'GP_B23'];
+
+  it('dispatches pressed / held / released for every extra button', () => {
+    const { registry, store, runtime } = setup();
+    for (const code of EXTRA) {
+      registry.register({ id: `extra-${code}`, label: code, slots: 1, gamepadSlots: 1 });
+      store.initAction(registry.get(`extra-${code}`));
+      store.set(`extra-${code}`, 0, code, 'gamepad');
+    }
+    const events = [];
+    runtime.onAnyAction((e) => events.push(`${e.code}:${e.type}`));
+
+    for (let i = 17; i <= 23; i++) {
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, [i]));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, [i]));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+    }
+    for (const code of EXTRA) {
+      expect(events).toContain(`${code}:pressed`);
+      expect(events).toContain(`${code}:held`);
+      expect(events).toContain(`${code}:released`);
+    }
+    expect(runtime.isPressed('GP_B23')).toBe(false);
+  });
+
+  it('captures every extra button', () => {
+    const { runtime } = setup();
+    const captured = [];
+    for (let i = 17; i <= 23; i++) {
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+      runtime.startCapture((code) => captured.push(code));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, [i]));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+    }
+    expect(captured).toEqual(EXTRA);
+  });
+
+  it('a pad with 17 buttons never fires the extra codes', () => {
+    const { runtime } = setup();
+    runtime._processGamepad(makeGamepad('GP', 0, { 16: true }));
+    for (const code of EXTRA) expect(runtime.isPressed(code)).toBe(false);
+  });
+});
+
+describe('GamepadRuntime — A3: hat D-pad diagonals', () => {
+  const HAT_MAPPING = {
+    GP_B12: { kind: 'hat', index: 9, value: -1.0, tolerance: 0.2 },
+    GP_B13: { kind: 'hat', index: 9, value: 0.142857, tolerance: 0.2 },
+    GP_B14: { kind: 'hat', index: 9, value: 0.714286, tolerance: 0.2 },
+    GP_B15: { kind: 'hat', index: 9, value: -0.428571, tolerance: 0.2 },
+  };
+  const step = 2 / 7;
+  // [raw hat value, expected active D-pad codes]
+  const CASES = [
+    [-1, ['GP_B12']],
+    [-1 + step, ['GP_B12', 'GP_B15']],     // up-right
+    [-1 + 2 * step, ['GP_B15']],
+    [-1 + 3 * step, ['GP_B13', 'GP_B15']], // down-right
+    [-1 + 4 * step, ['GP_B13']],
+    [-1 + 5 * step, ['GP_B13', 'GP_B14']], // down-left
+    [-1 + 6 * step, ['GP_B14']],
+    [-1 + 7 * step, ['GP_B12', 'GP_B14']], // up-left
+    [9 / 7, []],                           // neutral
+  ];
+
+  it.each(CASES)('hat %d sets %j', (raw, expected) => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
+      productId: '0ce6',
+      family: 'dualsense',
+      mapping: HAT_MAPPING,
+    };
+    const { runtime } = setup();
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: raw }));
+    const active = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'].filter((code) => runtime.isPressed(code));
+    expect(active).toEqual(expected);
+  });
+});
+
+describe('GamepadRuntime — A5: in-memory mapping edits survive a reconnect', () => {
+  it('uses the edited mapping after disconnect + connect', () => {
+    const PAD_ID = '054c-0ce6-DualSense Wireless Controller';
+    __mockControllerProfile = {
+      vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
+      productId: '0ce6',
+      family: 'dualsense',
+      mapping: { GP_B0: { kind: 'button', index: 1 } },
+    };
+    const { runtime } = setup();
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [makeMappedGamepad(PAD_ID, 0)],
+    });
+    const events = [];
+    runtime.onAction('jump', (e) => events.push(e.type));
+
+    expect(runtime.setProfileMappingEntry(0, 'GP_B0', { kind: 'button', index: 5 })).toBe(true);
+    runtime._handleDisconnect({ gamepad: makeMappedGamepad(PAD_ID, 0) });
+    runtime._handleConnect({ gamepad: makeMappedGamepad(PAD_ID, 0) });
+
+    expect(runtime.getResolvedProfile(0).source).toBe('memory-edit');
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 1: true }));  // old index: nothing
+    expect(events).toEqual([]);
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 5: true }));  // edited index
+    expect(events).toEqual(['pressed']);
+  });
+});
+
+describe('GamepadRuntime — A7: final analog zero', () => {
+  it('sends exactly one analog 0 when an axis returns into the deadband', () => {
+    const { runtime } = setup({ deadband: 0.12, analogThreshold: 0.5 });
+    const analog = [];
+    runtime.onAction('moveX', (e) => { if (e.type === 'analog') analog.push(e.value); });
+
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.3]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.7]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.05]));  // inside the deadband
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.02]));
+
+    expect(analog).toHaveLength(3);
+    expect(analog[0]).toBeCloseTo(-0.3);
+    expect(analog[1]).toBeCloseTo(-0.7);
+    expect(analog[2]).toBe(0);
+  });
+
+  it('sends nothing for an axis that never left the deadband', () => {
+    const { runtime } = setup({ deadband: 0.12 });
+    const analog = [];
+    runtime.onAction('moveX', (e) => { if (e.type === 'analog') analog.push(e.value); });
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.05]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    expect(analog).toEqual([]);
+  });
+
+  it('does not send a second zero after suppress already zeroed the axis', () => {
+    const { runtime } = setup({ deadband: 0.12 });
+    const analog = [];
+    runtime.onAction('moveX', (e) => { if (e.type === 'analog') analog.push(e.value); });
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.3]));
+    runtime.setGameplaySuppressed(true);                          // zero
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    runtime.setGameplaySuppressed(false);
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    expect(analog.map((v) => Math.abs(v) < 1e-9 ? 0 : v)).toEqual([-0.3, 0]);
+  });
+});
+
+describe('GamepadRuntime — A12: labels default to the first connected pad', () => {
+  it('uses pad 1 when pad 0 is unplugged', () => {
+    const xbox = { ...makeGamepad('045e-0b13-Xbox Wireless Controller', 1), mapping: 'standard' };
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [null, xbox, null, null],
+    });
+    const { runtime } = setup();
+    expect(runtime.getLabelForCode('GP_B0')).toBe('A');
+    expect(runtime.getLabelForCode('GP_B8')).toBe('View');
+    // An explicit index still means that pad.
+    expect(runtime.getLabelForCode('GP_B0', 0)).toBe('Btn 0');
+    expect(runtime.getLabelForCode('GP_B0', 1)).toBe('A');
+  });
+
+  it('falls back to generic labels with no pad connected', () => {
+    const { runtime } = setup();
+    expect(runtime.getLabelForCode('GP_B0')).toBe('Btn 0');
   });
 });

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-14T10:00:00.000Z",
+  "runMeta": {
+    "targetController": {
+      "index": 0,
+      "id": "1234-abcd-Fixture Raw Pad",
+      "buttons": 14,
+      "axes": 10
+    }
+  },
+  "sequence": [
+    { "label": "South", "expectedCode": "GP_B0" },
+    { "label": "East", "expectedCode": "GP_B1" },
+    { "label": "Up", "expectedCode": "GP_B12" },
+    { "label": "Down", "expectedCode": "GP_B13" },
+    { "label": "Left", "expectedCode": "GP_B14" },
+    { "label": "Right", "expectedCode": "GP_B15" },
+    { "label": "LS Left", "expectedCode": "GP_A0N" }
+  ],
+  "captures": [
+    { "label": "South", "expectedCode": "GP_B0", "detected": { "kind": "button", "index": 1 } },
+    { "label": "East", "expectedCode": "GP_B1", "detected": { "kind": "button", "index": 2 } },
+    { "label": "Up", "expectedCode": "GP_B12", "detected": { "kind": "axis", "index": 9, "direction": "negative" } },
+    { "label": "Down", "expectedCode": "GP_B13", "detected": { "kind": "axis", "index": 9, "direction": "negative" } },
+    { "label": "Left", "expectedCode": "GP_B14", "detected": { "kind": "axis", "index": 9, "direction": "negative" } },
+    { "label": "Right", "expectedCode": "GP_B15", "detected": { "kind": "axis", "index": 9, "direction": "negative" } },
+    { "label": "LS Left", "expectedCode": "GP_A0N", "detected": { "kind": "axis", "index": 0, "direction": "negative" } }
+  ],
+  "controllerDefinition": {
+    "profileHint": "generic",
+    "family": "generic"
+  }
+}

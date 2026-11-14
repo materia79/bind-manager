@@ -5,6 +5,7 @@
  * Source captures: 054c-0ce6_PS5.json
  */
 
+import { parseGamepadId } from '../gamepad-profiles.js';
 import profile0 from './profiles/054c-0ce6.js';
 
 export const controllerProfiles = {
@@ -40,32 +41,23 @@ export function findControllerProfilesByFamily(family) {
 }
 
 /**
- * Resolve the most specific profile by (vendorId, productId).
- * Falls back to first profile with matching vendorId if exact product is unknown.
+ * Return the profile for exactly this (vendorId, productId), or null.
+ * There is no vendor-only fallback: another product of the same vendor
+ * has its own raw layout.
  */
 export function findControllerProfile(vendorId, productId) {
   const v = typeof vendorId === "string" ? vendorId.toLowerCase() : null;
   const p = typeof productId === "string" ? productId.toLowerCase() : null;
-  if (!v) return null;
-
-  const exactKey = p ? `${v}-${p}` : null;
-  if (exactKey && controllerProfiles[exactKey]) return controllerProfiles[exactKey];
-
-  let vendorFallback = null;
-  for (const profile of Object.values(controllerProfiles)) {
-    if (!profile || profile.vendorId !== v) continue;
-    if (!vendorFallback) vendorFallback = profile;
-    if (p && profile.productId === p) return profile;
-  }
-  return vendorFallback;
+  if (!v || !p) return null;
+  return controllerProfiles[`${v}-${p}`] ?? null;
 }
 
 /**
- * Parse VID/PID from a browser gamepad id string and return a matching profile if present.
+ * Parse VID/PID from a browser gamepad id (Chrome or Firefox form) and return
+ * the profile for exactly that device, or null. Whether the profile applies to
+ * the connected pad is decided by the resolver (mapping and button/axis counts).
  */
 export function findControllerProfileByGamepadId(gamepadId) {
-  if (!gamepadId || typeof gamepadId !== "string") return null;
-  const m = gamepadId.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-/);
-  if (!m) return null;
-  return findControllerProfile(m[1], m[2]);
+  const { vendorId, productId } = parseGamepadId(gamepadId);
+  return findControllerProfile(vendorId, productId);
 }

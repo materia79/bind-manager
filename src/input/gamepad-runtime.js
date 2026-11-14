@@ -14,17 +14,99 @@
  *   'bm-gamepad-connected'    { detail: Gamepad }
  *   'bm-gamepad-disconnected' { detail: Gamepad }
  */
-import { isGamepadCode } from './gamepad-codes.js';
+import { GP_AXIS_COUNT, GP_BUTTON_COUNT, isGamepadCode } from './gamepad-codes.js';
+import { parseGamepadId } from './gamepad-profiles.js';
 import {
   getAvailableGamepadProfileOptions,
   getGamepadIdentityKey,
+  getGamepadIdentityKeys,
   getResolvedGamepadLabel,
   normaliseGamepadProfileOverride,
   resolveGamepadProfile,
 } from './gamepad-profile-resolver.js';
 
-const GP_BUTTON_COUNT = 17;
-const GP_AXIS_COUNT   = 4;
+// A hat switch reported as one axis: eight positions 2/7 apart, clockwise from
+// up at -1 (up, up-right, right, down-right, down, down-left, left, up-left);
+// neutral is outside the range (9/7 in Firefox on Windows).
+const HAT_STEP = 2 / 7;
+const HAT_SECTOR_DIRECTIONS = [
+  ['up'], ['up', 'right'], ['right'], ['down', 'right'],
+  ['down'], ['down', 'left'], ['left'], ['up', 'left'],
+];
+
+/** @returns {number} sector 0-7, or -1 for neutral / not a hat value */
+function hatSector(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return -1;
+  const sector = Math.round((raw + 1) / HAT_STEP);
+  if (sector < 0 || sector > 7) return -1;
+  return Math.abs(raw - (-1 + sector * HAT_STEP)) <= HAT_STEP / 2 + 1e-6 ? sector : -1;
+}
+
+/**
+ * Decode a hat-switch axis value into D-pad directions. A diagonal sets both
+ * of its directions; neutral (or any value off the eight positions) sets none.
+ * @param {number} raw - the raw axis value
+ * @returns {{ up: boolean, right: boolean, down: boolean, left: boolean }}
+ */
+export function decodeHatValue(raw) {
+  const directions = HAT_SECTOR_DIRECTIONS[hatSector(raw)] ?? [];
+  return {
+    up: directions.includes('up'),
+    right: directions.includes('right'),
+    down: directions.includes('down'),
+    left: directions.includes('left'),
+  };
+}
+
+/**
+ * True when a `kind: 'hat'` mapping entry is active for a raw axis value.
+ * An entry whose `value` is a cardinal position (up/right/down/left) is also
+ * active on both neighbouring diagonals; an entry on a diagonal position is
+ * active only there. A `value` off the eight positions falls back to
+ * `|raw - value| <= tolerance` (default 0.2).
+ * @param {number} raw - the raw axis value at `entry.index`
+ * @param {{ value: number, tolerance?: number }} entry
+ * @returns {boolean}
+ */
+export function isHatEntryActive(raw, entry) {
+  if (!entry || typeof entry.value !== 'number' || !Number.isFinite(entry.value)) return false;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return false;
+  const target = hatSector(entry.value);
+  if (target < 0) {
+    const tolerance = typeof entry.tolerance === 'number' && entry.tolerance > 0 ? entry.tolerance : 0.2;
+    return Math.abs(raw - entry.value) <= tolerance;
+  }
+  const current = hatSector(raw);
+  if (current < 0) return false;
+  if (target % 2 === 1) return current === target;
+  return HAT_SECTOR_DIRECTIONS[current].includes(HAT_SECTOR_DIRECTIONS[target][0]);
+}
+
+/**
+ * Activation magnitude [0, 1] of one controller-definition mapping entry on a
+ * raw gamepad: the button value, the axis value in the entry's direction, or
+ * 1 / 0 for a hat entry (see isHatEntryActive).
+ * @param {{ buttons?: ArrayLike<{ pressed?: boolean, value?: number }>, axes?: ArrayLike<number> }} gamepad
+ * @param {{ kind: 'button' | 'axis' | 'hat', index: number, direction?: 'negative' | 'positive', value?: number, tolerance?: number } | null} entry
+ * @returns {number}
+ */
+export function readMappingEntryMagnitude(gamepad, entry) {
+  if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.index)) return 0;
+  if (entry.kind === 'hat') {
+    return isHatEntryActive(gamepad?.axes?.[entry.index], entry) ? 1 : 0;
+  }
+  if (entry.kind === 'button') {
+    const btn = gamepad?.buttons?.[entry.index];
+    if (!btn) return 0;
+    const value = typeof btn.value === 'number' ? btn.value : (btn.pressed ? 1 : 0);
+    return Math.max(0, value);
+  }
+  if (entry.kind === 'axis') {
+    const raw = gamepad?.axes?.[entry.index] ?? 0;
+    return entry.direction === 'negative' ? Math.max(0, -raw) : Math.max(0, raw);
+  }
+  return 0;
+}
 
 function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -66,6 +148,10 @@ export class GamepadRuntime {
     this._curState = new Map();
     /** @type {Map<number, Set<string>>} captured codes per gamepad, silent until released */
     this._latched = new Map();
+    /** @type {Map<number, Set<string>>} codes that fired 'pressed' and not yet 'released', per gamepad */
+    this._pressedCodes = new Map();
+    /** @type {Map<number, Set<number>>} axes whose last analog event was non-zero, per gamepad */
+    this._analogActive = new Map();
     /** @type {Map<number, any>} */
     this._resolvedProfileByGamepadIndex = new Map();
     /** @type {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>} */
@@ -117,10 +203,21 @@ export class GamepadRuntime {
   /**
    * Suppress / restore normal gameplay dispatching (used by modal while open).
    * Capture mode is NOT affected — capture still works when suppressed.
+   *
+   * Suppressing fires 'released' (and a final analog 0) for every input that
+   * is active, so no action stays pressed while the modal is open. Inputs
+   * still held when gameplay resumes stay silent until released and pressed
+   * anew.
    * @param {boolean} suppressed
    */
   setGameplaySuppressed(suppressed) {
+    suppressed = !!suppressed;
+    if (suppressed === this._gameplaySuppressed) return;
     this._gameplaySuppressed = suppressed;
+    for (const gamepadIndex of [...this._curState.keys()]) {
+      if (suppressed) this._releaseActiveInputs(gamepadIndex);
+      this._latchActiveInputs(gamepadIndex);
+    }
   }
 
   /**
@@ -221,7 +318,8 @@ export class GamepadRuntime {
   }
 
   /**
-   * Get the detected profile name ('xbox' | 'dualsense' | 'generic') for a gamepad.
+   * Get the resolved family key ('xbox', 'xbox360', 'dualshock4', 'dualsense',
+   * 'switch-pro', 'steam', 'stadia' or 'generic') for a gamepad.
    * @param {number} [gamepadIndex=0]
    * @returns {string}
    */
@@ -232,7 +330,7 @@ export class GamepadRuntime {
   /**
    * Get the resolved profile state for a connected gamepad.
    * @param {number} [gamepadIndex=0]
-   * @returns {{ source: string, family: string, profileHint: string, profileKey: string | null, definition: any | null, gamepadId: string | null }}
+   * @returns {import('./gamepad-profile-resolver.js').ResolvedGamepadProfile}
    */
   getResolvedProfile(gamepadIndex = 0) {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return resolveGamepadProfile(null);
@@ -244,11 +342,23 @@ export class GamepadRuntime {
   /**
    * Resolve a display label for a GP_* code based on the active gamepad profile.
    * @param {string | null} code
-   * @param {number} [gamepadIndex=0]
+   * @param {number | null} [gamepadIndex=null] - null = the first connected gamepad
    * @returns {string}
    */
-  getLabelForCode(code, gamepadIndex = 0) {
-    return getResolvedGamepadLabel(code, this.getResolvedProfile(gamepadIndex));
+  getLabelForCode(code, gamepadIndex = null) {
+    const index = gamepadIndex ?? this._firstConnectedGamepadIndex();
+    if (index == null) return getResolvedGamepadLabel(code, resolveGamepadProfile(null));
+    return getResolvedGamepadLabel(code, this.getResolvedProfile(index));
+  }
+
+  /**
+   * @returns {number | null} index of the first connected gamepad, or null
+   * @private
+   */
+  _firstConnectedGamepadIndex() {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
+    const first = [...navigator.getGamepads()].find((g) => g && g.connected !== false);
+    return first ? first.index : null;
   }
 
   /**
@@ -259,7 +369,7 @@ export class GamepadRuntime {
   getAvailableProfileOptions(gamepadIndex = 0) {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return getAvailableGamepadProfileOptions(null);
     const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
-    return getAvailableGamepadProfileOptions(gp?.id ?? null);
+    return getAvailableGamepadProfileOptions(gp ?? null);
   }
 
   /**
@@ -269,8 +379,7 @@ export class GamepadRuntime {
   getProfileOverride(gamepadIndex = 0) {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
     const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
-    const identityKey = getGamepadIdentityKey(gp?.id ?? null);
-    return identityKey ? this._profileOverrides.get(identityKey) ?? null : null;
+    return this._getOverrideForGamepadId(gp?.id ?? null);
   }
 
   /**
@@ -289,9 +398,10 @@ export class GamepadRuntime {
       return this.clearProfileOverride(gamepadIndex);
     }
 
+    for (const legacyKey of getGamepadIdentityKeys(gp.id).slice(1)) this._profileOverrides.delete(legacyKey);
     this._profileOverrides.set(identityKey, normalised);
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._emitProfileChange(gp.index, gp.id);
+    this._emitProfileChange(gp);
     return true;
   }
 
@@ -305,9 +415,10 @@ export class GamepadRuntime {
     const identityKey = getGamepadIdentityKey(gp?.id ?? null);
     if (!gp || !identityKey) return false;
 
-    const deleted = this._profileOverrides.delete(identityKey);
+    let deleted = false;
+    for (const key of getGamepadIdentityKeys(gp.id)) deleted = this._profileOverrides.delete(key) || deleted;
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._emitProfileChange(gp.index, gp.id);
+    this._emitProfileChange(gp);
     return deleted;
   }
 
@@ -358,7 +469,7 @@ export class GamepadRuntime {
     editable.capturedAt = new Date().toISOString();
     this._profileDefinitionOverrides.set(identityKey, editable);
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._emitProfileChange(gp.index, gp.id);
+    this._emitProfileChange(gp);
     return true;
   }
 
@@ -388,18 +499,21 @@ export class GamepadRuntime {
   // ── Private ───────────────────────────────────────────────────────────────
 
   _handleConnect(e) {
-    this._resolvedProfileByGamepadIndex.set(
-      e.gamepad.index,
-      resolveGamepadProfile(e.gamepad.id, { override: this._getOverrideForGamepadId(e.gamepad.id) }),
-    );
+    // Resolve through the override- and edit-aware path, so in-memory mapping
+    // edits keep applying after a reconnect.
+    this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
+    this._getResolvedProfileForGamepad(e.gamepad);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-connected', { detail: e.gamepad }));
     }
   }
 
   _handleDisconnect(e) {
+    this._releaseActiveInputs(e.gamepad.index);
     this._curState.delete(e.gamepad.index);
     this._latched.delete(e.gamepad.index);
+    this._pressedCodes.delete(e.gamepad.index);
+    this._analogActive.delete(e.gamepad.index);
     this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
     if (this._captureCallback) {
       const cb = this._captureCallback;
@@ -472,9 +586,12 @@ export class GamepadRuntime {
       const curVal  = cur.axes[a]  ?? 0;
       const thr = this._analogThreshold;
 
-      // Continuous analog event (above deadband, direction-agnostic)
+      // Continuous analog event (above deadband, direction-agnostic), and one
+      // final 0 when the axis comes back into the deadband.
       if (Math.abs(curVal) > this._deadband) {
         this._dispatchAnalog(gamepad.index, a, curVal);
+      } else if (this._analogActive.get(gamepad.index)?.has(a)) {
+        this._dispatchAnalog(gamepad.index, a, 0);
       }
 
       // Negative direction (e.g. stick left or stick up)
@@ -529,6 +646,59 @@ export class GamepadRuntime {
   }
 
   /**
+   * Codes active in a logical state snapshot (buttons down, axis directions
+   * past the analog threshold).
+   * @param {{ buttons: boolean[], axes: number[] }} state
+   * @returns {string[]}
+   * @private
+   */
+  _activeCodes(state) {
+    const codes = [];
+    const btnLen = Math.min(state.buttons.length, GP_BUTTON_COUNT);
+    for (let i = 0; i < btnLen; i++) {
+      if (state.buttons[i]) codes.push(`GP_B${i}`);
+    }
+    const axisLen = Math.min(state.axes.length, GP_AXIS_COUNT);
+    for (let a = 0; a < axisLen; a++) {
+      const val = state.axes[a] ?? 0;
+      if (val < -this._analogThreshold) codes.push(`GP_A${a}N`);
+      if (val > this._analogThreshold) codes.push(`GP_A${a}P`);
+    }
+    return codes;
+  }
+
+  /**
+   * Fire 'released' for every code of this gamepad that fired 'pressed', and a
+   * final analog 0 for every axis whose last analog event was non-zero.
+   * @private
+   */
+  _releaseActiveInputs(gamepadIndex) {
+    const pressed = this._pressedCodes.get(gamepadIndex);
+    if (pressed) {
+      for (const code of [...pressed]) this._dispatch(gamepadIndex, code, 'released', 0);
+    }
+    const analog = this._analogActive.get(gamepadIndex);
+    if (analog) {
+      for (const axisIndex of [...analog]) this._dispatchAnalog(gamepadIndex, axisIndex, 0);
+    }
+  }
+
+  /**
+   * Latch every input active on this gamepad, so it fires nothing until it
+   * has been released.
+   * @private
+   */
+  _latchActiveInputs(gamepadIndex) {
+    const state = this._curState.get(gamepadIndex);
+    if (!state) return;
+    const codes = this._activeCodes(state);
+    if (codes.length === 0) return;
+    if (!this._latched.has(gamepadIndex)) this._latched.set(gamepadIndex, new Set());
+    const latched = this._latched.get(gamepadIndex);
+    for (const code of codes) latched.add(code);
+  }
+
+  /**
    * True while `code` is latched (captured and not yet released) on this
    * gamepad; un-latches it once it is seen inactive.
    * @private
@@ -541,8 +711,11 @@ export class GamepadRuntime {
   }
 
   /**
-   * Build a canonical logical state (GP_B0..GP_B16 + GP_A0..GP_A3) from raw
+   * Build a canonical logical state (GP_B0..GP_B23 + GP_A0..GP_A3) from raw
    * physical gamepad hardware state, using a vendor/product mapping when known.
+   * The resolver only hands out an exact definition when it applies to this
+   * pad (non-standard mapping, matching button/axis counts), or a definition
+   * the user edited in memory.
    * @param {Gamepad} gamepad
    * @returns {{ buttons: boolean[], axes: number[] }}
    * @private
@@ -601,49 +774,51 @@ export class GamepadRuntime {
     if (this._resolvedProfileByGamepadIndex.has(gamepad.index)) {
       return this._resolvedProfileByGamepadIndex.get(gamepad.index);
     }
-    const resolvedProfile = resolveGamepadProfile(gamepad.id, {
+    const resolved = this._resolveForGamepad(gamepad);
+    this._resolvedProfileByGamepadIndex.set(gamepad.index, resolved);
+    return resolved;
+  }
+
+  /**
+   * Resolve a gamepad with its manual override and any in-memory edited
+   * definition layered on top (uncached).
+   * @param {Gamepad} gamepad
+   * @returns {any}
+   * @private
+   */
+  _resolveForGamepad(gamepad) {
+    const resolved = resolveGamepadProfile(gamepad, {
       override: this._getOverrideForGamepadId(gamepad.id),
     });
     const identityKey = getGamepadIdentityKey(gamepad.id);
     const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
-    const finalResolved = editedDefinition
-      ? {
-          ...resolvedProfile,
-          source: 'memory-edit',
-          definition: deepClone(editedDefinition),
-          profileKey: editedDefinition.key ?? resolvedProfile.profileKey ?? null,
-          profileHint: editedDefinition.profileHint ?? resolvedProfile.profileHint,
-          family: editedDefinition.family ?? resolvedProfile.family,
-        }
-      : resolvedProfile;
-    this._resolvedProfileByGamepadIndex.set(gamepad.index, finalResolved);
-    return finalResolved;
+    if (!editedDefinition) return resolved;
+    return {
+      ...resolved,
+      source: 'memory-edit',
+      definition: deepClone(editedDefinition),
+      profileKey: editedDefinition.key ?? resolved.profileKey ?? null,
+      profileHint: editedDefinition.profileHint ?? resolved.profileHint,
+      family: editedDefinition.family ?? resolved.family,
+      displayName: editedDefinition.sourceName || resolved.displayName,
+    };
   }
 
   _getOverrideForGamepadId(gamepadId) {
-    const identityKey = getGamepadIdentityKey(gamepadId);
-    return identityKey ? this._profileOverrides.get(identityKey) ?? null : null;
+    for (const key of getGamepadIdentityKeys(gamepadId)) {
+      const override = this._profileOverrides.get(key);
+      if (override) return override;
+    }
+    return null;
   }
 
-  _emitProfileChange(gamepadIndex, gamepadId) {
+  _emitProfileChange(gamepad) {
+    const gamepadIndex = gamepad.index;
+    const gamepadId = gamepad.id;
     const payload = Object.fromEntries(this._profileOverrides);
     this._onProfileOverridesChange?.(payload);
     if (typeof window !== 'undefined') {
-      const identityKey = getGamepadIdentityKey(gamepadId);
-      const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
-      const resolved = resolveGamepadProfile(gamepadId, {
-        override: this._getOverrideForGamepadId(gamepadId),
-      });
-      const resolvedProfile = editedDefinition
-        ? {
-            ...resolved,
-            source: 'memory-edit',
-            definition: deepClone(editedDefinition),
-            profileKey: editedDefinition.key ?? resolved.profileKey ?? null,
-            profileHint: editedDefinition.profileHint ?? resolved.profileHint,
-            family: editedDefinition.family ?? resolved.family,
-          }
-        : resolved;
+      const resolvedProfile = this._resolveForGamepad(gamepad);
       window.dispatchEvent(new CustomEvent('bm-gamepad-profile-changed', {
         detail: {
           gamepadIndex,
@@ -660,11 +835,7 @@ export class GamepadRuntime {
     if (existing) return deepClone(existing);
 
     const base = deepClone(resolvedProfile?.definition) || {};
-    const idMatch = typeof gamepad?.id === 'string'
-      ? gamepad.id.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-(.+)$/)
-      : null;
-    const vendorId = idMatch?.[1]?.toLowerCase() ?? null;
-    const productId = idMatch?.[2]?.toLowerCase() ?? null;
+    const { vendorId, productId } = parseGamepadId(gamepad?.id ?? null);
 
     return {
       key: base.key ?? (vendorId && productId ? `${vendorId}-${productId}` : identityKey ?? 'custom-profile'),
@@ -768,20 +939,7 @@ export class GamepadRuntime {
    * @private
    */
   _readDirectionalMagnitude(gamepad, entry) {
-    if (entry.kind === 'hat') {
-      return this._isHatDirectionActive(gamepad, entry) ? 1 : 0;
-    }
-
-    if (entry.kind === 'button') {
-      const btn = gamepad.buttons?.[entry.index];
-      if (!btn) return 0;
-      const value = typeof btn.value === 'number' ? btn.value : (btn.pressed ? 1 : 0);
-      return Math.max(0, value);
-    }
-
-    const raw = gamepad.axes?.[entry.index] ?? 0;
-    if (entry.direction === 'negative') return Math.max(0, -raw);
-    return Math.max(0, raw);
+    return readMappingEntryMagnitude(gamepad, entry);
   }
 
   /**
@@ -791,10 +949,7 @@ export class GamepadRuntime {
    * @private
    */
   _isHatDirectionActive(gamepad, entry) {
-    const raw = gamepad.axes?.[entry.index];
-    if (typeof raw !== 'number' || !Number.isFinite(raw)) return false;
-    const tolerance = typeof entry.tolerance === 'number' ? entry.tolerance : 0.2;
-    return Math.abs(raw - entry.value) <= tolerance;
+    return isHatEntryActive(gamepad.axes?.[entry.index], entry);
   }
 
   /**
@@ -803,6 +958,12 @@ export class GamepadRuntime {
    * @private
    */
   _dispatch(gamepadIndex, code, type, value) {
+    if (type === 'pressed') {
+      if (!this._pressedCodes.has(gamepadIndex)) this._pressedCodes.set(gamepadIndex, new Set());
+      this._pressedCodes.get(gamepadIndex).add(code);
+    } else if (type === 'released') {
+      this._pressedCodes.get(gamepadIndex)?.delete(code);
+    }
     const actionIds = this._store.getActionsByCode(code, 'gamepad');
     for (const actionId of actionIds) {
       const action = this._registry.get(actionId);
@@ -815,10 +976,17 @@ export class GamepadRuntime {
 
   /**
    * Resolve both axis-direction codes to bound actions and fire analog events.
-   * Only fires if action.analog is true.
+   * Only fires if action.analog is true. Tracks which axes are non-zero so a
+   * final 0 can be sent when they return into the deadband.
    * @private
    */
   _dispatchAnalog(gamepadIndex, axisIndex, value) {
+    if (value !== 0) {
+      if (!this._analogActive.has(gamepadIndex)) this._analogActive.set(gamepadIndex, new Set());
+      this._analogActive.get(gamepadIndex).add(axisIndex);
+    } else {
+      this._analogActive.get(gamepadIndex)?.delete(axisIndex);
+    }
     const codes = [`GP_A${axisIndex}N`, `GP_A${axisIndex}P`];
     const seenActions = new Set();
     for (const code of codes) {

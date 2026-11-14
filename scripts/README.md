@@ -20,7 +20,7 @@ This directory contains project automation scripts that are run through npm scri
 
 ## 1) `build.js`
 
-### Purpose
+### What `build.js` does
 
 Builds the library into browser-consumable bundles using esbuild.
 
@@ -93,7 +93,7 @@ the script detects `--watch` and:
 
 ## 2) `process-controller-defs.js`
 
-### Purpose
+### What `process-controller-defs.js` does
 
 Transforms controller capture JSON files into runtime-importable controller profile modules.
 
@@ -170,8 +170,8 @@ Re-running on the same captures produces the same output.
 It validates, among other things:
 
 - Capture root shape and a non-empty `captures` array (error)
-- Presence of `runMeta.targetController` (warning when missing: the vendor/product then comes from the file name and the counts are unknown, so the profile can never apply)
-- Every capture entry has an `expectedCode` and a `detected` input (error `<code>: detected mapping is missing` otherwise)
+- Presence of `runMeta.targetController` (warning when missing: the vendor/product then comes from the file name, and the raw counts come only from an existing profile of that device; without one they stay `null` and the new profile can never apply)
+- Every capture entry has an `expectedCode` and a `detected` input (error `<code>: detected mapping is missing` otherwise). Exception: when no entry has a `detected` input but `controllerDefinition.buttons` / `.axes` have entries, or `captures` is empty and those have entries, the generator only warns and builds the profile from `controllerDefinition` (the later checks are skipped)
 - Existence of the D-pad codes `GP_B12`, `GP_B13`, `GP_B14`, `GP_B15` (error)
 - Mapping shape (error):
 	- kind is `button` or `axis`
@@ -185,7 +185,9 @@ It validates, among other things:
 - Sequence/capture expected-code mismatch (warning; processor uses `captures` entries)
 - After conversion, the generated mapping entries are checked again (button, axis, hat shapes)
 
-Not checked: whether the capture came from a pad the browser remapped (`mapping: 'standard'`). The capture does not record the mapping. A profile generated from such a capture never applies, because the runtime applies exact profiles only to pads with `mapping !== 'standard'` and the captured raw counts; see [src/input/controller_definitions/README.md](../src/input/controller_definitions/README.md#when-an-exact-profile-applies).
+<!-- STATUS AT THIS VERSION: this paragraph describes a gap that is being fixed; replace it when it is. -->
+**Status at this version: remapped pads are not detected.** The generator does not check whether the capture came from a pad the browser remapped (`mapping: 'standard'`); the capture does not record the mapping. A profile generated from such a capture never applies, because the runtime applies exact profiles only to pads with `mapping !== 'standard'` and the captured raw counts, and as the newest capture of an existing device it replaces that profile's counts. See [src/input/controller_definitions/README.md](../src/input/controller_definitions/README.md#when-an-exact-profile-applies).
+<!-- END STATUS -->
 
 The script separates:
 
@@ -284,15 +286,15 @@ npm run process_controller_defs
 	- The file is not a capture (for example the Controller Test's Download JSON). Only Input Remap's capture JSON can be processed.
 
 - The generated profile does not apply (no "Exact" chip)
-	- The capture came from a pad the browser remapped (`mapping: 'standard'`), or the pad now reports different raw button/axis counts than at capture time. Capture from a browser that reports the raw layout.
+	- The pad reports different raw button/axis counts (or a different `mapping`) than at capture time; see the status note under [Capture validation details](#capture-validation-details) for captures from remapped pads.
 
 - Warning: sequence expectedCode differs from captures expectedCode
 	- The processor uses `captures[*].expectedCode` for mapping output.
 	- Treat this as a capture QA issue and recapture or normalize data.
 
 - Warning: D-pad mappings not distinct enough
-	- Re-capture D-pad steps carefully.
-	- Confirm distinct physical signals are recorded.
+	- Expected for a hat D-pad: all four directions land on one axis, and the generator then writes four `hat` entries (see "D-pad hat heuristic").
+	- Otherwise (for example two directions on one button), re-capture the D-pad steps and confirm that distinct physical signals are recorded.
 
 ---
 

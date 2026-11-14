@@ -211,3 +211,41 @@ test.describe('screens: pad per label family', () => {
     }
   });
 });
+
+/** Realistic fake pads per family (Chrome ids, standard mapping), button counts as the pads report them. */
+const FAMILY_PADS = [
+  { name: 'xbox', id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b12)', buttonCount: 18 },
+  { name: 'xbox-elite', id: 'Xbox Elite Wireless Controller Series 2 (STANDARD GAMEPAD Vendor: 045e Product: 0b00)', buttonCount: 21 },
+  { name: 'dualshock4', id: 'Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)', buttonCount: 18 },
+  { name: 'dualsense', id: 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)', buttonCount: 18 },
+  { name: 'switch-pro', id: 'Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)', buttonCount: 18 },
+  { name: 'steam', id: 'Steam Deck Controller (STANDARD GAMEPAD Vendor: 28de Product: 1205)', buttonCount: 24 },
+  { name: 'stadia', id: 'Stadia Controller rev. A (STANDARD GAMEPAD Vendor: 18d1 Product: 9400)', buttonCount: 19 },
+  { name: 'generic', id: 'USB Gamepad (STANDARD GAMEPAD Vendor: 0079 Product: 0011)', buttonCount: 17 },
+];
+
+test.describe('screens: Controller Tester per family (real manager)', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  for (const fam of FAMILY_PADS) {
+    test(`tester ${fam.name}`, async ({ page }) => {
+      const pad = await installFakeGamepad(page, { id: fam.id, mapping: 'standard', buttonCount: fam.buttonCount, axisCount: 4 });
+      await page.goto('/package.json');
+      await page.setContent('<!doctype html><html><head><style>body { margin: 0; background: #0b1020; }</style></head><body></body></html>');
+      await page.evaluate(async () => {
+        const { createBindManager } = await import('/src/index.js');
+        window.__bm = createBindManager({ namespace: `screens-family-${Math.random()}`, builtInTools: true });
+        window.__bm.registerAction({ id: 'jump', label: 'Jump', defaultBindings: ['Space'], defaultGamepadBindings: ['GP_B0'] });
+      });
+      await pad.connect();
+      await page.evaluate(() => window.__bm.open());
+      await page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]').click();
+      const panel = page.locator('.bm-tester-modal.bm-tester-open .bm-tester-panel');
+      await expect(panel.locator('select').first()).toBeEnabled();
+      // Face button 0, right bumper and the highest button the pad has, so the pad shows highlights.
+      await pad.setButtons({ 0: 1, 5: 1, [fam.buttonCount - 1]: 1 });
+      await expect.poll(() => panel.locator('.bm-pad-el.bm-active').count()).toBeGreaterThanOrEqual(2);
+      await shoot(page, 'tester-family', fam.name, { name: '1920x1080' });
+    });
+  }
+});

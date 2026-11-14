@@ -2,8 +2,10 @@
  * Bind Manager — public package entry point
  *
  * Usage:
- *   import { createBindManager } from 'bind-manager';
- *   import { getKeyLabel, isKnownCode } from 'bind-manager/key-names';
+ *   import { createBindManager, getKeyLabel, isKnownCode } from 'bind-manager';
+ *
+ * Everything public is exported from this one entry ("exports": { ".": … } in
+ * package.json); there are no sub-path imports.
  */
 export { createBindManager } from './core/bind-manager.js';
 export {

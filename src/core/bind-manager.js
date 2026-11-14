@@ -253,9 +253,12 @@ export function createBindManager(options = {}) {
     },
 
     /**
-     * Get the resolved profile object for a connected gamepad.
+     * Get the resolved profile of a connected gamepad (or the generic one when
+     * no pad is at that index). `source` is 'manual', 'exact', 'family',
+     * 'generic' or 'memory-edit'; `ignoredOverride` names a stored exact
+     * override that does not fit the pad; `labelVariant` is e.g. 'xbox-elite'.
      * @param {number} [gamepadIndex=0]
-     * @returns {{ source: string, family: string, profileHint: string, profileKey: string | null, definition: any | null, gamepadId: string | null }}
+     * @returns {import('../input/gamepad-profile-resolver.js').ResolvedGamepadProfile}
      */
     getResolvedGamepadProfile(gamepadIndex = 0) {
       return gamepadRuntime.getResolvedProfile(gamepadIndex);
@@ -291,8 +294,9 @@ export function createBindManager(options = {}) {
     },
 
     /**
-     * Get info about all currently connected gamepads.
-     * @returns {{ index: number, id: string, profile: string }[]}
+     * Get info about all currently connected gamepads: index, raw `Gamepad.id`,
+     * the resolved family (`profile`) and the full resolved profile.
+     * @returns {{ index: number, id: string, profile: string, resolvedProfile: import('../input/gamepad-profile-resolver.js').ResolvedGamepadProfile }[]}
      */
     getConnectedGamepads() {
       return gamepadRuntime.getConnectedGamepads();

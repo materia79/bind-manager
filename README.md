@@ -507,3 +507,46 @@ Manual checks for the browser guard and wheel bindings (desktop browsers; `npm r
 This project is licensed under the MIT License.
 
 See [LICENSE.md](LICENSE.md).
+
+## Contributing / pushing
+
+bind-manager works with two remotes:
+
+- `origin`: the **public** repository, `https://github.com/materia79/bind-manager`. It receives only finished work: the `main` branch and tags. Every push to `main` publishes `dist/bind-manager.min.js` as the `main-latest` release.
+- `private`: your **private work repository** (`git remote add private <its url>`). Work branches, experiments and plans live there.
+
+Once per clone, and again after every update of the guard scripts, run:
+
+```bash
+npm run setup:git
+```
+
+It installs a copy of the guard into this clone's shared git directory (`.git/hygiene-hooks/`) and points `core.hooksPath` there, so the hook runs for every worktree of the clone whatever commit is checked out, and no checkout can replace it. It leaves another `core.hooksPath` (husky and the like) alone unless you add `-- --force`. **Re-run it after every update of the guard scripts**; until then the hook warns that the installed copy differs from the checkout and keeps scanning with the installed one. The installed copy is verified by hash before every push; `npm run setup:git -- --check` tells whether it is in place and intact, and `npm test` / `npm run hygiene` warn when it is not. It also sets `remote.pushDefault` to `private` when that remote exists (a bare `git push` then never goes public), adds your `user.email` and GitHub noreply addresses to `hygiene.allowedEmail` (the e-mails new public commits may carry; add others with `git config --add hygiene.allowedEmail <address>`), checks that `origin` is the public repository, and creates the untracked `.hygiene-denylist` from `.hygiene-denylist.example`. It is safe to run again.
+
+What the pre-push guard checks, for pushes to the public remote only:
+
+- only `main` and tags may be pushed; other branches, deleting `main` and rewriting `main` (a push that is not a fast-forward) are refused (a release is `git push origin <branch>:main`);
+- tag and branch names are scanned too;
+- the author and committer e-mail of every new commit must be in `hygiene.allowedEmail`;
+- every commit that would become public is scanned: its message, every added line, every file path (merges and annotated tag messages included; binary, `-diff` and UTF-16 content too), for secrets (private-key blocks; GitHub, Anthropic, OpenAI, AWS, Google, Stripe, Slack and npm keys; JWTs; bearer and basic auth; credentials in URLs; password, secret, token and api-key assignments, quoted or in env/YAML files), home, worktree and UNC paths, private IPv4 addresses, and private names.
+
+Some checks run everywhere, some only on your machine:
+
+- **everywhere** (pre-push hook, `npm run hygiene`, and CI before the `main-latest` upload): secrets, private-key blocks, home, drive and UNC paths, private IPv4 addresses;
+- **local only** (pre-push hook and `npm run hygiene` on your machine): this machine's host name, user name and home directory, the GitHub account `gh` is signed in to, the names in this repository's non-public remotes (owner/repo, the repository name, a private host), your git `user.email` and its domain (unless it is a webmail provider), the commit e-mail allowlist, and the entries of `.hygiene-denylist`.
+
+`.hygiene-denylist` holds private names that no machine property reveals (other projects, codenames, ticket prefixes), one per line, plain strings or `/regex/flags`. It is untracked and never published; the format is explained in `.hygiene-denylist.example`.
+
+On a hit the push is refused and the guard prints the commit, `file:line` (paths masked where they match) and the pattern name, never the matched text. Remove the text from the commit that added it (amend or rebuild the branch; a later deleting commit is not enough). For a deliberate false positive, add `hygiene-allow: <pattern-name>` on that line. Never use `git push --no-verify` for the public remote.
+
+Examples of hits that are defensible in documentation, and the marker that keeps each one (the marker covers exactly that pattern on exactly that line):
+
+```text
+postgres://user:pass@localhost/db      # hygiene-allow: url-credentials
+password: hunter22                     # hygiene-allow: env-secret-assignment
+192.168.1.10                           # hygiene-allow: private-ipv4
+```
+
+A binary file (an image, a font) that trips a pattern by chance cannot carry a marker: after review, list it in `.hygiene-allow-binaries` as `<sha256>  <path>` (`sha256sum <path>` prints the first part). The entry holds for exactly that content at exactly that path, and every push that includes the file prints `allowed binary: <path>`. It exempts the identity, path and denylist patterns only: private-key blocks and the provider token shapes (GitHub, Anthropic, OpenAI, AWS access key id, Slack, npm, Google, Stripe, JWT) are still matched inside a listed binary, so a real secret in it is refused anyway.
+
+Every public step (push to `origin`, tag, `main-latest` release, `npm publish`, the GitHub Pages copy of the demo) goes through the release gate described in [docs/RELEASING.md](docs/RELEASING.md).

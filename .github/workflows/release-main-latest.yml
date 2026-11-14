@@ -45,6 +45,13 @@ jobs:
             exit 1
           fi
 
+      # Release gate: the tracked tree, the npm package file list and the built
+      # bundles must be free of secrets and private paths before anything is
+      # uploaded. CI runs the patterns that need no machine data (see
+      # docs/RELEASING.md); a hit fails the job here.
+      - name: Hygiene gate (tree, package and built bundles)
+        run: npm run hygiene
+
       - name: Ensure rolling release exists
         if: github.event_name == 'push'
         env:

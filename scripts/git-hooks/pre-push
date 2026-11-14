@@ -1,0 +1,25 @@
+#!/bin/sh
+# The source of the installed hook. `npm run setup:git` copies this file,
+# pre-push.mjs and hygiene-patterns.mjs into <git common dir>/hygiene-hooks/
+# with hashes.sha256, and points core.hooksPath there. The copy first checks
+# the two scripts against hashes.sha256, then runs the guard installed next to
+# it, never a script from the checkout. See docs/RELEASING.md.
+# The hash check is tamper evidence, not tamper proofing: whoever can edit
+# this file can also bypass it.
+# Each command ends in " #" so a CRLF copy would still run: the carriage
+# return lands in the comment.
+here="$(dirname "$0")" || exit 1 #
+damaged() { #
+  echo "pre-push: the installed guard does not match its manifest (edited or damaged); refusing. Run npm run setup:git." >&2 #
+  exit 1 #
+} #
+[ -f "$here/hashes.sha256" ] || damaged #
+if command -v sha256sum >/dev/null 2>&1; then #
+  (cd "$here" && sha256sum -c --status hashes.sha256) || damaged #
+elif command -v shasum >/dev/null 2>&1; then #
+  (cd "$here" && shasum -a 256 -c --status hashes.sha256) || damaged #
+else #
+  echo "pre-push: neither sha256sum nor shasum is available to verify the installed guard; refusing." >&2 #
+  exit 1 #
+fi #
+exec node "$here/pre-push.mjs" "$@" #

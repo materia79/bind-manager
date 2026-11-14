@@ -41,11 +41,16 @@ describe('styles.js units', () => {
     expect(rootTokens).toEqual(ROOT_TOKEN_LINES);
   });
 
-  it('re-declares only the font tokens on the library roots, identical to :root', () => {
-    // Re-declared on .bm-overlay, .bm-capture-overlay and .bm-hints so that --bm-u set on any ancestor resizes text too
+  it('re-declares only the font tokens on the library roots, behind the host-facing --bm-font-* names', () => {
+    // Re-declared on .bm-overlay, .bm-capture-overlay and .bm-hints so that --bm-u set on any ancestor resizes
+    // text too; a host's --bm-font-* (on :root or any ancestor) wins over the computed default
     const roots = CSS.match(/\r?\n\.bm-overlay,\r?\n\.bm-capture-overlay,\r?\n\.bm-hints \{([\s\S]*?)\}/)?.[1] ?? '';
     const rootTokens = roots.split(/\r?\n/).filter((line) => TOKEN_LINE.test(line));
-    expect(rootTokens).toEqual(ROOT_TOKEN_LINES.slice(3));
+    const expected = ROOT_TOKEN_LINES.slice(3).map((line) => line.replace(
+      /^ {2}--bm-fs-(xs|s|m|l): (.*);$/,
+      (_, size, value) => `  --bm-fs-${size}: var(--bm-font-${size}, ${value});`,
+    ));
+    expect(rootTokens).toEqual(expected);
     const allTokenLines = CSS.split(/\r?\n/).filter((line) => TOKEN_LINE.test(line));
     expect(allTokenLines).toHaveLength(7 + 4);
   });

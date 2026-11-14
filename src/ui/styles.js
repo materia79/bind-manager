@@ -83,14 +83,18 @@ const CSS = `
   box-sizing: border-box;
 }
 
-/* The font tokens again, so a --bm-u set on any ancestor (not only :root) resizes text as well */
+/*
+ * The font tokens again, so a --bm-u set on any ancestor (not only :root) resizes text as well.
+ * Hosts set fixed text sizes through --bm-font-xs / -s / -m / -l (on :root or any ancestor);
+ * a host value for --bm-fs-* itself is replaced here.
+ */
 .bm-overlay,
 .bm-capture-overlay,
 .bm-hints {
-  --bm-fs-xs: max(9px, calc(14 * var(--bm-u)));
-  --bm-fs-s: max(10px, calc(15 * var(--bm-u)));
-  --bm-fs-m: calc(17 * var(--bm-u));
-  --bm-fs-l: calc(21 * var(--bm-u));
+  --bm-fs-xs: var(--bm-font-xs, max(9px, calc(14 * var(--bm-u))));
+  --bm-fs-s: var(--bm-font-s, max(10px, calc(15 * var(--bm-u))));
+  --bm-fs-m: var(--bm-font-m, calc(17 * var(--bm-u)));
+  --bm-fs-l: var(--bm-font-l, calc(21 * var(--bm-u)));
 }
 
 :where(.bm-overlay, .bm-capture-overlay) :where(button, select) {

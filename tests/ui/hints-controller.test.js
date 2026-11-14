@@ -42,4 +42,15 @@ describe('HintsController gamepad labels', () => {
 
     manager.destroy();
   });
+
+  it('gives each hint label a title with the full text', () => {
+    const manager = createBindManager({ namespace: `hints-test-${testCounter}` });
+    const label = 'A hint label that is far too long to fit on any reasonable screen, eighty chars';
+    manager.registerAction({ id: 'long', label, slots: 1, defaultBindings: ['KeyL'] }).showHint();
+
+    const el = document.querySelector('.bm-hint-label');
+    expect(el.getAttribute('title')).toBe(label);
+
+    manager.destroy();
+  });
 });

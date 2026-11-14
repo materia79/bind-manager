@@ -136,7 +136,7 @@ export class HintsController {
       items.push(`
         <div class="bm-hint-item">
           <span class="bm-hint-keys">${keysHtml}</span>
-          <span class="bm-hint-label">${_esc(action.label)}</span>
+          <span class="bm-hint-label" title="${_esc(action.label)}">${_esc(action.label)}</span>
         </div>
       `);
     }

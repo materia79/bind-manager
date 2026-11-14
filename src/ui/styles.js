@@ -777,7 +777,8 @@ const CSS = `
   z-index: var(--bm-z-hints);
   width: fit-content;
   max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
-  max-height: calc(100vh - 2 * min(16 * var(--bm-u), 2vh));
+  /* At most three rows of hints (8 + 3 x 26 + 2 x 6 gap + 6); further rows are clipped */
+  max-height: min(calc(104 * var(--bm-u)), calc(100vh - 2 * min(16 * var(--bm-u), 2vh)));
   overflow: hidden;
   margin: 0 auto;
   display: flex;
@@ -801,10 +802,13 @@ const CSS = `
   display: flex;
   align-items: center;
   gap: calc(8 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
 }
 
 .bm-hint-keys {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: calc(4 * var(--bm-u));
@@ -833,6 +837,10 @@ const CSS = `
 }
 
 .bm-hint-label {
+  min-width: 0;
+  max-width: calc(240 * var(--bm-u));
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--bm-text-secondary);
 }
 

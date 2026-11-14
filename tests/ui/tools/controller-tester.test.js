@@ -257,8 +257,8 @@ describe('controller tester frame loop', () => {
     expect(t.q('.bm-tester-pad [data-code="GP_B20"]').getAttribute('display')).toBe('none');
   });
 
-  it('shows extra keys only when labelled', () => {
-    t = mountTester({ family: 'steam' });
+  it('shows extra keys only when labelled and present on the pad', () => {
+    t = mountTester({ family: 'steam', pad: createFakePad({ buttons: 24 }) });
     t.tools.openControllerTest();
     raf.step();
     for (const code of ['GP_B17', 'GP_B18', 'GP_B19', 'GP_B20', 'GP_B21', 'GP_B22', 'GP_B23']) {

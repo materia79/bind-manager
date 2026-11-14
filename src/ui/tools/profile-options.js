@@ -14,8 +14,8 @@ export function parseProfileOverrideValue(value) {
   return null;
 }
 
-const SOURCE_CHIPS = { exact: 'Exact', family: 'Family', generic: 'Generic', manual: 'Manual' };
-const SOURCE_SUMMARIES = { manual: 'Manual override', exact: 'Exact match', family: 'Family fallback', generic: 'Generic fallback' };
+const SOURCE_CHIPS = { exact: 'Exact', family: 'Family', generic: 'Generic', manual: 'Manual', 'memory-edit': 'Edited' };
+const SOURCE_SUMMARIES = { manual: 'Manual override', exact: 'Exact match', family: 'Family fallback', generic: 'Generic fallback', 'memory-edit': 'Edited in memory' };
 
 /** Short chip text for a resolved profile source. */
 export function profileSourceChip(source) {
@@ -32,7 +32,7 @@ export function formatProfileSummary(resolved) {
 /** Cheap identity of a resolved profile; changes when labels or layout may change. */
 export function profileSignature(resolved) {
   if (!resolved) return '';
-  return `${resolved.source}|${resolved.family}|${resolved.profileKey ?? ''}|${serialiseProfileOverrideValue(resolved.override)}`;
+  return `${resolved.source}|${resolved.family}|${resolved.labelVariant ?? ''}|${resolved.profileKey ?? ''}|${serialiseProfileOverrideValue(resolved.override)}`;
 }
 
 /**

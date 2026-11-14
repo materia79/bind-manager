@@ -411,7 +411,7 @@ export function createControllerTester(ctx) {
 
     state.activeGamepadIndex = gp.index;
     const resolvedProfile = manager.getResolvedGamepadProfile(gp.index);
-    const signature = `${gp.index}:${gp.id}:${profileSignature(resolvedProfile)}`;
+    const signature = `${gp.index}:${gp.id}:${gp.buttons.length}:${profileSignature(resolvedProfile)}`;
     if (signature !== state.lastProfileSignature) {
       state.lastProfileSignature = signature;
       refreshProfileControls(profileControls, gp.index);
@@ -489,9 +489,25 @@ export function createControllerTester(ctx) {
   }
 
   function applyControllerLabels(gamepadIndex = 0) {
-    const family = manager.getResolvedGamepadProfile(gamepadIndex)?.family ?? 'generic';
+    const resolved = manager.getResolvedGamepadProfile(gamepadIndex);
+    const family = resolved?.family ?? 'generic';
     if (pad.setLayout(getStickLayoutForFamily(family))) updateEditUiState();
-    pad.setLabels((code) => manager.getGamepadLabel(code, gamepadIndex), family);
+    // Labels come through the manager, so the resolver's label variant (Elite
+    // paddles) applies; optional keys show only when the pad has them.
+    pad.setLabels((code) => manager.getGamepadLabel(code, gamepadIndex), family, padHasCode(getGamepadByIndex(gamepadIndex), resolved));
+  }
+
+  /**
+   * Whether the pad reports a logical button: through its mapping when a
+   * definition applies, else by its raw button count (standard layout).
+   */
+  function padHasCode(gp, resolved) {
+    const mapping = resolved?.definition?.mapping;
+    return (code) => {
+      if (mapping && typeof mapping === 'object') return !!mapping[code];
+      const index = Number(code.slice(4));
+      return (gp?.buttons?.length ?? 0) > index;
+    };
   }
 
   function applyHighlights(activeCodes) {

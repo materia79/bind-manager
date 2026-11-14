@@ -32,6 +32,11 @@ export function getStickLayoutForFamily(family) {
   return SYMMETRIC_FAMILIES.has(family) ? 'symmetric' : 'offset';
 }
 
+/** True for the codes drawn only on pads that have them (GP_B17..GP_B23). */
+export function isOptionalPadCode(code) {
+  return OPTIONAL_CODES.has(code);
+}
+
 /** Show an optional node (GP_B17..GP_B23) only when its label differs from its code. */
 export function shouldShowPadNode(code, label) {
   if (!OPTIONAL_CODES.has(code)) return true;

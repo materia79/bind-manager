@@ -7,6 +7,7 @@ import {
   buildPadLayout,
   padLabelText,
   shouldShowPadNode,
+  isOptionalPadCode,
 } from './pad-layout.js';
 
 const TEXT_ATTRS = 'dominant-baseline="central"';
@@ -134,13 +135,17 @@ export function createPadView(svg, writer) {
     return true;
   }
 
-  /** Write labels, titles and aria-labels; hide optional nodes without a real label. */
-  function setLabels(labelFor, family) {
+  /**
+   * Write labels, titles and aria-labels; hide optional nodes without a real
+   * label or that the pad does not have (`hasCode` returns false).
+   */
+  function setLabels(labelFor, family, hasCode = null) {
     for (const node of nodes) {
       const full = labelFor(node.code) || node.code;
       writer.text(node.title, full);
       writer.attr(node.g, 'aria-label', full);
-      writer.attr(node.g, 'display', shouldShowPadNode(node.code, full) ? null : 'none');
+      const shown = shouldShowPadNode(node.code, full) && (!hasCode || !isOptionalPadCode(node.code) || hasCode(node.code));
+      writer.attr(node.g, 'display', shown ? null : 'none');
       if (!node.label || !node.el) continue;
       const text = padLabelText(node.el, full, family);
       const glyph = node.glyph ? FACE_GLYPHS[text] : undefined;

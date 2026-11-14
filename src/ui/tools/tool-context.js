@@ -271,7 +271,7 @@ export function createToolContext(manager, root) {
     select.dataset.gamepadIndex = String(gp.index);
     select.disabled = false;
     const summary = formatProfileSummary(resolved);
-    device.textContent = controllerDisplayName(gp.id);
+    device.textContent = resolved.displayName || controllerDisplayName(gp.id);
     device.title = `${gp.id} (slot ${gp.index})`;
     chip.textContent = profileSourceChip(resolved.source);
     chip.dataset.source = resolved.source || 'none';

@@ -175,26 +175,34 @@ test.describe('screens: pad per label family', () => {
     // Mounting the bindings modal injects the tools stylesheet.
     await openBindings(page);
     const families = await page.evaluate(async () => {
-      const [{ createPadView }, { createDomWriter }, { getStickLayoutForFamily }, { padSvgOpenTag }, fx] = await Promise.all([
+      const [{ createPadView }, { createDomWriter }, { getStickLayoutForFamily }, { padSvgOpenTag }, profiles] = await Promise.all([
         import('/src/ui/tools/pad-view.js'),
         import('/src/ui/tools/dom-writer.js'),
         import('/src/ui/tools/pad-layout.js'),
         import('/src/ui/tools/pad-view.js'),
-        import('/tests/ui/tools/fixtures/family-labels.js'),
+        import('/src/input/gamepad-profiles.js'),
       ]);
+      // Real family labels (and label variants); a generic pad has the 17 standard buttons.
+      const entries = [
+        ...profiles.GAMEPAD_FAMILIES.map((family) => [family, family, null]),
+        ...Object.entries(profiles.GAMEPAD_LABEL_VARIANTS).map(([variant, def]) => [variant, def.family, variant]),
+      ];
+      const byName = Object.fromEntries(entries.map(([name, family, variant]) => [name, { family, variant }]));
       const host = document.createElement('div');
       host.id = 'bm-pad-gallery';
       host.style.cssText = 'position:fixed;inset:0;z-index:20000;background:#0f1a26;display:flex;align-items:center;justify-content:center;';
       document.body.appendChild(host);
-      window.__bmPadGallery = (family) => {
+      window.__bmPadGallery = (name) => {
+        const { family, variant } = byName[name];
         host.innerHTML = `<div style="width:1200px;height:860px;display:flex;flex-direction:column;color:#d6ecff;font:600 22px system-ui">
-          <div style="height:40px">${family}</div>
+          <div style="height:40px">${name}</div>
           <div style="flex:1;position:relative">${padSvgOpenTag('bm-tester-pad')}</svg></div></div>`;
         const pad = createPadView(host.querySelector('svg'), createDomWriter());
         pad.setLayout(getStickLayoutForFamily(family));
-        pad.setLabels(fx.labelFor(family), family);
+        const hasCode = family === 'generic' ? (code) => Number(code.slice(4)) < 17 : null;
+        pad.setLabels((code) => profiles.getGamepadLabel(code, family, variant), family, hasCode);
       };
-      return fx.FAMILIES;
+      return Object.keys(byName);
     });
     const screen = { name: '1920x1080' };
     for (const family of families) {

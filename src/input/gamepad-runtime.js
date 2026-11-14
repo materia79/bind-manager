@@ -912,13 +912,14 @@ export class GamepadRuntime {
     if (existing) return deepClone(existing);
 
     const base = deepClone(resolvedProfile?.definition) || {};
-    const { vendorId, productId } = parseGamepadId(gamepad?.id ?? null);
+    const { vendorId, productId, name } = parseGamepadId(gamepad?.id ?? null);
 
     return {
       key: base.key ?? (vendorId && productId ? `${vendorId}-${productId}` : identityKey ?? 'custom-profile'),
       vendorId: base.vendorId ?? vendorId,
       productId: base.productId ?? productId,
-      sourceName: base.sourceName ?? (typeof gamepad?.id === 'string' ? gamepad.id : 'Unknown Controller'),
+      // The device name without the browser's mapping tag; sourceId keeps the raw id.
+      sourceName: base.sourceName ?? (name || (typeof gamepad?.id === 'string' ? gamepad.id : 'Unknown Controller')),
       sourceId: base.sourceId ?? (typeof gamepad?.id === 'string' ? gamepad.id : null),
       sourceButtons: base.sourceButtons ?? (gamepad?.buttons?.length ?? null),
       sourceAxes: base.sourceAxes ?? (gamepad?.axes?.length ?? null),

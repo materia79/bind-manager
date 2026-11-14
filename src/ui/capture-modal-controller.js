@@ -50,6 +50,7 @@ export class CaptureModalController {
 
     this._overlay.addEventListener('keydown', this._handleOverlayKeydown);
     this._cancelBtn?.addEventListener('pointerdown', this._handleCancelClick);
+    this._cancelBtn?.addEventListener('click', this._handleCancelClick);
 
     container.appendChild(this._overlay);
   }
@@ -57,6 +58,7 @@ export class CaptureModalController {
   unmount() {
     this.close({ restoreFocus: false });
     this._cancelBtn?.removeEventListener('pointerdown', this._handleCancelClick);
+    this._cancelBtn?.removeEventListener('click', this._handleCancelClick);
     this._overlay?.removeEventListener('keydown', this._handleOverlayKeydown);
     window.removeEventListener('contextmenu', this._handleContextMenu, true);
     window.removeEventListener('auxclick', this._handleAuxClick, true);
@@ -131,13 +133,22 @@ export class CaptureModalController {
   }
 
   _handleOverlayKeydown(event) {
+    if (event.key === 'Tab') {
+      // Focus stays in the capture dialog. No stopPropagation: during keyboard
+      // capture the runtime still receives Tab as a bindable key.
+      event.preventDefault();
+      this._cancelBtn?.focus();
+      return;
+    }
     if (event.code !== 'Escape') return;
     event.preventDefault();
     event.stopPropagation();
     this._onCancel?.();
   }
 
-  _handleCancelClick() {
+  _handleCancelClick(event) {
+    // Pointer users cancel on pointerdown; keyboard activation arrives as a click with detail 0
+    if (event?.type === 'click' && event.detail !== 0) return;
     this._onCancel?.();
   }
 }

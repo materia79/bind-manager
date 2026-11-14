@@ -1,5 +1,7 @@
 import { _esc } from './esc.js';
-import { getStrongestSignal, toGpCode } from './signals.js';
+import { getStrongestSignal, formatSignalFields } from './signals.js';
+import { createDomWriter } from './dom-writer.js';
+import { profileSignature } from './profile-options.js';
 import {
   CAPTURE_PRESETS,
   DEFAULT_CAPTURE_PRESET,
@@ -16,17 +18,19 @@ import {
  * @param {ReturnType<import('./tool-context.js').createToolContext>} ctx
  */
 export function createInputDebugger(ctx) {
-  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, refreshProfileControls, wireProfileControls } = ctx;
+  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, bindSignalGrid, refreshProfileControls, wireProfileControls } = ctx;
 
   const els = {
     modal: q('.bm-debug-modal'),
-    profileStatus: q('.bm-debug-profile-status'),
+    panel: q('.bm-debug-panel'),
+    device: q('.bm-debug-device'),
+    profileChip: q('.bm-debug-profile-chip'),
     profileSelect: q('.bm-debug-profile-select'),
-    profileAutoBtn: q('.bm-debug-profile-auto-btn'),
     presetSelect: q('.bm-debug-preset-select'),
     status: q('.bm-debug-status'),
     progress: q('.bm-debug-progress'),
     countdown: q('.bm-debug-countdown'),
+    liveState: q('.bm-debug-live-state'),
     live: q('.bm-debug-live'),
     validation: q('.bm-debug-validation'),
     output: q('.bm-debug-results'),
@@ -50,13 +54,19 @@ export function createInputDebugger(ctx) {
     captures: [],
     currentStepIndex: 0,
     liveTimer: null,
+    lastProfileSignature: null,
   };
+
+  const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
+  const writer = createDomWriter();
+  const liveGrid = bindSignalGrid(els.live, writer);
 
   const refreshProfileUi = () => {
     if (!state.isOpen) return;
     const activeIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     state.activeGamepadIndex = activeIndex;
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, activeIndex);
+    state.lastProfileSignature = null;
+    refreshProfileControls(profileControls, activeIndex);
   };
 
   els.presetSelect.innerHTML = Object.values(CAPTURE_PRESETS)
@@ -120,9 +130,7 @@ export function createInputDebugger(ctx) {
   els.downloadBtn.addEventListener('click', downloadJson);
   els.closeBtn.addEventListener('click', close);
   wireProfileControls({
-    selectEl: els.profileSelect,
-    autoBtn: els.profileAutoBtn,
-    statusEl: els.profileStatus,
+    controls: profileControls,
     resolveGamepadIndex: () => state.activeGamepadIndex,
     onChange: () => renderOutput(),
   });
@@ -131,6 +139,12 @@ export function createInputDebugger(ctx) {
   addWindowListener('bm-gamepad-disconnected', refreshProfileUi);
   els.modal.addEventListener('click', (ev) => {
     if (ev.target === els.modal) close();
+  });
+  els.modal.addEventListener('keydown', (ev) => {
+    if (ev.code === 'Escape') {
+      ev.preventDefault();
+      close();
+    }
   });
 
   function open() {
@@ -148,6 +162,7 @@ export function createInputDebugger(ctx) {
     startLiveMonitor();
     refreshProfileUi();
     updateButtonState();
+    els.panel.focus();
   }
 
   function close() {
@@ -191,7 +206,8 @@ export function createInputDebugger(ctx) {
       return;
     }
 
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, gp.index);
+    state.lastProfileSignature = null;
+    refreshProfileControls(profileControls, gp.index);
     state.isRunning = false;
     setCountdown('');
     updateCurrentStepUi();
@@ -317,6 +333,7 @@ export function createInputDebugger(ctx) {
 
     const validation = validateCapturePayload(payload);
     els.validation.textContent = formatValidationSummary(validation, payload);
+    els.validation.title = els.validation.textContent;
     els.output.value = JSON.stringify(payload, null, 2);
     setSharedCapturePayload(payload);
   }
@@ -326,35 +343,31 @@ export function createInputDebugger(ctx) {
     const payload = cloneJson(ctx.shared.capturePayload);
     const validation = validateCapturePayload(payload);
     els.validation.textContent = formatValidationSummary(validation, payload);
+    els.validation.title = els.validation.textContent;
     els.output.value = JSON.stringify(payload, null, 2);
   }
 
-  function setStatus(text) { els.status.textContent = text; }
+  function setStatus(text) { els.status.textContent = text; els.status.title = text; }
   function setProgress(text) { els.progress.textContent = text; }
   function setCountdown(text) { els.countdown.textContent = text; }
 
   function updateLiveView() {
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, gp?.index ?? state.activeGamepadIndex);
+    const index = gp?.index ?? state.activeGamepadIndex;
+    const signature = gp ? `${gp.index}:${profileSignature(manager.getResolvedGamepadProfile(gp.index))}` : 'none';
+    if (signature !== state.lastProfileSignature) {
+      state.lastProfileSignature = signature;
+      refreshProfileControls(profileControls, index);
+    }
     if (!gp || !state.baseline) {
-      els.live.textContent = '(idle)';
+      writer.text(els.liveState, '(idle)');
+      liveGrid.set(formatSignalFields(null));
       return;
     }
 
     const strongest = getStrongestSignal(gp, state.baseline);
-    if (!strongest) {
-      els.live.textContent = 'No signal above threshold.';
-      return;
-    }
-
-    els.live.textContent = [
-      `kind: ${strongest.kind}`,
-      `index: ${strongest.index}`,
-      `direction: ${strongest.direction || 'n/a'}`,
-      `delta: ${strongest.delta.toFixed(4)}`,
-      `raw: ${strongest.rawValue.toFixed(4)}`,
-      `code: ${toGpCode(strongest)}`,
-    ].join('\n');
+    writer.text(els.liveState, strongest ? 'Strongest signal' : 'No signal above threshold.');
+    liveGrid.set(formatSignalFields(strongest));
   }
 
   function startLiveMonitor() {

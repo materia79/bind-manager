@@ -132,31 +132,50 @@ export function buildAxisBar(value, width) {
   }).join('');
 }
 
-export function updateRawInputDisplay(preEl, gamepad, baseline) {
-  if (!preEl || preEl.hidden) return;
-  if (!gamepad) { preEl.textContent = ''; return; }
-  const BTH = 0.05;
-  const ATH = 0.05;
-  const bRows = [];
-  for (let i = 0; i < gamepad.buttons.length; i++) {
-    const raw = gamepad.buttons[i]?.value ?? 0;
-    const pressed = gamepad.buttons[i]?.pressed ?? false;
-    const delta = raw - (baseline?.buttons[i] ?? 0);
-    const active = pressed || delta > BTH;
-    bRows.push(`${active ? '●' : '○'}B${String(i).padStart(2, '0')}:${raw.toFixed(2)}`);
-  }
-  const bLines = [];
-  for (let i = 0; i < bRows.length; i += 5) bLines.push(bRows.slice(i, i + 5).join('  '));
-  const aLines = [];
-  for (let i = 0; i < gamepad.axes.length; i++) {
-    const raw = gamepad.axes[i] ?? 0;
-    const delta = raw - (baseline?.axes[i] ?? 0);
-    const active = Math.abs(delta) > ATH;
-    const rawFmt = (raw >= 0 ? '+' : '') + raw.toFixed(3);
-    const dFmt = (delta >= 0 ? '+' : '') + delta.toFixed(3);
-    aLines.push(`${active ? '→' : ' '}A${String(i).padStart(2, '0')}: ${rawFmt}  Δ${dFmt}  [${buildAxisBar(raw, 15)}]`);
-  }
-  preEl.textContent = [bLines.join('\n') || '(no buttons)', '', aLines.join('\n') || '(no axes)'].join('\n');
+/** One raw-table cell for a button: active marker, index, value. */
+export function formatRawButton(gamepad, baseline, i) {
+  const raw = gamepad.buttons[i]?.value ?? 0;
+  const pressed = gamepad.buttons[i]?.pressed ?? false;
+  const delta = raw - (baseline?.buttons[i] ?? 0);
+  const active = pressed || delta > 0.05;
+  return `${active ? '●' : '○'}B${String(i).padStart(2, '0')}:${raw.toFixed(2)}`;
+}
+
+/** One raw-table row for an axis: active marker, raw value, delta, bar. */
+export function formatRawAxis(gamepad, baseline, i) {
+  const raw = gamepad.axes[i] ?? 0;
+  const delta = raw - (baseline?.axes[i] ?? 0);
+  const active = Math.abs(delta) > 0.05;
+  const rawFmt = (raw >= 0 ? '+' : '') + raw.toFixed(3);
+  const dFmt = (delta >= 0 ? '+' : '') + delta.toFixed(3);
+  return `${active ? '→' : ' '}A${String(i).padStart(2, '0')}: ${rawFmt}  Δ${dFmt}  [${buildAxisBar(raw, 15)}]`;
+}
+
+/** Field names of a signal readout, in display order. */
+export const SIGNAL_FIELDS = Object.freeze(['kind', 'index', 'direction', 'delta', 'raw', 'code']);
+
+const EMPTY = '—';
+
+/**
+ * Display strings for a strongest-signal readout; every field is always present
+ * so the readout rows never change in number.
+ * @param {{ kind: string, index: number, direction?: string, delta: number, rawValue: number } | null} signal
+ */
+export function formatSignalFields(signal) {
+  if (!signal) return { kind: EMPTY, index: EMPTY, direction: EMPTY, delta: EMPTY, raw: EMPTY, code: EMPTY };
+  return {
+    kind: signal.kind,
+    index: String(signal.index),
+    direction: signal.direction || 'n/a',
+    delta: signal.delta.toFixed(4),
+    raw: signal.rawValue.toFixed(4),
+    code: toGpCode(signal) ?? EMPTY,
+  };
+}
+
+/** One line of active codes: "GP_B0=Cross, GP_B5=R1" or "(none)". */
+export function formatActiveCodes(codes, labelFor) {
+  return codes.length ? codes.map((code) => `${code}=${labelFor(code)}`).join(', ') : '(none)';
 }
 
 export function readMappingMagnitude(gamepad, baseline, entry) {

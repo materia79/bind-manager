@@ -5,34 +5,46 @@ import {
   resolveStrongestSignalToLogicalCode,
   getActiveLogicalCodes,
   createNeutralBaseline,
-  updateRawInputDisplay,
   getLogicalAxisValueFromMapping,
   getTriggerFillValue,
   toProfileMappingEntry,
+  formatSignalFields,
+  formatActiveCodes,
+  formatRawButton,
+  formatRawAxis,
 } from './signals.js';
 import { createDomWriter } from './dom-writer.js';
 import { createPadView } from './pad-view.js';
 import { getStickLayoutForFamily } from './pad-layout.js';
 
+const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
+
 /**
- * Controller Tester tool: live controller view, signal details and the in-memory
- * profile editor.
+ * Controller Tester tool: live controller view with one status line, a Debug
+ * panel (last signal, active codes, raw input) and a Profile editor panel
+ * (calibration, edit mode, capture update, JSON export). The panel has a fixed
+ * size; the side panels open inside it.
  * @param {ReturnType<import('./tool-context.js').createToolContext>} ctx
  */
 export function createControllerTester(ctx) {
-  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, refreshProfileControls, wireProfileControls, formatResolvedProfileSummary } = ctx;
+  const { manager, q, addWindowListener, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, bindSignalGrid, refreshProfileControls, wireProfileControls } = ctx;
 
   const els = {
     modal: q('.bm-tester-modal'),
     panel: q('.bm-tester-panel'),
     controller: q('.bm-tester-pad'),
-    profileStatus: q('.bm-tester-profile-status'),
+    device: q('.bm-tester-device'),
+    profileChip: q('.bm-tester-profile-chip'),
     profileSelect: q('.bm-tester-profile-select'),
-    profileAutoBtn: q('.bm-tester-profile-auto-btn'),
     status: q('.bm-tester-status'),
-    detail: q('.bm-tester-detail'),
-    lastSignal: q('.bm-tester-last-signal'),
+    debugBtn: q('.bm-tester-debug-btn'),
+    editorBtn: q('.bm-tester-editor-btn'),
+    debugSection: q('.bm-tester-debug'),
+    editorSection: q('.bm-tester-editor'),
+    signal: q('.bm-tester-signal'),
     activeCodes: q('.bm-tester-active-codes'),
+    rawButtons: q('.bm-tester-raw-buttons'),
+    rawAxes: q('.bm-tester-raw-axes'),
     closeBtn: q('.bm-tester-close-btn'),
     calibrateBtn: q('.bm-tester-calibrate-btn'),
     editToggleBtn: q('.bm-tester-edit-toggle-btn'),
@@ -43,13 +55,16 @@ export function createControllerTester(ctx) {
     bindingsSection: q('.bm-tester-bindings-section'),
     bindingsList: q('.bm-tester-bindings-list'),
     triggerEditSection: q('.bm-tester-trigger-edit'),
-    rawToggleBtn: q('.bm-tester-raw-toggle-btn'),
-    rawPre: q('.bm-tester-raw-pre'),
   };
+  const codeButtons = [...els.triggerEditSection.querySelectorAll('.bm-tester-code-btn')];
+  const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
 
   const writer = createDomWriter();
   const pad = createPadView(els.controller, writer);
   pad.setLayout('offset');
+  const signalGrid = bindSignalGrid(els.signal, writer);
+  const raw = { buttons: [], axes: [] };
+
   const AUTO_CAPTURE_FRAMES = 2;
   const HIGH_DELTA_THRESHOLD = 0.85;
   const state = {
@@ -59,6 +74,9 @@ export function createControllerTester(ctx) {
     baseline: null,
     calibrating: false,
     lastProfileSignature: null,
+    hint: DEFAULT_HINT,
+    debugOpen: false,
+    editorOpen: false,
     editMode: false,
     selectedCode: null,
     captureUpdateInProgress: false,
@@ -70,16 +88,13 @@ export function createControllerTester(ctx) {
     if (!state.isOpen) return;
     const activeIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     state.activeGamepadIndex = activeIndex;
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, activeIndex);
+    refreshProfileControls(profileControls, activeIndex);
   };
 
   els.closeBtn.addEventListener('click', close);
   els.calibrateBtn.addEventListener('click', calibrateBaseline);
-  els.rawToggleBtn.addEventListener('click', () => {
-    const nowHidden = !els.rawPre.hidden;
-    els.rawPre.hidden = nowHidden;
-    els.rawToggleBtn.textContent = nowHidden ? 'Show raw input' : 'Hide raw input';
-  });
+  els.debugBtn.addEventListener('click', () => setPanels(!state.debugOpen, state.editorOpen));
+  els.editorBtn.addEventListener('click', () => setPanels(state.debugOpen, !state.editorOpen));
   els.triggerEditSection.addEventListener('click', (ev) => {
     if (!state.editMode) return;
     const btn = ev.target.closest('.bm-tester-code-btn');
@@ -99,16 +114,14 @@ export function createControllerTester(ctx) {
   });
   els.captureUpdateBtn.addEventListener('click', () => {
     captureSelectedUpdate().catch((err) => {
-      els.editStatus.textContent = `Update failed: ${err?.message || String(err)}`;
+      setEditStatus(`Update failed: ${err?.message || String(err)}`);
       state.captureUpdateInProgress = false;
       updateEditUiState();
     });
   });
   els.downloadUpdatedBtn.addEventListener('click', downloadUpdatedPayload);
   wireProfileControls({
-    selectEl: els.profileSelect,
-    autoBtn: els.profileAutoBtn,
-    statusEl: els.profileStatus,
+    controls: profileControls,
     resolveGamepadIndex: () => state.activeGamepadIndex,
     onChange: () => {
       state.lastProfileSignature = null;
@@ -125,7 +138,7 @@ export function createControllerTester(ctx) {
     if (!state.editMode) return;
     const node = ev.target.closest('[data-code]');
     if (!node) return;
-    state.selectedCode = node.dataset.code || null;
+    state.selectedCode = node.getAttribute('data-code') || null;
     updateEditUiState();
   });
   els.modal.addEventListener('keydown', (ev) => {
@@ -140,8 +153,8 @@ export function createControllerTester(ctx) {
     state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('bm-tester-open');
     els.modal.setAttribute('aria-hidden', 'false');
-    setStatus('Listening for controller input.');
-    setDetail('Press any button, trigger, d-pad direction, or stick direction.');
+    state.hint = DEFAULT_HINT;
+    state.lastProfileSignature = null;
     updateLastSignal(null);
     setActiveCodes([]);
     clearVisuals();
@@ -158,15 +171,28 @@ export function createControllerTester(ctx) {
     els.modal.setAttribute('aria-hidden', 'true');
     stopPolling();
     clearVisuals();
-    setDetail('Idle.');
     updateEditUiState();
+  }
+
+  /** Show or hide the Debug and Profile editor panels; the tester panel keeps its size. */
+  function setPanels(debugOpen, editorOpen) {
+    state.debugOpen = debugOpen;
+    state.editorOpen = editorOpen;
+    els.debugSection.hidden = !debugOpen;
+    els.editorSection.hidden = !editorOpen;
+    els.debugBtn.setAttribute('aria-pressed', String(debugOpen));
+    els.editorBtn.setAttribute('aria-pressed', String(editorOpen));
+    els.panel.classList.toggle('bm-debug-on', debugOpen);
+    els.panel.classList.toggle('bm-editor-on', editorOpen);
+    els.panel.classList.toggle('bm-side-open', debugOpen || editorOpen);
+    if (state.isOpen) updateFrame();
   }
 
   async function captureSelectedUpdate() {
     if (!state.editMode || !state.selectedCode || state.captureUpdateInProgress) return;
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
     if (!gp) {
-      els.editStatus.textContent = 'No controller detected for update capture.';
+      setEditStatus('No controller detected for update capture.');
       return;
     }
 
@@ -178,7 +204,7 @@ export function createControllerTester(ctx) {
     });
     if (!baseline) {
       state.captureUpdateInProgress = false;
-      els.editStatus.textContent = 'Unable to capture baseline for update.';
+      setEditStatus('Unable to capture baseline for update.');
       updateEditUiState();
       return;
     }
@@ -192,14 +218,14 @@ export function createControllerTester(ctx) {
     });
     state.captureUpdateInProgress = false;
     if (!detected) {
-      els.editStatus.textContent = `No signal captured for ${state.selectedCode}.`;
+      setEditStatus(`No signal captured for ${state.selectedCode}.`);
       updateEditUiState();
       return;
     }
 
     const mappingEntry = toProfileMappingEntry(detected);
     if (!mappingEntry) {
-      els.editStatus.textContent = `Captured signal for ${state.selectedCode} could not be converted to a profile mapping.`;
+      setEditStatus(`Captured signal for ${state.selectedCode} could not be converted to a profile mapping.`);
       updateEditUiState();
       return;
     }
@@ -208,27 +234,25 @@ export function createControllerTester(ctx) {
       label: manager.getGamepadLabel(state.selectedCode, gp.index),
     });
     if (!ok) {
-      els.editStatus.textContent = `Failed to update in-memory profile for ${state.selectedCode}.`;
+      setEditStatus(`Failed to update in-memory profile for ${state.selectedCode}.`);
       updateEditUiState();
       return;
     }
 
-    state.lastProfileSignature = null;
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, gp.index);
-    applyControllerLabels(gp.index);
-    els.editStatus.textContent = `Updated ${state.selectedCode} in active in-memory profile mapping.`;
+    profileEdited(gp.index);
     updateEditUiState();
+    setEditStatus(`Updated ${state.selectedCode} in active in-memory profile mapping.`);
   }
 
   function downloadUpdatedPayload() {
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
     if (!gp) {
-      els.editStatus.textContent = 'No controller detected for profile export.';
+      setEditStatus('No controller detected for profile export.');
       return;
     }
     const definition = manager.getGamepadProfileDefinition(gp.index);
     if (!definition) {
-      els.editStatus.textContent = 'No in-memory profile definition is available to export.';
+      setEditStatus('No in-memory profile definition is available to export.');
       return;
     }
 
@@ -242,33 +266,33 @@ export function createControllerTester(ctx) {
     anchor.download = fileName;
     anchor.click();
     URL.revokeObjectURL(url);
-    els.editStatus.textContent = `Downloaded ${fileName} from the current in-memory profile mapping.`;
+    setEditStatus(`Downloaded ${fileName} from the current in-memory profile mapping.`);
   }
 
   async function calibrateBaseline() {
     if (state.calibrating) return;
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
     if (!gp) {
-      setStatus('No controller detected. Connect one, then calibrate.');
+      setHint('No controller detected. Connect one, then calibrate.');
       return;
     }
 
     state.calibrating = true;
     els.calibrateBtn.disabled = true;
-    setStatus('Calibrating baseline. Release all controls...');
+    setHint('Calibrating baseline. Release all controls...');
 
     try {
       const baseline = await captureBaseline(gp.index, 1500, {
         shouldCancel: () => !state.isOpen,
-        onTick: (secondsLeft) => setDetail(`Calibrating... ${secondsLeft}s remaining`),
+        onTick: (secondsLeft) => setHint(`Calibrating baseline. Release all controls... ${secondsLeft}s`),
       });
 
       if (baseline) {
         state.baseline = baseline;
         state.activeGamepadIndex = gp.index;
-        setStatus('Calibration complete. Baseline locked for this session.');
+        setHint('Calibration complete. Baseline locked for this session.');
       } else {
-        setStatus('Calibration cancelled or controller disconnected.');
+        setHint('Calibration cancelled or controller disconnected.');
       }
     } finally {
       state.calibrating = false;
@@ -293,11 +317,15 @@ export function createControllerTester(ctx) {
     if (!state.isOpen) return;
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex) || pickGamepad();
     if (!gp) {
+      if (state.activeGamepadIndex != null || state.lastProfileSignature !== 'none') {
+        state.lastProfileSignature = 'none';
+        refreshProfileControls(profileControls, null);
+      }
       state.activeGamepadIndex = null;
-      setStatus('No controller detected. Connect a controller to begin.');
-      setDetail('Waiting for gamepad connection...');
+      writeStatus('No controller · Connect a controller to begin.');
       setActiveCodes([]);
       updateLastSignal(null);
+      updateRawTable(null, null);
       clearVisuals();
       return;
     }
@@ -312,30 +340,30 @@ export function createControllerTester(ctx) {
     });
     if (profileSignature !== state.lastProfileSignature) {
       state.lastProfileSignature = profileSignature;
-      refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, gp.index);
+      refreshProfileControls(profileControls, gp.index);
       applyControllerLabels(gp.index);
     }
 
+    const mapping = resolvedProfile?.definition?.mapping;
     const baseline = state.baseline || createNeutralBaseline(gp);
-    const activeCodes = getActiveLogicalCodes(gp, baseline, resolvedProfile?.definition?.mapping);
+    const activeCodes = getActiveLogicalCodes(gp, baseline, mapping);
     applyHighlights(activeCodes);
-    updateSticks(gp, baseline, resolvedProfile?.definition?.mapping);
-    updateTriggers(gp, baseline, resolvedProfile?.definition?.mapping);
-    setActiveCodes(activeCodes, gp.index);
-    updateRawInputDisplay(els.rawPre, gp, baseline);
+    updateSticks(gp, baseline, mapping);
+    updateTriggers(gp, baseline, mapping);
 
     const strongest = getStrongestSignal(gp, baseline);
-    const resolvedStrongest = resolveStrongestSignalToLogicalCode(strongest, gp, baseline, resolvedProfile?.definition?.mapping);
-    updateLastSignal(strongest, resolvedStrongest, gp.index);
+    if (state.debugOpen) {
+      setActiveCodes(activeCodes, gp.index);
+      updateRawTable(gp, baseline);
+      updateLastSignal(strongest, resolveStrongestSignalToLogicalCode(strongest, gp, baseline, mapping), gp.index);
+    }
 
     if (state.editMode && state.selectedCode && !state.captureUpdateInProgress) {
       if (!strongest) {
         state.editAutoCapture = { key: null, signal: null, frames: 0 };
         if (state.editCooldown) {
           state.editCooldown = false;
-          if (state.selectedCode) {
-            els.editStatus.textContent = `${state.selectedCode} selected — press and hold the controller input to assign it.`;
-          }
+          if (state.selectedCode) setEditStatus(`${state.selectedCode} selected — press and hold the controller input to assign it.`);
         }
       } else if (!state.editCooldown) {
         const signalKey = `${strongest.kind}:${strongest.index}:${strongest.direction || 'none'}`;
@@ -346,20 +374,19 @@ export function createControllerTester(ctx) {
           state.editAutoCapture.signal = strongest;
         }
         const progress = Math.min(state.editAutoCapture.frames, AUTO_CAPTURE_FRAMES);
-        els.editStatus.textContent = `Hold the control... (${progress}/${AUTO_CAPTURE_FRAMES})`;
+        setEditStatus(`Hold the control... (${progress}/${AUTO_CAPTURE_FRAMES})`);
         if (state.editAutoCapture.frames >= AUTO_CAPTURE_FRAMES) {
           const capturedSignal = state.editAutoCapture.signal;
           state.editAutoCapture = { key: null, signal: null, frames: 0 };
-          applyEditCapture(capturedSignal, gp, baseline);
+          applyEditCapture(capturedSignal, gp);
         }
       }
     }
 
-    setStatus(`Controller connected on slot ${gp.index}.`);
-    setDetail(`${formatResolvedProfileSummary(gp.index)}\n${gp.id}`);
+    writeStatus(`Slot ${gp.index} · Connected · ${state.hint}`);
   }
 
-  function applyEditCapture(strongest, gp, baseline) {
+  function applyEditCapture(strongest, gp) {
     if (!state.editMode || !state.selectedCode || state.captureUpdateInProgress) return;
     state.editCooldown = true;
     const mappingEntry = toProfileMappingEntry(strongest);
@@ -369,14 +396,19 @@ export function createControllerTester(ctx) {
           label: manager.getGamepadLabel(state.selectedCode, gp.index),
         })
       : false;
-    state.lastProfileSignature = null;
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, gp.index);
-    applyControllerLabels(gp.index);
+    profileEdited(gp.index);
     const successMsg = ok
       ? `Updated ${state.selectedCode} → ${rawCode} in active in-memory profile. Release button, then press again or click another node.`
       : `Failed to map ${state.selectedCode} from captured signal ${rawCode}.`;
     updateEditUiState();
-    els.editStatus.textContent = successMsg;
+    setEditStatus(successMsg);
+  }
+
+  /** The in-memory profile changed: refresh the header and the pad labels. */
+  function profileEdited(gamepadIndex) {
+    state.lastProfileSignature = null;
+    refreshProfileControls(profileControls, gamepadIndex);
+    applyControllerLabels(gamepadIndex);
   }
 
   function applyControllerLabels(gamepadIndex = 0) {
@@ -388,9 +420,7 @@ export function createControllerTester(ctx) {
   function applyHighlights(activeCodes) {
     const active = new Set(activeCodes);
     pad.setActive(active);
-    for (const btn of els.triggerEditSection.querySelectorAll('.bm-tester-code-btn')) {
-      btn.classList.toggle('bm-active', active.has(btn.dataset.code));
-    }
+    for (const btn of codeButtons) writer.cls(btn, 'bm-active', active.has(btn.dataset.code));
   }
 
   function updateSticks(gamepad, baseline, mapping = null) {
@@ -403,29 +433,49 @@ export function createControllerTester(ctx) {
     pad.setTrigger('right', getTriggerFillValue(gamepad, baseline, mapping, 'GP_B7A', 7));
   }
 
-  function setStatus(text) { els.status.textContent = text; }
-  function setDetail(text) { els.detail.textContent = text; }
+  /** Rebuild the raw table cells only when the button/axis count changes; write values per cell. */
+  function updateRawTable(gamepad, baseline) {
+    const buttonCount = gamepad?.buttons?.length ?? 0;
+    const axisCount = gamepad?.axes?.length ?? 0;
+    if (raw.buttons.length !== buttonCount) {
+      els.rawButtons.innerHTML = '<span></span>'.repeat(buttonCount);
+      raw.buttons = [...els.rawButtons.children];
+    }
+    if (raw.axes.length !== axisCount) {
+      els.rawAxes.innerHTML = '<div class="bm-tester-raw-axis"></div>'.repeat(axisCount);
+      raw.axes = [...els.rawAxes.children];
+    }
+    for (let i = 0; i < buttonCount; i++) writer.text(raw.buttons[i], formatRawButton(gamepad, baseline, i));
+    for (let i = 0; i < axisCount; i++) writer.text(raw.axes[i], formatRawAxis(gamepad, baseline, i));
+  }
+
+  function setHint(text) {
+    state.hint = text;
+    if (state.isOpen) updateFrame();
+  }
+
+  function writeStatus(text) {
+    writer.text(els.status, text);
+    writer.attr(els.status, 'title', text);
+  }
+
+  function setEditStatus(text) {
+    writer.text(els.editStatus, text);
+    writer.attr(els.editStatus, 'title', text);
+  }
 
   function setActiveCodes(codes, gamepadIndex = 0) {
-    els.activeCodes.textContent = `Active codes: ${codes.length ? codes.map((code) => `${code}=${manager.getGamepadLabel(code, gamepadIndex)}`).join(', ') : '(none)'}`;
+    const text = formatActiveCodes(codes, (code) => manager.getGamepadLabel(code, gamepadIndex));
+    writer.text(els.activeCodes, `Active: ${text}`);
+    writer.attr(els.activeCodes, 'title', text);
   }
 
   function updateLastSignal(signal, resolvedCode = null, gamepadIndex = 0) {
-    if (!signal) {
-      els.lastSignal.textContent = 'Last strongest signal: (none)';
-      return;
-    }
-    const resolvedLabel = resolvedCode ? manager.getGamepadLabel(resolvedCode, gamepadIndex) : '(none)';
-    els.lastSignal.textContent = [
-      'Last strongest signal:',
-      `kind: ${signal.kind}`,
-      `index: ${signal.index}`,
-      `direction: ${signal.direction || 'n/a'}`,
-      `delta: ${signal.delta.toFixed(4)}`,
-      `raw: ${signal.rawValue.toFixed(4)}`,
-      `code: ${toGpCode(signal)}`,
-      `resolved: ${resolvedCode || '(none)'} (${resolvedLabel})`,
-    ].join('\n');
+    const fields = formatSignalFields(signal);
+    fields.resolved = signal
+      ? `${resolvedCode || '(none)'} (${resolvedCode ? manager.getGamepadLabel(resolvedCode, gamepadIndex) : '(none)'})`
+      : '—';
+    signalGrid.set(fields);
   }
 
   function describeBindingEntry(entry) {
@@ -468,7 +518,7 @@ export function createControllerTester(ctx) {
 
   function refreshSelectedBindingsList() {
     const shouldShow = state.editMode && !!state.selectedCode;
-    els.bindingsSection.style.display = shouldShow ? '' : 'none';
+    els.bindingsSection.dataset.empty = String(!shouldShow);
     if (!shouldShow) {
       els.bindingsList.innerHTML = '';
       return;
@@ -481,13 +531,13 @@ export function createControllerTester(ctx) {
     els.bindingsList.innerHTML = entries.map((entry) => {
       const sourceLabel = entry.source === 'effective-mapping' ? 'active tester mapping' : entry.source;
       return `
-        <li class="bm-tester-binding-item">
-          <div>
-            <div>${_esc(describeBindingEntry(entry))}</div>
-            <div class="bm-tester-binding-meta">Source: ${_esc(sourceLabel)}</div>
-          </div>
-          <button class="bm-tool-btn bm-tester-binding-remove" data-remove-binding="${_esc(entry.key)}">Remove</button>
-        </li>`;
+          <li class="bm-tester-binding-item">
+            <div>
+              <div>${_esc(describeBindingEntry(entry))}</div>
+              <div class="bm-tester-binding-meta">Source: ${_esc(sourceLabel)}</div>
+            </div>
+            <button class="bm-tool-btn bm-tester-binding-remove" data-remove-binding="${_esc(entry.key)}">Remove</button>
+          </li>`;
     }).join('');
   }
 
@@ -495,51 +545,49 @@ export function createControllerTester(ctx) {
     if (!bindingKey || !state.selectedCode) return;
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
     if (!gp) {
-      els.editStatus.textContent = 'No controller detected to remove mapping from in-memory profile.';
+      setEditStatus('No controller detected to remove mapping from in-memory profile.');
       refreshSelectedBindingsList();
       return;
     }
     const activeBinding = getEffectiveBindingForCode(state.selectedCode);
     const activeKey = activeBinding ? `${activeBinding.kind}:${activeBinding.index}:${activeBinding.direction || 'none'}` : null;
     if (!activeKey || activeKey !== bindingKey) {
-      els.editStatus.textContent = `Binding ${bindingKey} was not found for ${state.selectedCode}.`;
+      setEditStatus(`Binding ${bindingKey} was not found for ${state.selectedCode}.`);
       refreshSelectedBindingsList();
       return;
     }
     const removed = manager.removeGamepadProfileMappingEntry(gp.index, state.selectedCode);
     if (!removed) {
-      els.editStatus.textContent = `Failed to remove ${bindingKey} from ${state.selectedCode}.`;
+      setEditStatus(`Failed to remove ${bindingKey} from ${state.selectedCode}.`);
       refreshSelectedBindingsList();
       return;
     }
-    state.lastProfileSignature = null;
-    refreshProfileControls(els.profileSelect, els.profileAutoBtn, els.profileStatus, gp.index);
-    applyControllerLabels(gp.index);
+    profileEdited(gp.index);
     refreshSelectedBindingsList();
     updateEditUiState();
-    els.editStatus.textContent = `Removed binding ${bindingKey} from ${state.selectedCode}.`;
+    setEditStatus(`Removed binding ${bindingKey} from ${state.selectedCode}.`);
   }
 
   function updateEditUiState() {
-    els.editToggleBtn.textContent = state.editMode ? 'Disable Edit Mode' : 'Enable Edit Mode';
+    els.editToggleBtn.setAttribute('aria-pressed', String(state.editMode));
     pad.setEdit(state.editMode, state.selectedCode);
-    els.triggerEditSection.style.display = state.editMode ? '' : 'none';
-    for (const btn of els.triggerEditSection.querySelectorAll('.bm-tester-code-btn')) {
+    els.triggerEditSection.dataset.disabled = String(!state.editMode);
+    for (const btn of codeButtons) {
       btn.classList.toggle('bm-selected', state.editMode && state.selectedCode === btn.dataset.code);
     }
-    els.editTarget.textContent = `Edit target: ${state.selectedCode || '(none)'}`;
+    writer.text(els.editTarget, `Edit target: ${state.selectedCode || '(none)'}`);
     if (!state.editMode) {
-      els.editStatus.textContent = 'Edit mode is off.';
+      setEditStatus('Edit mode is off.');
       state.editAutoCapture = { key: null, signal: null, frames: 0 };
       state.editCooldown = false;
     } else if (!state.selectedCode) {
-      els.editStatus.textContent = 'Click a control on the controller view to select a target code.';
+      setEditStatus('Click a control on the controller view to select a target code.');
       state.editAutoCapture = { key: null, signal: null, frames: 0 };
       state.editCooldown = false;
     } else if (state.captureUpdateInProgress) {
-      els.editStatus.textContent = `Capturing update for ${state.selectedCode}...`;
+      setEditStatus(`Capturing update for ${state.selectedCode}...`);
     } else if (!state.editCooldown) {
-      els.editStatus.textContent = `${state.selectedCode} selected — press and hold the controller input to assign it.`;
+      setEditStatus(`${state.selectedCode} selected — press and hold the controller input to assign it.`);
       state.editAutoCapture = { key: null, signal: null, frames: 0 };
     }
     const canCapture = state.editMode && state.selectedCode && !state.captureUpdateInProgress;
@@ -555,4 +603,3 @@ export function createControllerTester(ctx) {
 
   return { open, close, isOpen: () => state.isOpen };
 }
-

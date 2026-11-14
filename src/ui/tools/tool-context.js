@@ -1,7 +1,14 @@
 import { _esc } from './esc.js';
-import { getStrongestSignal, toGpCode } from './signals.js';
+import { getStrongestSignal, toGpCode, formatSignalFields } from './signals.js';
 import { cloneJson } from './capture-payload.js';
-import { serialiseProfileOverrideValue, parseProfileOverrideValue } from './profile-options.js';
+import { createDomWriter } from './dom-writer.js';
+import {
+  serialiseProfileOverrideValue,
+  parseProfileOverrideValue,
+  profileSourceChip,
+  formatProfileSummary,
+  controllerDisplayName,
+} from './profile-options.js';
 
 /**
  * Runtime helpers shared by the built-in tools: DOM lookup inside the mounted root,
@@ -13,6 +20,7 @@ import { serialiseProfileOverrideValue, parseProfileOverrideValue } from './prof
 export function createToolContext(manager, root) {
   let cleanupFns = [];
   const shared = { capturePayload: null, syncInputDebugger: null };
+  const writer = createDomWriter();
 
   function q(selector) {
     return root?.querySelector(selector) ?? null;
@@ -101,6 +109,24 @@ export function createToolContext(manager, root) {
     return { code: toGpCode(top), kind: top.kind, index: top.index, direction: top.direction || null, score: Number(top.score.toFixed(4)), frames: top.frames, peakDelta: Number(top.peakDelta.toFixed(4)), peakRaw: Number(top.peakRaw.toFixed(4)) };
   }
 
+  /**
+   * Fixed key/value readout (<dl> with dd[data-field]) written through a DOM writer.
+   * @returns {{ set(values: Record<string, string>): void }}
+   */
+  function bindSignalGrid(dl, gridWriter = writer) {
+    const cells = [];
+    for (const dd of dl?.querySelectorAll('dd[data-field]') ?? []) cells.push([dd.getAttribute('data-field'), dd]);
+    return {
+      set(values) {
+        for (const [field, dd] of cells) {
+          const v = values?.[field] ?? '\u2014';
+          gridWriter.text(dd, v);
+          gridWriter.attr(dd, 'title', v);
+        }
+      },
+    };
+  }
+
   async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000 }) {
     const els = {
       modal: q('.bm-capture-mini-modal'),
@@ -108,18 +134,22 @@ export function createToolContext(manager, root) {
       title: q('.bm-capture-mini-title'),
       instructionEl: q('.bm-capture-mini-instruction'),
       countdown: q('.bm-capture-mini-countdown'),
+      liveState: q('.bm-capture-mini-live-state'),
       live: q('.bm-capture-mini-live'),
       cancelBtn: q('.bm-capture-mini-cancel-btn'),
     };
     if (!els.modal || !els.panel) return captureSingleStrongestSignal(gamepadIndex, baseline, durationMs);
+    const liveGrid = bindSignalGrid(els.live);
     const scoreMap = new Map();
     const startedAt = performance.now();
     let cancelled = false;
     const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    els.title.textContent = title || 'Capture Input';
-    els.instructionEl.textContent = instruction || 'Press and hold input now.';
-    els.live.textContent = 'Waiting for strongest signal...';
-    els.countdown.textContent = '';
+    writer.text(els.title, title || 'Capture Input');
+    writer.attr(els.title, 'title', title || 'Capture Input');
+    writer.text(els.instructionEl, instruction || 'Press and hold input now.');
+    writer.text(els.liveState, 'Waiting for strongest signal...');
+    liveGrid.set(formatSignalFields(null));
+    writer.text(els.countdown, '');
     els.modal.classList.add('bm-open');
     els.modal.setAttribute('aria-hidden', 'false');
     els.panel.focus();
@@ -146,20 +176,15 @@ export function createToolContext(manager, root) {
           existing.peakDelta = Math.max(existing.peakDelta, best.delta);
           existing.peakRaw = Math.max(existing.peakRaw, Math.abs(best.rawValue));
           scoreMap.set(key, existing);
-          els.live.textContent = [
-            `kind: ${best.kind}`,
-            `index: ${best.index}`,
-            `direction: ${best.direction || 'n/a'}`,
-            `delta: ${best.delta.toFixed(4)}`,
-            `raw: ${best.rawValue.toFixed(4)}`,
-            `code: ${toGpCode(best)}`,
-          ].join('\n');
+          writer.text(els.liveState, 'Strongest signal');
+          liveGrid.set(formatSignalFields(best));
         }
         const secondsLeft = Math.max(0, Math.ceil((durationMs - (performance.now() - startedAt)) / 1000));
-        els.countdown.textContent = `Hold window: ${secondsLeft}s`;
+        writer.text(els.countdown, `Hold window: ${secondsLeft}s`);
         await wait(50);
       }
     } finally {
+      els.cancelBtn.removeEventListener('click', onCancel);
       els.panel.removeEventListener('keydown', onKeydown);
       els.modal.classList.remove('bm-open');
       els.modal.setAttribute('aria-hidden', 'true');
@@ -173,13 +198,23 @@ export function createToolContext(manager, root) {
 
   function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-  function refreshProfileControls(selectEl, autoBtn, statusEl, preferredGamepadIndex = null) {
+  /**
+   * Fill a profile header (device name, source chip, profile select) for the
+   * preferred gamepad. Rebuilds the select options, so call it on profile
+   * changes, not per frame.
+   * @param {{ select: HTMLSelectElement, chip: HTMLElement, device: HTMLElement }} controls
+   */
+  function refreshProfileControls(controls, preferredGamepadIndex = null) {
+    const { select, chip, device } = controls;
     const gp = preferredGamepadIndex == null ? pickGamepad() : getGamepadByIndex(preferredGamepadIndex) || pickGamepad();
     if (!gp) {
-      statusEl.textContent = 'Profile: waiting for controller';
-      selectEl.innerHTML = '<option value="__auto__">Auto detect</option>';
-      selectEl.disabled = true;
-      autoBtn.disabled = true;
+      device.textContent = 'No controller';
+      device.title = 'Profile: waiting for controller';
+      chip.textContent = '\u2014';
+      chip.dataset.source = 'none';
+      chip.title = 'Profile: waiting for controller';
+      select.innerHTML = '<option value="__auto__">Auto detect</option>';
+      select.disabled = true;
       return;
     }
     const resolved = manager.getResolvedGamepadProfile(gp.index);
@@ -187,36 +222,32 @@ export function createToolContext(manager, root) {
     const selectedValue = resolved.override ? serialiseProfileOverrideValue(resolved.override) : '__auto__';
     const exactOptions = options.exactProfiles.map((option) => `<option value="${_esc(serialiseProfileOverrideValue(option))}" ${selectedValue === serialiseProfileOverrideValue(option) ? 'selected' : ''}>Exact: ${_esc(option.label)}</option>`).join('');
     const familyOptions = options.families.map((option) => `<option value="${_esc(serialiseProfileOverrideValue(option))}" ${selectedValue === serialiseProfileOverrideValue(option) ? 'selected' : ''}>Family: ${_esc(option.label)}</option>`).join('');
-    selectEl.innerHTML = `<option value="__auto__" ${selectedValue === '__auto__' ? 'selected' : ''}>Auto detect</option>${exactOptions}${familyOptions}`;
-    selectEl.dataset.gamepadIndex = String(gp.index);
-    autoBtn.dataset.gamepadIndex = String(gp.index);
-    selectEl.disabled = false;
-    autoBtn.disabled = false;
-    statusEl.textContent = formatResolvedProfileSummary(gp.index);
+    select.innerHTML = `<option value="__auto__" ${selectedValue === '__auto__' ? 'selected' : ''}>Auto detect</option>${exactOptions}${familyOptions}`;
+    select.dataset.gamepadIndex = String(gp.index);
+    select.disabled = false;
+    const summary = formatProfileSummary(resolved);
+    device.textContent = controllerDisplayName(gp.id);
+    device.title = `${gp.id} (slot ${gp.index})`;
+    chip.textContent = profileSourceChip(resolved.source);
+    chip.dataset.source = resolved.source || 'none';
+    chip.title = summary;
+    select.title = summary;
   }
 
-  function wireProfileControls({ selectEl, autoBtn, statusEl, resolveGamepadIndex, onChange }) {
-    selectEl.innerHTML = '<option value="__auto__">Auto detect</option>';
-    selectEl.addEventListener('change', () => {
-      const gamepadIndex = parseInt(selectEl.dataset.gamepadIndex || `${resolveGamepadIndex?.() ?? 0}`, 10);
-      if (selectEl.value === '__auto__') manager.clearGamepadProfileOverride(gamepadIndex);
-      else manager.setGamepadProfileOverride(gamepadIndex, parseProfileOverrideValue(selectEl.value));
-      refreshProfileControls(selectEl, autoBtn, statusEl, gamepadIndex);
-      onChange?.();
-    });
-    autoBtn.addEventListener('click', () => {
-      const gamepadIndex = parseInt(autoBtn.dataset.gamepadIndex || `${resolveGamepadIndex?.() ?? 0}`, 10);
-      manager.clearGamepadProfileOverride(gamepadIndex);
-      refreshProfileControls(selectEl, autoBtn, statusEl, gamepadIndex);
+  function wireProfileControls({ controls, resolveGamepadIndex, onChange }) {
+    const { select } = controls;
+    select.innerHTML = '<option value="__auto__">Auto detect</option>';
+    select.addEventListener('change', () => {
+      const gamepadIndex = parseInt(select.dataset.gamepadIndex || `${resolveGamepadIndex?.() ?? 0}`, 10);
+      if (select.value === '__auto__') manager.clearGamepadProfileOverride(gamepadIndex);
+      else manager.setGamepadProfileOverride(gamepadIndex, parseProfileOverrideValue(select.value));
+      refreshProfileControls(controls, gamepadIndex);
       onChange?.();
     });
   }
 
   function formatResolvedProfileSummary(gamepadIndex) {
-    const resolved = manager.getResolvedGamepadProfile(gamepadIndex);
-    const sourceLabel = { manual: 'Manual override', exact: 'Exact match', family: 'Family fallback', generic: 'Generic fallback' }[resolved.source] ?? resolved.source;
-    const profileName = resolved.definition?.sourceName ?? resolved.family;
-    return `Profile: ${sourceLabel} (${profileName})`;
+    return formatProfileSummary(manager.getResolvedGamepadProfile(gamepadIndex));
   }
 
   return {
@@ -232,6 +263,7 @@ export function createToolContext(manager, root) {
     getGamepadByIndex,
     captureBaseline,
     captureWithMiniModal,
+    bindSignalGrid,
     wait,
     refreshProfileControls,
     wireProfileControls,

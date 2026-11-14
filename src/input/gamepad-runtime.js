@@ -147,6 +147,21 @@ export function readMappingEntryMagnitude(gamepad, entry, mapping = null) {
   return 0;
 }
 
+/** Value above which a raw button counts as pressed even when `pressed` is false. */
+export const BUTTON_PRESS_THRESHOLD = 0.5;
+
+/**
+ * Whether a raw Gamepad button counts as pressed: `button.pressed`, or a
+ * value above BUTTON_PRESS_THRESHOLD. The one rule for mapped and unmapped pads.
+ * @param {{ pressed?: boolean, value?: number } | null | undefined} btn
+ * @returns {boolean}
+ */
+export function isRawButtonPressed(btn) {
+  if (!btn) return false;
+  if (btn.pressed === true) return true;
+  return typeof btn.value === 'number' && btn.value > BUTTON_PRESS_THRESHOLD;
+}
+
 function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
@@ -804,9 +819,7 @@ export class GamepadRuntime {
     if (!compiled) {
       const buttons = new Array(GP_BUTTON_COUNT).fill(false);
       for (let i = 0; i < gamepad.buttons.length && i < GP_BUTTON_COUNT; i++) {
-        const btn = gamepad.buttons[i];
-        const value = typeof btn?.value === 'number' ? btn.value : (btn?.pressed ? 1 : 0);
-        buttons[i] = (btn?.pressed === true) || value > 0.5;
+        buttons[i] = isRawButtonPressed(gamepad.buttons[i]);
       }
       return {
         buttons,
@@ -824,8 +837,11 @@ export class GamepadRuntime {
         logicalButtons[i] = this._isHatDirectionActive(gamepad, entry);
         continue;
       }
-      const magnitude = this._readDirectionalMagnitude(gamepad, entry);
-      logicalButtons[i] = magnitude > this._analogThreshold;
+      // A raw button decides by the same rule as an unmapped pad; an axis
+      // mapped to a button needs the analog threshold.
+      logicalButtons[i] = entry.kind === 'button'
+        ? isRawButtonPressed(gamepad.buttons?.[entry.index])
+        : this._readDirectionalMagnitude(gamepad, entry) > this._analogThreshold;
     }
 
     for (let a = 0; a < GP_AXIS_COUNT; a++) {

@@ -25,7 +25,11 @@ const HAT_DEFAULT_TOLERANCE = 0.2;
  * Process every capture JSON in `capturesDir` into profile modules in
  * `defsDir` and the registry `outFile`. Nothing is written when a capture
  * fails; the errors are returned instead.
- * @param {{ capturesDir?: string, defsDir?: string, outFile?: string, log?: (line: string) => void }} [options]
+ * Refused (an error for the file; nothing is written): a capture of a pad the
+ * browser reports with mapping 'standard', and, unless `replaceLayout`, a capture
+ * that would change sourceButtons / sourceAxes of an existing profile with the
+ * same key.
+ * @param {{ capturesDir?: string, defsDir?: string, outFile?: string, log?: (line: string) => void, replaceLayout?: boolean }} [options]
  * @returns {{ files: string[], definitions: any[], errors: string[], warnings: string[] }}
  */
 export function processControllerDefs(options = {}) {
@@ -58,6 +62,11 @@ export function processControllerDefs(options = {}) {
       if (sanity.errors.length > 0) continue;
 
       const definition = toControllerDefinition(json, fileName, defsDir);
+      const layoutError = checkLayoutChange(definition, defsDir, options.replaceLayout === true);
+      if (layoutError) {
+        errors.push(`${fileName}: ${layoutError}`);
+        continue;
+      }
       definitions.push(definition);
     } catch (err) {
       errors.push(`${fileName}: ${err instanceof Error ? err.message : String(err)}`);
@@ -74,7 +83,7 @@ export function processControllerDefs(options = {}) {
   removeStaleProfileFiles(dedupedDefinitions, defsDir);
 
   const output = renderIndex(dedupedDefinitions, files);
-  fs.writeFileSync(outFile, output, 'utf8');
+  writeIfChanged(outFile, output);
 
   log(`[process_controller_defs] Processed ${files.length} capture(s), generated ${dedupedDefinitions.length} device definition(s).`);
   log(`[process_controller_defs] Wrote ${path.relative(ROOT, defsDir)}.`);
@@ -82,8 +91,21 @@ export function processControllerDefs(options = {}) {
   return { files, definitions: dedupedDefinitions, errors, warnings };
 }
 
+/**
+ * An existing generated profile with the same key keeps its raw layout: a
+ * capture with other button/axis counts would make it apply to other pads.
+ * @returns {string | null} the reason to refuse, or null
+ */
+function checkLayoutChange(definition, defsDir, replaceLayout) {
+  if (replaceLayout) return null;
+  const existing = readExistingProfileDefinition(definition.key, defsDir);
+  if (!existing || !Number.isInteger(existing.sourceButtons) || !Number.isInteger(existing.sourceAxes)) return null;
+  if (existing.sourceButtons === definition.sourceButtons && existing.sourceAxes === definition.sourceAxes) return null;
+  return `would change the raw layout of the existing profile ${definition.key} from ${existing.sourceButtons} buttons / ${existing.sourceAxes} axes to ${definition.sourceButtons} buttons / ${definition.sourceAxes} axes; pass --replace-layout (replaceLayout: true) if that is intended`;
+}
+
 function main() {
-  const result = processControllerDefs();
+  const result = processControllerDefs({ replaceLayout: process.argv.includes('--replace-layout') });
   if (result.warnings.length > 0) {
     console.warn('[process_controller_defs] Sanity warnings detected:');
     for (const warning of result.warnings) console.warn(`  - ${warning}`);
@@ -162,6 +184,17 @@ export function validateCaptureSanity(capture) {
 
   const buttonCount = Number.isInteger(target?.buttons) ? target.buttons : null;
   const axisCount = Number.isInteger(target?.axes) ? target.axes : null;
+
+  // The layout the browser reported (captures since the mapping field exist).
+  // A standard-mapped pad needs no exact profile: one generated from it would
+  // apply to no pad (exact profiles apply only to raw layouts).
+  if (target?.mapping === 'standard') {
+    errors.push("runMeta.targetController.mapping is 'standard': this browser already reports the controller in the standard layout, so no exact profile is needed (the family labels apply); capture it in a browser that reports the raw layout");
+    return { errors, warnings };
+  }
+  if (typeof target?.mapping !== 'string' && (buttonCount === 17 || buttonCount === 18) && axisCount === 4) {
+    warnings.push(`runMeta.targetController has no mapping field and ${buttonCount} buttons / 4 axes: this looks standard-mapped, and a profile from it would apply to no pad`);
+  }
 
   for (const entry of captures) {
     const expected = entry?.expectedCode;
@@ -497,9 +530,17 @@ function dedupeByDevice(definitions, warnings) {
 
 function writeProfileFiles(definitions, defsDir) {
   for (const def of definitions) {
-    const filePath = path.join(defsDir, `${def.key}.js`);
-    fs.writeFileSync(filePath, renderProfileFile(def), 'utf8');
+    writeIfChanged(path.join(defsDir, `${def.key}.js`), renderProfileFile(def));
   }
+}
+
+/**
+ * Write a generated file only when its content changed (line endings aside), so
+ * an unchanged regeneration leaves a CRLF checkout untouched and git status clean.
+ */
+function writeIfChanged(filePath, text) {
+  if (fs.existsSync(filePath) && fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n') === text) return;
+  fs.writeFileSync(filePath, text, 'utf8');
 }
 
 function removeStaleProfileFiles(definitions, defsDir) {

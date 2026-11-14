@@ -936,8 +936,12 @@ export class GamepadRuntime {
    * @private
    */
   _getResolvedProfileForGamepad(gamepad) {
-    if (this._resolvedProfileByGamepadIndex.has(gamepad.index)) {
-      return this._resolvedProfileByGamepadIndex.get(gamepad.index);
+    // Cached per index, valid only for the pad it was resolved for: another pad
+    // can take an index without a disconnect in between (a real pad appearing
+    // while a simulated one holds slot 0).
+    const cached = this._resolvedProfileByGamepadIndex.get(gamepad.index);
+    if (cached && cached.gamepadId === (typeof gamepad.id === 'string' ? gamepad.id : null)) {
+      return cached;
     }
     const resolved = this._resolveForGamepad(gamepad);
     this._resolvedProfileByGamepadIndex.set(gamepad.index, resolved);

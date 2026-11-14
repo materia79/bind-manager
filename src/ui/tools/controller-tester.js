@@ -33,7 +33,7 @@ const EDIT_SAMPLE_MS = 100;
  * @param {ReturnType<import('./tool-context.js').createToolContext>} ctx
  */
 export function createControllerTester(ctx) {
-  const { manager, q, addWindowListener, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, bindSignalGrid, refreshProfileControls, wireProfileControls } = ctx;
+  const { manager, q, addWindowListener, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, createTask, captureBaseline, captureWithMiniModal, bindSignalGrid, refreshProfileControls, wireProfileControls } = ctx;
 
   const els = {
     modal: q('.bm-tester-modal'),
@@ -91,7 +91,24 @@ export function createControllerTester(ctx) {
     captureUpdateInProgress: false,
     editAutoCapture: { key: null, signal: null, frames: 0 },
     editCooldown: false,
+    tasks: new Set(),
   };
+
+  /** Start a cancellable task that close() and unmount cancel. */
+  function startTask() {
+    const task = createTask();
+    state.tasks.add(task);
+    return task;
+  }
+
+  function endTask(task) {
+    state.tasks.delete(task);
+  }
+
+  function cancelTasks() {
+    for (const task of state.tasks) task.cancel();
+    state.tasks.clear();
+  }
 
   const refreshProfileUi = () => {
     if (!state.isOpen) return;
@@ -175,7 +192,9 @@ export function createControllerTester(ctx) {
 
   function close() {
     state.isOpen = false;
+    cancelTasks();
     state.calibrating = false;
+    state.captureUpdateInProgress = false;
     els.modal.classList.remove('bm-tester-open');
     els.modal.setAttribute('aria-hidden', 'true');
     stopPolling();
@@ -208,9 +227,20 @@ export function createControllerTester(ctx) {
     state.captureUpdateInProgress = true;
     updateEditUiState();
 
+    const task = startTask();
+    try {
+      await runCaptureUpdate(gp, task);
+    } finally {
+      endTask(task);
+    }
+  }
+
+  async function runCaptureUpdate(gp, task) {
     const baseline = state.baseline || await captureBaseline(gp.index, 1000, {
       shouldCancel: () => !state.isOpen,
+      task,
     });
+    if (task.cancelled) return;
     if (!baseline) {
       state.captureUpdateInProgress = false;
       setEditStatus('Unable to capture baseline for update.');
@@ -224,7 +254,10 @@ export function createControllerTester(ctx) {
       gamepadIndex: gp.index,
       baseline,
       durationMs: 5000,
+      task,
     });
+    // Closed or unmounted meanwhile: write nothing.
+    if (task.cancelled) return;
     state.captureUpdateInProgress = false;
     if (!detected) {
       setEditStatus(`No signal captured for ${state.selectedCode}.`);
@@ -288,14 +321,17 @@ export function createControllerTester(ctx) {
 
     state.calibrating = true;
     els.calibrateBtn.disabled = true;
+    const task = startTask();
     setHint('Calibrating baseline. Release all controls...', { sticky: true });
 
     try {
       const baseline = await captureBaseline(gp.index, 1500, {
         shouldCancel: () => !state.isOpen,
+        task,
         onTick: (secondsLeft) => setHint(`Calibrating baseline. Release all controls... ${secondsLeft}s`, { sticky: true }),
       });
 
+      if (task.cancelled) return;
       if (baseline) {
         state.baseline = baseline;
         state.activeGamepadIndex = gp.index;
@@ -304,6 +340,7 @@ export function createControllerTester(ctx) {
         setHint('Calibration cancelled or controller disconnected.');
       }
     } finally {
+      endTask(task);
       state.calibrating = false;
       els.calibrateBtn.disabled = false;
     }

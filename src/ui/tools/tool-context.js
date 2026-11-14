@@ -60,12 +60,48 @@ export function createToolContext(manager, root) {
     return [...navigator.getGamepads()].find((g) => g && g.connected && g.index === index) || null;
   }
 
+  /**
+   * A cancellable unit of async work (baseline, capture). Its wait() timers are
+   * cleared and resolved by cancel(), so nothing keeps running after a tool
+   * closes or unmounts.
+   */
+  function createTask() {
+    const waits = new Set();
+    const task = {
+      cancelled: false,
+      wait(ms) {
+        return new Promise((resolve) => {
+          if (task.cancelled) {
+            resolve();
+            return;
+          }
+          const entry = { resolve, id: 0 };
+          entry.id = setTimeout(() => {
+            waits.delete(entry);
+            resolve();
+          }, ms);
+          waits.add(entry);
+        });
+      },
+      cancel() {
+        task.cancelled = true;
+        for (const entry of waits) {
+          clearTimeout(entry.id);
+          entry.resolve();
+        }
+        waits.clear();
+      },
+    };
+    return task;
+  }
+
   async function captureBaseline(gamepadIndex, durationMs, options = {}) {
-    const { shouldCancel, onTick } = options;
+    const { shouldCancel, onTick, task } = options;
+    const sleep = task ? task.wait : wait;
     const samples = { buttonSums: [], axisSums: [], count: 0 };
     const start = performance.now();
     while (performance.now() - start < durationMs) {
-      if (typeof shouldCancel === 'function' && shouldCancel()) return null;
+      if (task?.cancelled || (typeof shouldCancel === 'function' && shouldCancel())) return null;
       const gp = getGamepadByIndex(gamepadIndex);
       if (!gp) return null;
       const buttons = gp.buttons || [];
@@ -79,8 +115,9 @@ export function createToolContext(manager, root) {
       samples.count += 1;
       const secondsLeft = Math.max(0, Math.ceil((durationMs - (performance.now() - start)) / 1000));
       if (typeof onTick === 'function') onTick(secondsLeft);
-      await wait(50);
+      await sleep(50);
     }
+    if (task?.cancelled) return null;
     const buttonMeans = samples.buttonSums.map((sum) => sum / Math.max(1, samples.count));
     const axisMeans = samples.axisSums.map((sum) => sum / Math.max(1, samples.count));
     return { buttons: buttonMeans, axes: axisMeans };
@@ -127,7 +164,7 @@ export function createToolContext(manager, root) {
     };
   }
 
-  async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000 }) {
+  async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000, task = null }) {
     const els = {
       modal: q('.bm-capture-mini-modal'),
       panel: q('.bm-capture-mini-panel'),
@@ -139,6 +176,8 @@ export function createToolContext(manager, root) {
       cancelBtn: q('.bm-capture-mini-cancel-btn'),
     };
     if (!els.modal || !els.panel) return captureSingleStrongestSignal(gamepadIndex, baseline, durationMs);
+    if (task?.cancelled) return null;
+    const sleep = task ? task.wait : wait;
     const liveGrid = bindSignalGrid(els.live);
     const scoreMap = new Map();
     const startedAt = performance.now();
@@ -164,7 +203,7 @@ export function createToolContext(manager, root) {
     els.panel.addEventListener('keydown', onKeydown);
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
-      while (!cancelled && performance.now() - startedAt < durationMs) {
+      while (!cancelled && !task?.cancelled && performance.now() - startedAt < durationMs) {
         const gp = getGamepadByIndex(gamepadIndex);
         if (!gp) break;
         const best = getStrongestSignal(gp, baseline);
@@ -181,7 +220,7 @@ export function createToolContext(manager, root) {
         }
         const secondsLeft = Math.max(0, Math.ceil((durationMs - (performance.now() - startedAt)) / 1000));
         writer.text(els.countdown, `Hold window: ${secondsLeft}s`);
-        await wait(50);
+        await sleep(50);
       }
     } finally {
       els.cancelBtn.removeEventListener('click', onCancel);
@@ -190,7 +229,7 @@ export function createToolContext(manager, root) {
       els.modal.setAttribute('aria-hidden', 'true');
       if (previousActiveElement?.isConnected) previousActiveElement.focus();
     }
-    if (cancelled) return null;
+    if (cancelled || task?.cancelled) return null;
     const top = [...scoreMap.values()].sort((a, b) => b.score - a.score)[0] || null;
     if (!top || top.peakDelta < 0.2) return null;
     return { code: toGpCode(top), kind: top.kind, index: top.index, direction: top.direction || null, score: Number(top.score.toFixed(4)), frames: top.frames, peakDelta: Number(top.peakDelta.toFixed(4)), peakRaw: Number(top.peakRaw.toFixed(4)) };
@@ -261,6 +300,7 @@ export function createToolContext(manager, root) {
     pickGamepad,
     resolvePreferredGamepadIndex,
     getGamepadByIndex,
+    createTask,
     captureBaseline,
     captureWithMiniModal,
     bindSignalGrid,

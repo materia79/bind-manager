@@ -18,7 +18,7 @@ import {
  * @param {ReturnType<import('./tool-context.js').createToolContext>} ctx
  */
 export function createInputDebugger(ctx) {
-  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, bindSignalGrid, refreshProfileControls, wireProfileControls } = ctx;
+  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, createTask, captureBaseline, captureWithMiniModal, bindSignalGrid, refreshProfileControls, wireProfileControls } = ctx;
 
   const els = {
     modal: q('.bm-debug-modal'),
@@ -55,6 +55,7 @@ export function createInputDebugger(ctx) {
     currentStepIndex: 0,
     liveTimer: null,
     lastProfileSignature: null,
+    task: null,
   };
 
   const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
@@ -168,6 +169,8 @@ export function createInputDebugger(ctx) {
   function close() {
     state.isOpen = false;
     state.cancel = true;
+    state.task?.cancel();
+    state.task = null;
     state.isRunning = false;
     els.modal.classList.remove('bm-debug-open');
     els.modal.setAttribute('aria-hidden', 'true');
@@ -195,10 +198,15 @@ export function createInputDebugger(ctx) {
     setProgress('Normalization');
     setCountdown('');
 
+    const task = createTask();
+    state.task = task;
     state.baseline = await captureBaseline(gp.index, 2000, {
       shouldCancel: () => state.cancel,
       onTick: (secondsLeft) => setCountdown(`Normalization: ${secondsLeft}s`),
+      task,
     });
+    if (state.task === task) state.task = null;
+    if (task.cancelled) return;
     if (!state.baseline || state.cancel) {
       setStatus('Debug cancelled during normalization.');
       state.isRunning = false;
@@ -269,13 +277,19 @@ export function createInputDebugger(ctx) {
     state.isRunning = true;
     updateButtonState();
     const step = preset.steps[state.currentStepIndex];
+    const task = createTask();
+    state.task = task;
     const detected = await captureWithMiniModal({
       title: `Capture ${step.label}`,
       instruction: step.instruction,
       gamepadIndex: gp.index,
       baseline: state.baseline,
       durationMs: 5000,
+      task,
     });
+    if (state.task === task) state.task = null;
+    // Closed or unmounted meanwhile: record nothing.
+    if (task.cancelled) return;
     state.isRunning = false;
 
     const row = state.captures[state.currentStepIndex];

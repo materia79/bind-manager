@@ -175,7 +175,8 @@ describe('controller tester frame loop', () => {
     t.tools.openControllerTest();
     raf.step();
     const cross = t.q('.bm-tester-pad [data-code="GP_B0"]');
-    expect(cross.querySelector('.bm-pad-label').textContent).toBe('✕');
+    expect(cross.querySelector('.bm-pad-label').textContent).toBe('');
+    expect(cross.querySelector('.bm-pad-glyph').getAttribute('d')).toMatch(/^M -9 -9/);
     expect(cross.querySelector('title').textContent).toBe('Cross');
     expect(cross.getAttribute('aria-label')).toBe('Cross');
     expect(t.q('.bm-tester-pad [data-code="GP_B17"]').getAttribute('class')).toContain('bm-pad-touchpad');

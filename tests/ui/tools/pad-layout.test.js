@@ -102,9 +102,13 @@ describe('label shortening', () => {
     expect(shortenPadLabel('GP_B9', '', 'generic')).toBe('GP_B9');
   });
 
-  it('fits long text by initials, then by ellipsis', () => {
+  it('fits long text by truncating with an ellipsis, never by initials', () => {
     expect(fitPadLabel('Options', 200, 18)).toBe('Options');
-    expect(fitPadLabel('Very Long Name', 40, 18)).toBe('VLN');
+    const long = fitPadLabel('Very Long Label For Game That Does Not Fit', 104, 18);
+    expect(long.endsWith('\u2026')).toBe(true);
+    expect(long.startsWith('Very Lo')).toBe(true);
+    expect(estimateTextWidth(long, 18)).toBeLessThanOrEqual(104);
+    expect(fitPadLabel('Very Long Name', 40, 18)).not.toBe('VLN');
     const cut = fitPadLabel('Supercalifragilistic', 60, 18);
     expect(cut.endsWith('…')).toBe(true);
     expect(estimateTextWidth(cut, 18)).toBeLessThanOrEqual(60);

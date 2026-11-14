@@ -191,6 +191,17 @@ const FAMILY_SHORT_LABELS = {
   steam: { 'Quick Access': '···', 'Left pad click': 'L Pad', 'Right pad click': 'R Pad' },
 };
 
+/**
+ * PlayStation face symbols drawn as paths around (0, 0), so all four share one
+ * size and centre whatever the font. Keys are the short labels above.
+ */
+export const FACE_GLYPHS = Object.freeze({
+  '✕': 'M -9 -9 L 9 9 M 9 -9 L -9 9',
+  '○': 'M 0 -10 A 10 10 0 0 1 10 0 A 10 10 0 0 1 0 10 A 10 10 0 0 1 -10 0 A 10 10 0 0 1 0 -10 Z',
+  '□': 'M -9 -9 H 9 V 9 H -9 Z',
+  '△': 'M 0 -10.5 L 10.5 8.5 L -10.5 8.5 Z',
+});
+
 const DPAD_CODES = { GP_B12: 'up', GP_B13: 'down', GP_B14: 'left', GP_B15: 'right' };
 const STICK_DIR_CODE = /^GP_A[0-3][NP]$/;
 
@@ -225,16 +236,11 @@ export function estimateTextWidth(text, size) {
   return w * size;
 }
 
-/** Fit a label into maxWidth: keep it, else initials, else truncate with an ellipsis. */
+/** Fit a label into maxWidth: keep it, else truncate with an ellipsis (the full name stays in <title>). */
 export function fitPadLabel(text, maxWidth, size) {
   if (!text || estimateTextWidth(text, size) <= maxWidth) return text;
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length > 1) {
-    const initials = words.map((w) => w[0]).join('').toUpperCase();
-    if (estimateTextWidth(initials, size) <= maxWidth) return initials;
-  }
-  let cut = text;
-  while (cut.length > 1 && estimateTextWidth(`${cut}…`, size) > maxWidth) cut = cut.slice(0, -1);
+  let cut = text.trimEnd();
+  while (cut.length > 1 && estimateTextWidth(`${cut}…`, size) > maxWidth) cut = cut.slice(0, -1).trimEnd();
   return `${cut}…`;
 }
 

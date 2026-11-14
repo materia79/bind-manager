@@ -361,6 +361,9 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-pad-fill { fill: rgba(76, 201, 240, 0.5); pointer-events: none; }
 .bm-pad-el.bm-active .bm-pad-shape { fill: #4cc9f0; stroke: #c9f4ff; }
 .bm-pad-el.bm-active .bm-pad-label { fill: #04202c; }
+.bm-pad-glyph { fill: none; stroke: #d9edfa; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+.bm-pad-el.bm-active .bm-pad-glyph { stroke: #04202c; }
+.bm-pad-el.bm-selected .bm-pad-glyph { stroke: #fff8e5; }
 .bm-pad-trigger.bm-active .bm-pad-shape { fill: rgba(10, 22, 33, 0.92); stroke: #7cf0ff; }
 .bm-pad-trigger.bm-active .bm-pad-label { fill: #f2fcff; }
 .bm-pad-edit .bm-pad-el.bm-editable { pointer-events: all; cursor: pointer; }

@@ -3,6 +3,7 @@ import {
   PAD_VIEWBOX,
   PAD_OUTLINE_PATH,
   STICK_TRAVEL,
+  FACE_GLYPHS,
   buildPadLayout,
   padLabelText,
   shouldShowPadNode,
@@ -68,6 +69,7 @@ export function renderPadSvgContent(stickLayout) {
   for (const el of buildPadLayout(stickLayout)) {
     if (el.kind === 'stick') parts.push(stickMarkup(el));
     else if (el.kind === 'trigger') parts.push(triggerMarkup(el));
+    else if (el.kind === 'face') parts.push(`${openNode(el.code, el.kind)}${shapeMarkup(el.shape)}<path class="bm-pad-glyph" transform="translate(${el.shape.cx} ${el.shape.cy})"/>${labelMarkup(el.label)}</g>`);
     else parts.push(`${openNode(el.code, el.kind)}${shapeMarkup(el.shape)}${labelMarkup(el.label)}</g>`);
   }
   return parts.join('');
@@ -113,6 +115,7 @@ export function createPadView(svg, writer) {
         el: layoutByCode.get(code),
         title: g.querySelector('title'),
         label: g.querySelector('.bm-pad-label'),
+        glyph: g.querySelector('.bm-pad-glyph'),
       };
       nodes.push(node);
       byCode.set(code, node);
@@ -135,7 +138,11 @@ export function createPadView(svg, writer) {
       writer.text(node.title, full);
       writer.attr(node.g, 'aria-label', full);
       writer.attr(node.g, 'display', shouldShowPadNode(node.code, full) ? null : 'none');
-      if (node.label && node.el) writer.text(node.label, padLabelText(node.el, full, family));
+      if (!node.label || !node.el) continue;
+      const text = padLabelText(node.el, full, family);
+      const glyph = node.glyph ? FACE_GLYPHS[text] : undefined;
+      if (node.glyph) writer.attr(node.glyph, 'd', glyph ?? null);
+      writer.text(node.label, glyph ? '' : text);
     }
   }
 
@@ -147,8 +154,16 @@ export function createPadView(svg, writer) {
   function setStick(side, x, y) {
     const s = sticks[side];
     if (!s) return;
-    const qx = Math.round(Math.max(-1, Math.min(1, x)) * 100) / 100;
-    const qy = Math.round(Math.max(-1, Math.min(1, y)) * 100) / 100;
+    // Clamp to the unit circle so a diagonal never leaves the ring.
+    let cx = Math.max(-1, Math.min(1, x || 0));
+    let cy = Math.max(-1, Math.min(1, y || 0));
+    const mag = Math.hypot(cx, cy);
+    if (mag > 1) {
+      cx /= mag;
+      cy /= mag;
+    }
+    const qx = Math.round(cx * 100) / 100;
+    const qy = Math.round(cy * 100) / 100;
     writer.attr(s.dot, 'transform', `translate(${(s.cx + qx * STICK_TRAVEL).toFixed(1)} ${(s.cy + qy * STICK_TRAVEL).toFixed(1)})`);
   }
 

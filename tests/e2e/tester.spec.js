@@ -219,6 +219,46 @@ test.describe('scale invariance', () => {
   });
 });
 
+/** Input Remap's guided-capture button row, up to its last button (F4). */
+const REMAP_ROW = ['.bm-debug-start-btn', '.bm-debug-back-btn', '.bm-debug-redo-btn', '.bm-debug-capture-btn', '.bm-debug-next-btn'];
+
+async function remapRowBoxes(browser, width, height) {
+  const page = await browser.newPage({ viewport: { width, height } });
+  await openDemo(page);
+  await page.locator('.bm-footer-action-btn[data-footer-action-id="input-debug"]').click();
+  await expect(page.locator(REMAP)).toBeVisible();
+  await frames(page);
+  const boxes = await page.evaluate((list) => Object.fromEntries(list.map((s) => {
+    const r = document.querySelector(`.bm-debug-modal ${s}`).getBoundingClientRect();
+    return [s, { x: r.x, y: r.y, width: r.width, height: r.height }];
+  })), REMAP_ROW);
+  await page.close();
+  return boxes;
+}
+
+test.describe('scale invariance: Input Remap button row', () => {
+  test('every button of the row, up to Next, is a scaled copy (within 1px) and centred at 21:9', async ({ browser }) => {
+    const ref = await remapRowBoxes(browser, 1920, 1080);
+    for (const { width, height, f } of [
+      { width: 1280, height: 720, f: 2 / 3 },
+      { width: 2560, height: 1440, f: 4 / 3 },
+      { width: 3840, height: 2160, f: 2 },
+    ]) {
+      const got = await remapRowBoxes(browser, width, height);
+      for (const s of REMAP_ROW) {
+        for (const k of ['x', 'y', 'width', 'height']) {
+          expect(Math.abs(got[s][k] - ref[s][k] * f), `${width}x${height} ${s} ${k}: ${got[s][k]} vs ${ref[s][k] * f}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+    const wide = await remapRowBoxes(browser, 2560, 1080);
+    for (const s of REMAP_ROW) {
+      expect(Math.abs(wide[s].x - ref[s].x - 320), `21:9 ${s} x`).toBeLessThanOrEqual(1);
+      expect(Math.abs(wide[s].width - ref[s].width), `21:9 ${s} width`).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
 const NO_JUMP_VIEWPORTS = [
   { width: 1920, height: 1080 },
   { width: 1000, height: 600 },

@@ -144,7 +144,10 @@ export const BUILT_IN_TOOLS_CSS = `
   height: ${u(36)};
   padding: 0 ${u(14)};
   background: rgba(92, 124, 250, 0.2);
-  border: 1px solid rgba(92, 124, 250, 0.5);
+  /* The hairline is an inset shadow (no layout width), so a row of buttons scales exactly. */
+  border: 0;
+  --bm-btn-line: rgba(92, 124, 250, 0.5);
+  box-shadow: inset 0 0 0 1px var(--bm-btn-line);
   border-radius: ${u(7)};
   color: #c0ccff;
   font-size: var(--bm-fs-s);
@@ -154,12 +157,12 @@ export const BUILT_IN_TOOLS_CSS = `
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, box-shadow 0.15s;
 }
-.bm-tool-btn:hover { background: rgba(92, 124, 250, 0.4); border-color: #5c7cfa; }
+.bm-tool-btn:hover { background: rgba(92, 124, 250, 0.4); --bm-btn-line: #5c7cfa; }
 .bm-tool-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.bm-tool-btn:disabled:hover { background: rgba(92, 124, 250, 0.2); border-color: rgba(92, 124, 250, 0.5); }
-.bm-tool-toggle[aria-pressed="true"] { background: rgba(76, 201, 240, 0.28); border-color: #7cf0ff; color: #eafcff; }
+.bm-tool-btn:disabled:hover { background: rgba(92, 124, 250, 0.2); --bm-btn-line: rgba(92, 124, 250, 0.5); }
+.bm-tool-toggle[aria-pressed="true"] { background: rgba(76, 201, 240, 0.28); --bm-btn-line: #7cf0ff; color: #eafcff; }
 .bm-tool-close { width: ${u(96)}; }
 .bm-tester-debug-btn { width: ${u(96)}; }
 .bm-tester-editor-btn { width: ${u(150)}; }
@@ -324,8 +327,8 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tester-trigger-edit[data-disabled="true"] { visibility: hidden; }
 .bm-tester-trigger-edit span { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .bm-tester-code-btn { height: ${u(28)}; width: ${u(56)}; padding: 0; font-size: var(--bm-fs-xs); }
-.bm-tester-code-btn.bm-active { border-color: #4dd; background: rgba(0, 30, 40, 0.9); color: #aff; }
-.bm-tester-code-btn.bm-selected { border-color: #ffd56a; background: rgba(62, 41, 8, 0.9); color: #fff8e5; }
+.bm-tester-code-btn.bm-active { --bm-btn-line: #4dd; background: rgba(0, 30, 40, 0.9); color: #aff; }
+.bm-tester-code-btn.bm-selected { --bm-btn-line: #ffd56a; background: rgba(62, 41, 8, 0.9); color: #fff8e5; }
 .bm-tester-edit-target { color: #daf2ff; }
 .bm-tester-edit-status { color: #9fc0d8; font-size: var(--bm-fs-xs); }
 .bm-tester-bindings-section {

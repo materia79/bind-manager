@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createBuiltInToolsController } from '../../../src/ui/built-in-tools-controller.js';
-import { createFakeManager, createFakePad, installManualRaf, spyText } from './helpers.js';
+import { createFakeManager, createFakePad, installManualRaf, spyText, countDomWork } from './helpers.js';
 
 function mountTester({ family = 'dualsense', pad = createFakePad() } = {}) {
   const manager = createFakeManager({ family });
@@ -85,6 +85,36 @@ describe('controller tester frame loop', () => {
     expect(triggerValue).toHaveBeenCalledTimes(1);
     expect(triggerValue).toHaveBeenLastCalledWith('0.80');
     expect(setAttr).not.toHaveBeenCalled();
+  });
+
+  it('does no DOM work at all over 60 identical frames (prototype-level count)', () => {
+    t = mountTester();
+    t.tools.openControllerTest();
+    t.q('.bm-tester-debug-btn').click();
+    t.q('.bm-tester-editor-btn').click();
+    t.pad.setButton(0, 1);
+    t.pad.setButton(7, 0.3);
+    t.pad.setAxis(2, 0.6);
+    raf.step(3);
+
+    const work = countDomWork(t.root);
+    try {
+      // the counter itself catches a same-value attribute write and a stringify
+      t.q('.bm-tester-status').setAttribute('title', t.q('.bm-tester-status').getAttribute('title'));
+      JSON.stringify({});
+      t.root.querySelectorAll('*');
+      expect(work.counts.setAttribute).toBe(1);
+      expect(work.counts.stringify).toBe(1);
+      expect(work.counts.querySelectorAll).toBe(1);
+      for (const k of Object.keys(work.counts)) work.counts[k] = 0;
+      work.log.length = 0;
+
+      raf.step(60);
+      expect(work.log).toEqual([]);
+      expect(work.total()).toBe(0);
+    } finally {
+      work.restore();
+    }
   });
 
   it('stops the loop on close', () => {

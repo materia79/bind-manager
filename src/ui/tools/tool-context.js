@@ -6,10 +6,9 @@ import { focusFirst, pushDialog } from './focus.js';
 import {
   serialiseProfileOverrideValue,
   parseProfileOverrideValue,
-  profileSourceChip,
   formatProfileSummary,
-  controllerDisplayName,
 } from './profile-options.js';
+import { gamepadDeviceName, profileChip } from '../profile-display.js';
 
 /**
  * Runtime helpers shared by the built-in tools: DOM lookup inside the mounted root,
@@ -268,13 +267,15 @@ export function createToolContext(manager, root) {
     select.innerHTML = `<option value="__auto__" ${selectedValue === '__auto__' ? 'selected' : ''}>Auto detect</option>${exactOptions}${familyOptions}`;
     select.dataset.gamepadIndex = String(gp.index);
     select.disabled = false;
-    const summary = formatProfileSummary(resolved);
-    device.textContent = resolved.displayName || controllerDisplayName(gp.id);
-    device.title = `${gp.id} (slot ${gp.index})`;
-    chip.textContent = profileSourceChip(resolved.source);
+    // The device's own name (as in the bindings modal), the raw id in its title;
+    // the chip names the source and the family.
+    const chipInfo = profileChip(resolved);
+    device.textContent = gamepadDeviceName(gp.id);
+    device.title = gp.id;
+    chip.textContent = chipInfo.text;
     chip.dataset.source = resolved.source || 'none';
-    chip.title = summary;
-    select.title = summary;
+    chip.title = chipInfo.title;
+    select.title = formatProfileSummary(resolved);
   }
 
   function wireProfileControls({ controls, resolveGamepadIndex, onChange }) {

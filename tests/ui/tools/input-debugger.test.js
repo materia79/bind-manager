@@ -35,7 +35,7 @@ describe('Input Remap', () => {
   it('shows the profile header and polls the live box per frame without redundant writes', () => {
     tools.openInputRemap();
     raf.step();
-    expect(root.querySelector('.bm-debug-profile-chip').textContent).toBe('Family');
+    expect(root.querySelector('.bm-debug-profile-chip').textContent).toBe('Family · DualSense');
     expect(root.querySelector('.bm-debug-live-state').textContent).toBe('(idle)');
     const select = root.querySelector('.bm-debug-profile-select');
     const selectHtml = vi.spyOn(select, 'innerHTML', 'set');

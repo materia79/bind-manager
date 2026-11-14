@@ -230,7 +230,7 @@ describe('controller tester frame loop', () => {
     t = mountTester();
     t.tools.openControllerTest();
     raf.step();
-    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Family');
+    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Family · DualSense');
     expect(t.q('.bm-tester-device').textContent).toBe('DualSense Wireless Controller');
     expect(t.q('.bm-tester-profile-select option').textContent).toBe('Auto detect');
     expect(t.root.querySelector('[class*="auto-btn"]')).toBeNull();

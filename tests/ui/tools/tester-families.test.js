@@ -42,23 +42,22 @@ describe('Controller Tester with real families (J4)', () => {
     expect(OPTIONAL.filter(t.shown)).toEqual([]);
   });
 
-  it('header shows the resolver display name; chip names every source', () => {
+  it('header shows the device name; chip names every source with its family (F6)', () => {
     t = mountRealTester(PADS.dualsenseRaw);
     expect(t.q('.bm-tester-device').textContent).toBe('DualSense Wireless Controller');
-    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Exact');
+    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Exact · DualSense');
     t.manager.destroy();
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
 
     t = mountRealTester(PADS.xboxSeries);
-    const resolved = t.manager.getResolvedGamepadProfile(0);
-    expect(t.q('.bm-tester-device').textContent).toBe(resolved.displayName);
+    expect(t.q('.bm-tester-device').textContent).toBe('Xbox Wireless Controller');
     expect(t.q('.bm-tester-device').title).toContain(PADS.xboxSeries.id);
-    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Family');
+    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Family · Xbox');
 
     t.manager.setGamepadProfileOverride(0, { type: 'family', family: 'stadia' });
     t.raf.step();
-    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Manual');
+    expect(t.q('.bm-tester-profile-chip').textContent).toBe('Manual · Stadia');
     t.manager.clearGamepadProfileOverride(0);
 
     t.manager.setGamepadProfileMappingEntry(0, 'GP_B0', { kind: 'button', index: 3 });

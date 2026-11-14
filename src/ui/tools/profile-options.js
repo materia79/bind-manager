@@ -1,4 +1,5 @@
 /** Profile override values for the profile select, and the profile header texts. */
+import { gamepadDeviceName } from '../profile-display.js';
 
 export function serialiseProfileOverrideValue(override) {
   if (!override || typeof override !== 'object') return '__auto__';
@@ -40,10 +41,5 @@ export function profileSignature(resolved) {
  * "(STANDARD GAMEPAD Vendor: ...)" suffix and Firefox's "054c-0ce6-" prefix.
  */
 export function controllerDisplayName(id) {
-  if (!id || typeof id !== 'string') return 'Unknown controller';
-  const name = id
-    .replace(/^[0-9a-f]{1,4}-[0-9a-f]{1,4}-/i, '')
-    .replace(/\s*\([^()]*\)\s*$/, '')
-    .trim();
-  return name || id.trim();
+  return gamepadDeviceName(id);
 }

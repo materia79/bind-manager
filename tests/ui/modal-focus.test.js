@@ -110,7 +110,7 @@ describe('ModalController focus and scroll (A6)', () => {
     expect(document.activeElement.classList.contains('bm-profile-select')).toBe(true);
     expect(document.activeElement.value).toBe('family:dualsense');
     // A chosen profile is a manual override
-    expect(document.querySelector('.bm-profile-chip')?.textContent).toBe('Manual');
+    expect(document.querySelector('.bm-profile-chip')?.textContent).toBe('Manual · DualSense');
 
     pressEscape();
     expect(manager.isOpen()).toBe(false);
@@ -266,7 +266,7 @@ describe('ModalController gamepad profile panel', () => {
     expect(panel.textContent).not.toContain('054c-0ce6');
 
     const chip = panel.querySelector('.bm-profile-chip');
-    expect(chip.textContent).toBe('Exact');
+    expect(chip.textContent).toBe('Exact · DualSense');
 
     const select = panel.querySelector('.bm-profile-select');
     expect(select.value).toBe('__auto__');
@@ -291,7 +291,7 @@ describe('ModalController gamepad profile panel', () => {
     select.value = '__auto__';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     expect(manager.getResolvedGamepadProfile(0).source).toBe('exact');
-    expect(document.querySelector('.bm-profile-chip').textContent).toBe('Exact');
+    expect(document.querySelector('.bm-profile-chip').textContent).toBe('Exact · DualSense');
   });
 
   it('shows one muted line when no controller is connected and updates in place on connect', () => {
@@ -311,7 +311,7 @@ describe('ModalController gamepad profile panel', () => {
 
     expect(document.querySelector('.bm-modal')).toBe(modal);
     expect(document.querySelector('.bm-profile-panel-empty')).toBeNull();
-    expect(document.querySelector('.bm-profile-chip')?.textContent).toBe('Exact');
+    expect(document.querySelector('.bm-profile-chip')?.textContent).toBe('Exact · DualSense');
   });
 });
 

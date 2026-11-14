@@ -1,6 +1,7 @@
 import { getKeyLabel } from '../input/key-names.js';
 import { injectStyles } from './styles.js';
 import { getGamepadLabel } from '../input/gamepad-profiles.js';
+import { gamepadDeviceName, profileChip } from './profile-display.js';
 
 /**
  * Controls the key binding modal UI.
@@ -412,6 +413,7 @@ export class ModalController {
     const chip = panel.querySelector('.bm-profile-chip');
     if (chip) {
       chip.textContent = state.sourceLabel;
+      chip.title = state.sourceTitle;
       chip.className = `bm-profile-chip bm-profile-chip--${state.source}`;
     }
     const select = panel.querySelector('.bm-profile-select');
@@ -428,6 +430,7 @@ export class ModalController {
     const options = this._gamepadRuntime.getAvailableProfileOptions(primaryGamepad.index);
     const selectedValue = override ? _serialiseProfileOverrideValue(override) : '__auto__';
     const source = String(resolved.source ?? 'generic').replace(/[^a-z-]/gi, '');
+    const chip = profileChip(resolved);
     const optionList = [
       { value: '__auto__', label: 'Auto detect' },
       ...options.exactProfiles.map((option) => ({ value: _serialiseProfileOverrideValue(option), label: `Exact: ${option.label}` })),
@@ -439,9 +442,11 @@ export class ModalController {
       connected: true,
       gamepadIndex: primaryGamepad.index,
       gamepadId: primaryGamepad.id,
-      name: resolved.definition?.sourceName || _controllerNameFromId(primaryGamepad.id),
+      // The device's own name, like the tools' header (shared function)
+      name: gamepadDeviceName(primaryGamepad.id),
       source,
-      sourceLabel: SOURCE_LABELS[source] ?? source,
+      sourceLabel: chip.text,
+      sourceTitle: chip.title,
       selectedValue,
       optionList,
     };
@@ -525,7 +530,7 @@ export class ModalController {
     return `
       <div class="bm-profile-panel" data-key="${_esc(state.key)}">
         <span class="bm-profile-name" title="${_esc(state.gamepadId)}">${_esc(state.name)}</span>
-        <span class="bm-profile-chip bm-profile-chip--${state.source}" title="Profile source">${_esc(state.sourceLabel)}</span>
+        <span class="bm-profile-chip bm-profile-chip--${state.source}" title="${_esc(state.sourceTitle)}">${_esc(state.sourceLabel)}</span>
         <select class="bm-profile-select" data-gamepad-index="${state.gamepadIndex}" aria-label="Controller profile">${options}</select>
       </div>
     `;
@@ -776,13 +781,6 @@ const FOCUS_ROLES = [
   'bm-close-btn',
 ];
 
-const SOURCE_LABELS = {
-  manual: 'Manual',
-  exact: 'Exact',
-  family: 'Family',
-  generic: 'Generic',
-  'memory-edit': 'Edited',
-};
 
 /*
  * Row geometry in --bm-u, mirrored from styles.js: row padding 24 + 24, label
@@ -828,12 +826,6 @@ function _slotSelector(cls, actionId, slot, device) {
 
 function _bindTitle(label) {
   return label ? `${label} (click to rebind)` : 'Click to rebind';
-}
-
-/** "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e ...)" → "Xbox Wireless Controller". */
-function _controllerNameFromId(id) {
-  const name = String(id ?? '').replace(/\s*\([^)]*\)\s*$/, '').replace(/^[0-9a-f]{4}-[0-9a-f]{4}-/i, '').trim();
-  return name || String(id ?? 'Controller');
 }
 
 /** XSS-safe HTML escaping for inline string interpolation. */

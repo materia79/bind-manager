@@ -2,7 +2,7 @@ import { _esc } from './esc.js';
 import { getStrongestSignal, formatSignalFields } from './signals.js';
 import { createDomWriter } from './dom-writer.js';
 import { profileSignature } from './profile-options.js';
-import { trapTab, restoreFocusAfterClose } from './focus.js';
+import { restoreFocusAfterClose, pushDialog, keepFocusInPanel } from './focus.js';
 import {
   CAPTURE_PRESETS,
   DEFAULT_CAPTURE_PRESET,
@@ -58,6 +58,7 @@ export function createInputDebugger(ctx) {
     lastProfileSignature: null,
     task: null,
     opener: null,
+    releaseDialog: null,
   };
 
   const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
@@ -143,18 +144,12 @@ export function createInputDebugger(ctx) {
   els.modal.addEventListener('click', (ev) => {
     if (ev.target === els.modal) close();
   });
-  els.modal.addEventListener('keydown', (ev) => {
-    if (ev.code === 'Escape') {
-      ev.preventDefault();
-      close();
-    } else if (ev.key === 'Tab') {
-      trapTab(els.panel, ev);
-    }
-  });
 
   function open() {
     state.opener = document.activeElement instanceof HTMLElement && !els.modal.contains(document.activeElement) ? document.activeElement : null;
     state.isOpen = true;
+    // Escape and Tab are handled for the topmost tool dialog wherever focus is.
+    state.releaseDialog ??= pushDialog(els.panel, close);
     state.cancel = false;
     state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('bm-debug-open');
@@ -175,6 +170,8 @@ export function createInputDebugger(ctx) {
     const wasOpen = state.isOpen;
     const hadFocus = els.modal.contains(document.activeElement) || document.activeElement === document.body;
     state.isOpen = false;
+    state.releaseDialog?.();
+    state.releaseDialog = null;
     state.cancel = true;
     state.task?.cancel();
     state.task = null;
@@ -451,6 +448,8 @@ export function createInputDebugger(ctx) {
     els.backBtn.disabled = state.isRunning || !hasBaseline || state.currentStepIndex <= 0;
     els.nextBtn.disabled = state.isRunning || !hasBaseline || !hasSteps || state.currentStepIndex >= preset.steps.length - 1;
     els.redoBtn.disabled = state.isRunning || !hasBaseline || !hasSteps;
+    // A control that just disabled itself (Start Debug, Capture) hands focus to the panel.
+    if (state.isOpen) keepFocusInPanel(els.panel);
   }
 
   ctx.shared.syncInputDebugger = syncFromSharedPayload;

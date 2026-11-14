@@ -148,3 +148,95 @@ for (const tool of [
     });
   });
 }
+
+for (const tool of [
+  { id: 'controller-test', modal: '.bm-tester-modal.bm-tester-open', where: 'tester' },
+  { id: 'input-debug', modal: '.bm-debug-modal.bm-debug-open', where: 'remap' },
+]) {
+  test.describe(`J6: Escape in ${tool.id} never reaches the bindings modal`, () => {
+    test.use({ viewport: { width: 1920, height: 1080 } });
+
+    test('Escape in the tool closes only the tool, also with focus on body', async ({ page }) => {
+      await openBindingsHarness(page);
+      const footer = page.locator(`.bm-footer-action-btn[data-footer-action-id="${tool.id}"]`);
+      await footer.click();
+      await expect(page.locator(tool.modal)).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.locator(tool.modal)).toHaveCount(0);
+      await expect(page.locator(BINDINGS_OPEN)).toHaveCount(1);
+      expect(await focusInfo(page)).toMatchObject({ where: 'bindings', footerId: tool.id });
+
+      await footer.click();
+      await expect(page.locator(tool.modal)).toBeVisible();
+      await page.evaluate(() => document.activeElement.blur());
+      expect((await focusInfo(page)).where).toBe('body');
+      await page.keyboard.press('Escape');
+      await expect(page.locator(tool.modal)).toHaveCount(0);
+      await expect(page.locator(BINDINGS_OPEN)).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      await expect(page.locator(BINDINGS_OPEN)).toHaveCount(0);
+    });
+  });
+}
+
+test.describe('J6: a control that disables itself keeps Escape, Tab and focus working', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  async function expectToolKeysWork(page, modal, where) {
+    expect((await focusInfo(page)).where, 'focus stays in the tool').toBe(where);
+    await tabTimes(page, 12, where);
+    await page.keyboard.press('Escape');
+    await expect(page.locator(modal)).toHaveCount(0);
+    await expect(page.locator(BINDINGS_OPEN)).toHaveCount(1);
+    expect((await focusInfo(page)).where).toBe('bindings');
+  }
+
+  test('tester: Calibrate', async ({ page }) => {
+    await openBindingsHarness(page);
+    await page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]').click();
+    await page.locator('.bm-tester-editor-btn').click();
+    const calibrate = page.locator('.bm-tester-calibrate-btn');
+    await calibrate.focus();
+    await page.keyboard.press('Enter');
+    await expect(calibrate).toBeDisabled();
+    await frames(page, 3);
+    expect((await focusInfo(page)).where).not.toBe('body');
+    await expectToolKeysWork(page, '.bm-tester-modal.bm-tester-open', 'tester');
+  });
+
+  test('tester: Capture update', async ({ page }) => {
+    await openBindingsHarness(page);
+    await page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]').click();
+    await page.locator('.bm-tester-editor-btn').click();
+    await page.locator('.bm-tester-edit-toggle-btn').click();
+    await page.locator('.bm-tester-pad [data-code="GP_B3"]').click();
+    const capture = page.locator('.bm-tester-capture-update-btn');
+    await capture.focus();
+    await page.keyboard.press('Enter');
+    await expect(capture).toBeDisabled();
+    await frames(page, 3);
+    expect((await focusInfo(page)).where).not.toBe('body');
+    // Baseline (1 s), then the capture mini modal takes focus; Escape cancels it only.
+    const mini = page.locator('.bm-capture-mini-modal.bm-open');
+    await expect(mini).toBeVisible({ timeout: 5000 });
+    expect((await focusInfo(page)).where).toBe('mini');
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.press('Escape');
+    await expect(mini).toHaveCount(0);
+    await expect(page.locator('.bm-tester-modal.bm-tester-open')).toHaveCount(1);
+    await frames(page, 3);
+    await expectToolKeysWork(page, '.bm-tester-modal.bm-tester-open', 'tester');
+  });
+
+  test('Input Remap: Start Debug', async ({ page }) => {
+    await openBindingsHarness(page);
+    await page.locator('.bm-footer-action-btn[data-footer-action-id="input-debug"]').click();
+    const start = page.locator('.bm-debug-start-btn');
+    await start.focus();
+    await page.keyboard.press('Enter');
+    await expect(start).toBeDisabled();
+    await frames(page, 3);
+    expect((await focusInfo(page)).where).not.toBe('body');
+    await expectToolKeysWork(page, '.bm-debug-modal.bm-debug-open', 'remap');
+  });
+});

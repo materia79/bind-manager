@@ -2,7 +2,7 @@ import { _esc } from './esc.js';
 import { getStrongestSignal, toGpCode, formatSignalFields } from './signals.js';
 import { cloneJson } from './capture-payload.js';
 import { createDomWriter } from './dom-writer.js';
-import { trapTab, focusFirst } from './focus.js';
+import { focusFirst, pushDialog } from './focus.js';
 import {
   serialiseProfileOverrideValue,
   parseProfileOverrideValue,
@@ -86,6 +86,10 @@ export function createToolContext(manager, root) {
       },
       cancel() {
         task.cancelled = true;
+        task.wake();
+      },
+      /** End the pending waits now (their timers cleared) without cancelling the task. */
+      wake() {
         for (const entry of waits) {
           clearTimeout(entry.id);
           entry.resolve();
@@ -193,19 +197,13 @@ export function createToolContext(manager, root) {
     els.modal.classList.add('bm-open');
     els.modal.setAttribute('aria-hidden', 'false');
     els.panel.focus();
-    const onCancel = () => { cancelled = true; };
-    const onKeydown = (event) => {
-      if (event.key === 'Tab') {
-        trapTab(els.panel, event);
-        return;
-      }
-      if (event.code !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
+    const onCancel = () => {
       cancelled = true;
+      task?.wake();
     };
     els.cancelBtn.addEventListener('click', onCancel, { once: true });
-    els.panel.addEventListener('keydown', onKeydown);
+    // Topmost dialog while open: Escape cancels and Tab stays inside, wherever focus is.
+    const releaseDialog = pushDialog(els.panel, onCancel);
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       while (!cancelled && !task?.cancelled && performance.now() - startedAt < durationMs) {
@@ -229,7 +227,7 @@ export function createToolContext(manager, root) {
       }
     } finally {
       els.cancelBtn.removeEventListener('click', onCancel);
-      els.panel.removeEventListener('keydown', onKeydown);
+      releaseDialog();
       els.modal.classList.remove('bm-open');
       els.modal.setAttribute('aria-hidden', 'true');
       // The opener is often still disabled here; fall back to the owning tool panel.

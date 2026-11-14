@@ -17,7 +17,7 @@ import { createDomWriter } from './dom-writer.js';
 import { createPadView } from './pad-view.js';
 import { getStickLayoutForFamily } from './pad-layout.js';
 import { profileSignature } from './profile-options.js';
-import { trapTab, restoreFocusAfterClose } from './focus.js';
+import { restoreFocusAfterClose, pushDialog, keepFocusInPanel } from './focus.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
 const NO_PAD_HINT = 'Connect a controller to begin.';
@@ -95,6 +95,7 @@ export function createControllerTester(ctx) {
     editCooldown: false,
     tasks: new Set(),
     opener: null,
+    releaseDialog: null,
   };
 
   /** Start a cancellable task that close() and unmount cancel. */
@@ -170,18 +171,11 @@ export function createControllerTester(ctx) {
     state.selectedCode = node.getAttribute('data-code') || null;
     updateEditUiState();
   });
-  els.modal.addEventListener('keydown', (ev) => {
-    if (ev.code === 'Escape') {
-      ev.preventDefault();
-      close();
-    } else if (ev.key === 'Tab') {
-      trapTab(els.panel, ev);
-    }
-  });
-
   function open() {
     state.opener = document.activeElement instanceof HTMLElement && !els.modal.contains(document.activeElement) ? document.activeElement : null;
     state.isOpen = true;
+    // Escape and Tab are handled for the topmost tool dialog wherever focus is.
+    state.releaseDialog ??= pushDialog(els.panel, close);
     state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('bm-tester-open');
     els.modal.setAttribute('aria-hidden', 'false');
@@ -200,6 +194,8 @@ export function createControllerTester(ctx) {
     const wasOpen = state.isOpen;
     const hadFocus = els.modal.contains(document.activeElement) || document.activeElement === document.body;
     state.isOpen = false;
+    state.releaseDialog?.();
+    state.releaseDialog = null;
     cancelTasks();
     state.calibrating = false;
     state.captureUpdateInProgress = false;
@@ -344,6 +340,7 @@ export function createControllerTester(ctx) {
 
     state.calibrating = true;
     els.calibrateBtn.disabled = true;
+    keepFocusInPanel(els.panel);
     const task = startTask();
     setHint('Calibrating baseline. Release all controls...', { sticky: true });
 
@@ -366,6 +363,7 @@ export function createControllerTester(ctx) {
       endTask(task);
       state.calibrating = false;
       els.calibrateBtn.disabled = false;
+      if (state.isOpen && document.activeElement === els.panel) els.calibrateBtn.focus();
     }
   }
 
@@ -697,6 +695,8 @@ export function createControllerTester(ctx) {
     els.captureUpdateBtn.disabled = !canCapture;
     els.downloadUpdatedBtn.disabled = state.activeGamepadIndex == null;
     refreshSelectedBindingsList();
+    // A control that just disabled itself (Capture update) hands focus to the panel.
+    if (state.isOpen) keepFocusInPanel(els.panel);
   }
 
   function clearVisuals() {

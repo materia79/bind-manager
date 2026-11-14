@@ -47,6 +47,7 @@ describe('closing during a capture cancels it', () => {
 
   const closers = {
     close: () => q('.bm-tester-close-btn').click(),
+    // Escape acts on the topmost dialog: it cancels the capture mini modal, not the tester.
     escape: () => q('.bm-tester-panel').dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', bubbles: true })),
     unmount: () => { tools.unmount(); tools = null; },
   };

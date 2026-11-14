@@ -278,6 +278,10 @@ export function createControllerTester(ctx) {
     // Closed or unmounted meanwhile: write nothing.
     if (task.cancelled) return;
     state.captureUpdateInProgress = false;
+    // However the capture ended (cancelled, nothing, captured), the input may
+    // still be held: edit mode's auto-assign waits until every input is released.
+    state.editCooldown = true;
+    state.editAutoCapture = { key: null, signal: null, frames: 0 };
     if (!detected) {
       setEditStatus(`No signal captured for ${state.selectedCode}.`);
       updateEditUiState();

@@ -240,3 +240,37 @@ test.describe('J6: a control that disables itself keeps Escape, Tab and focus wo
     await expectToolKeysWork(page, '.bm-debug-modal.bm-debug-open', 'remap');
   });
 });
+
+test.describe('J7: a cancelled capture update never lets edit mode assign the held input', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  test('Escape on the capture mini modal with the input held: nothing is written until every input is released', async ({ page }) => {
+    const pad = await installFakeGamepad(page, XBOX_SERIES);
+    await openHarness(page);
+    await pad.connect();
+    await openTesterDirect(page);
+    await page.locator('.bm-tester-editor-btn').click();
+    await page.locator('.bm-tester-edit-toggle-btn').click();
+    await page.locator('.bm-tester-pad [data-code="GP_B3"]').click();
+    await page.locator('.bm-tester-capture-update-btn').click();
+    const mini = page.locator('.bm-capture-mini-modal.bm-open');
+    await expect(mini).toBeVisible({ timeout: 5000 });
+
+    await pad.setButton(2, 1);
+    await expect(mini.locator('.bm-capture-mini-live-state')).toHaveText('Strongest signal');
+    await page.keyboard.press('Escape');
+    await expect(mini).toHaveCount(0);
+
+    // Still held for well over the auto-assign window (2 samples, 100 ms apart).
+    await page.waitForTimeout(800);
+    expect(await page.evaluate(() => window.__bm.getResolvedGamepadProfile(0).source)).toBe('family');
+    await expect(page.locator('.bm-tester-edit-status')).not.toHaveText(/^Updated/);
+
+    // Released, then pressed anew: edit mode assigns again.
+    await pad.setButton(2, 0);
+    await page.waitForTimeout(300);
+    await pad.setButton(2, 1);
+    await expect(page.locator('.bm-tester-edit-status')).toHaveText(/^Updated GP_B3/);
+    expect(await page.evaluate(() => window.__bm.getGamepadProfileDefinition(0).mapping.GP_B3)).toMatchObject({ kind: 'button', index: 2 });
+  });
+});

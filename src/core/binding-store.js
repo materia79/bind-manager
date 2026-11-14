@@ -83,25 +83,38 @@ export class BindingStore {
   }
 
   /**
-   * Returns a plain-object snapshot with both keyboard and gamepad bindings per action,
-   * suitable for JSON serialisation and persistence.
+   * Returns a plain-object snapshot with both keyboard and gamepad bindings per
+   * registered action, suitable for JSON serialisation and export.
    * @returns {Record<string, { keyboard: (string|null)[], gamepad: (string|null)[] }>}
    */
   getAll() {
     const result = {};
     for (const action of this._registry.getAll()) {
-      // defineProperty, not assignment: an id of "__proto__" would hit the prototype setter
-      Object.defineProperty(result, action.id, {
-        value: {
-          keyboard: [...(this._keyboard.get(action.id) ?? [])],
-          gamepad:  [...(this._gamepad.get(action.id)  ?? [])],
-        },
-        enumerable: true,
-        writable: true,
-        configurable: true,
+      _defineOwn(result, action.id, {
+        keyboard: [...(this._keyboard.get(action.id) ?? [])],
+        gamepad:  [...(this._gamepad.get(action.id)  ?? [])],
       });
     }
     return result;
+  }
+
+  /**
+   * The snapshot to persist: getAll() plus the raw saved entries of actions that
+   * are not registered (yet), carried through unchanged so a save made before
+   * a lazily registered action exists does not wipe its saved bindings.
+   * @returns {Record<string, unknown>}
+   */
+  getAllForStorage() {
+    const result = this.getAll();
+    for (const [id, saved] of this._saved) {
+      if (!this._registry.has(id)) _defineOwn(result, id, saved);
+    }
+    return result;
+  }
+
+  /** Forget the saved data loaded by init() (after the storage was cleared). */
+  clearSaved() {
+    this._saved = new Map();
   }
 
   /**
@@ -263,6 +276,11 @@ export class BindingStore {
       }
     }
   }
+}
+
+/** defineProperty, not assignment: an id of "__proto__" would hit the prototype setter. */
+function _defineOwn(obj, key, value) {
+  Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
 /**

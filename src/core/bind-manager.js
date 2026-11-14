@@ -102,9 +102,10 @@ export function createBindManager(options = {}) {
   mouseRuntime.start();
   guard.start();
 
-  // Persist to storage once per committed change (resetAll() is a single commit)
+  // Persist to storage once per committed change (resetAll() is a single commit).
+  // Saved entries of actions not registered yet are carried through.
   const unsubPersist = store.onCommit(() => {
-    storageAdapter.save(store.getAll());
+    storageAdapter.save(store.getAllForStorage());
   });
 
   // Debug toggle: F5 opens/closes the modal (prevents browser refresh in debug mode)
@@ -461,12 +462,15 @@ export function createBindManager(options = {}) {
      * Delete everything persisted for this namespace (bindings and gamepad
      * profile overrides) via the storage adapter's clear(). In-memory
      * bindings are untouched; the next binding change is persisted again.
+     * Saved bindings of actions not registered yet are dropped as well, so
+     * those actions get their defaults when they register.
      * Call resetAll() first to also return the live bindings to defaults.
      * @returns {boolean} false when the storage adapter has no clear()
      */
     clearStorage() {
       if (typeof storageAdapter.clear !== 'function') return false;
       storageAdapter.clear();
+      store.clearSaved();
       return true;
     },
 

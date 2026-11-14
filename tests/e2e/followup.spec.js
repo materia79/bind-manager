@@ -50,3 +50,27 @@ test.describe('F3: Reset edits in the tester', () => {
     expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
   });
 });
+
+
+test.describe('F5: one tool open at a time', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  for (const [first, second] of [['openControllerTest', 'openInputRemap'], ['openInputRemap', 'openControllerTest']]) {
+    test(`${first}() then ${second}(): only the second is open, has focus, and Escape closes it`, async ({ page }) => {
+      const pad = await installFakeGamepad(page, XBOX_SERIES);
+      await openHarness(page);
+      await pad.connect();
+      await page.evaluate((m) => window.__bm[m](), first);
+      await page.evaluate((m) => window.__bm[m](), second);
+      const tester = page.locator('.bm-tester-modal.bm-tester-open');
+      const remap = page.locator('.bm-debug-modal.bm-debug-open');
+      const [open, closed] = second === 'openInputRemap' ? [remap, tester] : [tester, remap];
+      await expect(open).toHaveCount(1);
+      await expect(closed).toHaveCount(0);
+      expect(await page.evaluate((sel) => !!document.activeElement.closest(sel), second === 'openInputRemap' ? '.bm-debug-modal' : '.bm-tester-modal')).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(open).toHaveCount(0);
+      await expect(closed).toHaveCount(0);
+    });
+  }
+});

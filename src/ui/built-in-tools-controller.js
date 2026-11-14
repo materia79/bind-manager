@@ -51,13 +51,17 @@ export function createBuiltInToolsController(manager, options = {}) {
     controllerTester = null;
   }
 
+  // One tool at a time: opening one closes the other first, so the open tool
+  // is both the visible one and the topmost dialog (Escape, Tab, focus).
   function openInputRemap() {
     if (!enabledTools.inputRemap) return;
+    if (controllerTester?.isOpen()) controllerTester.close();
     inputDebug?.open();
   }
 
   function openControllerTest() {
     if (!enabledTools.controllerTest) return;
+    if (inputDebug?.isOpen()) inputDebug.close();
     controllerTester?.open();
   }
 

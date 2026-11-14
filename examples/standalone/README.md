@@ -140,3 +140,6 @@ binds.destroy();
 - Keep action labels short and descriptive; these labels are used in modal and hint UI.
 - Group related actions (`Movement`, `Combat`, `UI`) for easier rebinding navigation.
 - The UI scales with the viewport (`--bm-u`); set `--bm-u: 1px` on an ancestor for fixed sizes, or `--bm-font-*` for your own text sizes (root README, "Sizing and Theming").
+  <!-- STATUS AT THIS VERSION: being changed; replace this note when it is. -->
+  Status at this version: the built-in tools' text follows only a `--bm-u` set on `:root` and ignores `--bm-font-*`.
+  <!-- END STATUS -->

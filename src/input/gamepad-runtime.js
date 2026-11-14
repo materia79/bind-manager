@@ -484,10 +484,10 @@ export class GamepadRuntime {
   // ── Private ───────────────────────────────────────────────────────────────
 
   _handleConnect(e) {
-    this._resolvedProfileByGamepadIndex.set(
-      e.gamepad.index,
-      resolveGamepadProfile(e.gamepad, { override: this._getOverrideForGamepadId(e.gamepad.id) }),
-    );
+    // Resolve through the override- and edit-aware path, so in-memory mapping
+    // edits keep applying after a reconnect.
+    this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
+    this._getResolvedProfileForGamepad(e.gamepad);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-connected', { detail: e.gamepad }));
     }
@@ -757,23 +757,34 @@ export class GamepadRuntime {
     if (this._resolvedProfileByGamepadIndex.has(gamepad.index)) {
       return this._resolvedProfileByGamepadIndex.get(gamepad.index);
     }
-    const resolvedProfile = resolveGamepadProfile(gamepad, {
+    const resolved = this._resolveForGamepad(gamepad);
+    this._resolvedProfileByGamepadIndex.set(gamepad.index, resolved);
+    return resolved;
+  }
+
+  /**
+   * Resolve a gamepad with its manual override and any in-memory edited
+   * definition layered on top (uncached).
+   * @param {Gamepad} gamepad
+   * @returns {any}
+   * @private
+   */
+  _resolveForGamepad(gamepad) {
+    const resolved = resolveGamepadProfile(gamepad, {
       override: this._getOverrideForGamepadId(gamepad.id),
     });
     const identityKey = getGamepadIdentityKey(gamepad.id);
     const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
-    const finalResolved = editedDefinition
-      ? {
-          ...resolvedProfile,
-          source: 'memory-edit',
-          definition: deepClone(editedDefinition),
-          profileKey: editedDefinition.key ?? resolvedProfile.profileKey ?? null,
-          profileHint: editedDefinition.profileHint ?? resolvedProfile.profileHint,
-          family: editedDefinition.family ?? resolvedProfile.family,
-        }
-      : resolvedProfile;
-    this._resolvedProfileByGamepadIndex.set(gamepad.index, finalResolved);
-    return finalResolved;
+    if (!editedDefinition) return resolved;
+    return {
+      ...resolved,
+      source: 'memory-edit',
+      definition: deepClone(editedDefinition),
+      profileKey: editedDefinition.key ?? resolved.profileKey ?? null,
+      profileHint: editedDefinition.profileHint ?? resolved.profileHint,
+      family: editedDefinition.family ?? resolved.family,
+      displayName: editedDefinition.sourceName || resolved.displayName,
+    };
   }
 
   _getOverrideForGamepadId(gamepadId) {
@@ -790,21 +801,7 @@ export class GamepadRuntime {
     const payload = Object.fromEntries(this._profileOverrides);
     this._onProfileOverridesChange?.(payload);
     if (typeof window !== 'undefined') {
-      const identityKey = getGamepadIdentityKey(gamepadId);
-      const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
-      const resolved = resolveGamepadProfile(gamepad, {
-        override: this._getOverrideForGamepadId(gamepadId),
-      });
-      const resolvedProfile = editedDefinition
-        ? {
-            ...resolved,
-            source: 'memory-edit',
-            definition: deepClone(editedDefinition),
-            profileKey: editedDefinition.key ?? resolved.profileKey ?? null,
-            profileHint: editedDefinition.profileHint ?? resolved.profileHint,
-            family: editedDefinition.family ?? resolved.family,
-          }
-        : resolved;
+      const resolvedProfile = this._resolveForGamepad(gamepad);
       window.dispatchEvent(new CustomEvent('bm-gamepad-profile-changed', {
         detail: {
           gamepadIndex,

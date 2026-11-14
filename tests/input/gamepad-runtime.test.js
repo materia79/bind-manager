@@ -956,3 +956,34 @@ describe('GamepadRuntime — A3: hat D-pad diagonals', () => {
     expect(active).toEqual(expected);
   });
 });
+
+describe('GamepadRuntime — A5: in-memory mapping edits survive a reconnect', () => {
+  it('uses the edited mapping after disconnect + connect', () => {
+    const PAD_ID = '054c-0ce6-DualSense Wireless Controller';
+    __mockControllerProfile = {
+      vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
+      productId: '0ce6',
+      family: 'dualsense',
+      mapping: { GP_B0: { kind: 'button', index: 1 } },
+    };
+    const { runtime } = setup();
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [makeMappedGamepad(PAD_ID, 0)],
+    });
+    const events = [];
+    runtime.onAction('jump', (e) => events.push(e.type));
+
+    expect(runtime.setProfileMappingEntry(0, 'GP_B0', { kind: 'button', index: 5 })).toBe(true);
+    runtime._handleDisconnect({ gamepad: makeMappedGamepad(PAD_ID, 0) });
+    runtime._handleConnect({ gamepad: makeMappedGamepad(PAD_ID, 0) });
+
+    expect(runtime.getResolvedProfile(0).source).toBe('memory-edit');
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 1: true }));  // old index: nothing
+    expect(events).toEqual([]);
+    runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 5: true }));  // edited index
+    expect(events).toEqual(['pressed']);
+  });
+});

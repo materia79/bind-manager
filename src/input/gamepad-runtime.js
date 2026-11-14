@@ -25,6 +25,89 @@ import {
   resolveGamepadProfile,
 } from './gamepad-profile-resolver.js';
 
+// A hat switch reported as one axis: eight positions 2/7 apart, clockwise from
+// up at -1 (up, up-right, right, down-right, down, down-left, left, up-left);
+// neutral is outside the range (9/7 in Firefox on Windows).
+const HAT_STEP = 2 / 7;
+const HAT_SECTOR_DIRECTIONS = [
+  ['up'], ['up', 'right'], ['right'], ['down', 'right'],
+  ['down'], ['down', 'left'], ['left'], ['up', 'left'],
+];
+
+/** @returns {number} sector 0-7, or -1 for neutral / not a hat value */
+function hatSector(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return -1;
+  const sector = Math.round((raw + 1) / HAT_STEP);
+  if (sector < 0 || sector > 7) return -1;
+  return Math.abs(raw - (-1 + sector * HAT_STEP)) <= HAT_STEP / 2 + 1e-6 ? sector : -1;
+}
+
+/**
+ * Decode a hat-switch axis value into D-pad directions. A diagonal sets both
+ * of its directions; neutral (or any value off the eight positions) sets none.
+ * @param {number} raw - the raw axis value
+ * @returns {{ up: boolean, right: boolean, down: boolean, left: boolean }}
+ */
+export function decodeHatValue(raw) {
+  const directions = HAT_SECTOR_DIRECTIONS[hatSector(raw)] ?? [];
+  return {
+    up: directions.includes('up'),
+    right: directions.includes('right'),
+    down: directions.includes('down'),
+    left: directions.includes('left'),
+  };
+}
+
+/**
+ * True when a `kind: 'hat'` mapping entry is active for a raw axis value.
+ * An entry whose `value` is a cardinal position (up/right/down/left) is also
+ * active on both neighbouring diagonals; an entry on a diagonal position is
+ * active only there. A `value` off the eight positions falls back to
+ * `|raw - value| <= tolerance` (default 0.2).
+ * @param {number} raw - the raw axis value at `entry.index`
+ * @param {{ value: number, tolerance?: number }} entry
+ * @returns {boolean}
+ */
+export function isHatEntryActive(raw, entry) {
+  if (!entry || typeof entry.value !== 'number' || !Number.isFinite(entry.value)) return false;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return false;
+  const target = hatSector(entry.value);
+  if (target < 0) {
+    const tolerance = typeof entry.tolerance === 'number' && entry.tolerance > 0 ? entry.tolerance : 0.2;
+    return Math.abs(raw - entry.value) <= tolerance;
+  }
+  const current = hatSector(raw);
+  if (current < 0) return false;
+  if (target % 2 === 1) return current === target;
+  return HAT_SECTOR_DIRECTIONS[current].includes(HAT_SECTOR_DIRECTIONS[target][0]);
+}
+
+/**
+ * Activation magnitude [0, 1] of one controller-definition mapping entry on a
+ * raw gamepad: the button value, the axis value in the entry's direction, or
+ * 1 / 0 for a hat entry (see isHatEntryActive).
+ * @param {{ buttons?: ArrayLike<{ pressed?: boolean, value?: number }>, axes?: ArrayLike<number> }} gamepad
+ * @param {{ kind: 'button' | 'axis' | 'hat', index: number, direction?: 'negative' | 'positive', value?: number, tolerance?: number } | null} entry
+ * @returns {number}
+ */
+export function readMappingEntryMagnitude(gamepad, entry) {
+  if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.index)) return 0;
+  if (entry.kind === 'hat') {
+    return isHatEntryActive(gamepad?.axes?.[entry.index], entry) ? 1 : 0;
+  }
+  if (entry.kind === 'button') {
+    const btn = gamepad?.buttons?.[entry.index];
+    if (!btn) return 0;
+    const value = typeof btn.value === 'number' ? btn.value : (btn.pressed ? 1 : 0);
+    return Math.max(0, value);
+  }
+  if (entry.kind === 'axis') {
+    const raw = gamepad?.axes?.[entry.index] ?? 0;
+    return entry.direction === 'negative' ? Math.max(0, -raw) : Math.max(0, raw);
+  }
+  return 0;
+}
+
 function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
@@ -842,20 +925,7 @@ export class GamepadRuntime {
    * @private
    */
   _readDirectionalMagnitude(gamepad, entry) {
-    if (entry.kind === 'hat') {
-      return this._isHatDirectionActive(gamepad, entry) ? 1 : 0;
-    }
-
-    if (entry.kind === 'button') {
-      const btn = gamepad.buttons?.[entry.index];
-      if (!btn) return 0;
-      const value = typeof btn.value === 'number' ? btn.value : (btn.pressed ? 1 : 0);
-      return Math.max(0, value);
-    }
-
-    const raw = gamepad.axes?.[entry.index] ?? 0;
-    if (entry.direction === 'negative') return Math.max(0, -raw);
-    return Math.max(0, raw);
+    return readMappingEntryMagnitude(gamepad, entry);
   }
 
   /**
@@ -865,10 +935,7 @@ export class GamepadRuntime {
    * @private
    */
   _isHatDirectionActive(gamepad, entry) {
-    const raw = gamepad.axes?.[entry.index];
-    if (typeof raw !== 'number' || !Number.isFinite(raw)) return false;
-    const tolerance = typeof entry.tolerance === 'number' ? entry.tolerance : 0.2;
-    return Math.abs(raw - entry.value) <= tolerance;
+    return isHatEntryActive(gamepad.axes?.[entry.index], entry);
   }
 
   /**

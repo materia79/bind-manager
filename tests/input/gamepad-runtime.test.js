@@ -919,3 +919,40 @@ describe('GamepadRuntime — extra buttons GP_B17..GP_B23', () => {
     for (const code of EXTRA) expect(runtime.isPressed(code)).toBe(false);
   });
 });
+
+describe('GamepadRuntime — A3: hat D-pad diagonals', () => {
+  const HAT_MAPPING = {
+    GP_B12: { kind: 'hat', index: 9, value: -1.0, tolerance: 0.2 },
+    GP_B13: { kind: 'hat', index: 9, value: 0.142857, tolerance: 0.2 },
+    GP_B14: { kind: 'hat', index: 9, value: 0.714286, tolerance: 0.2 },
+    GP_B15: { kind: 'hat', index: 9, value: -0.428571, tolerance: 0.2 },
+  };
+  const step = 2 / 7;
+  // [raw hat value, expected active D-pad codes]
+  const CASES = [
+    [-1, ['GP_B12']],
+    [-1 + step, ['GP_B12', 'GP_B15']],     // up-right
+    [-1 + 2 * step, ['GP_B15']],
+    [-1 + 3 * step, ['GP_B13', 'GP_B15']], // down-right
+    [-1 + 4 * step, ['GP_B13']],
+    [-1 + 5 * step, ['GP_B13', 'GP_B14']], // down-left
+    [-1 + 6 * step, ['GP_B14']],
+    [-1 + 7 * step, ['GP_B12', 'GP_B14']], // up-left
+    [9 / 7, []],                           // neutral
+  ];
+
+  it.each(CASES)('hat %d sets %j', (raw, expected) => {
+    __mockControllerProfile = {
+      vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
+      productId: '0ce6',
+      family: 'dualsense',
+      mapping: HAT_MAPPING,
+    };
+    const { runtime } = setup();
+    runtime._processGamepad(makeMappedGamepad(undefined, 0, {}, { 9: raw }));
+    const active = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'].filter((code) => runtime.isPressed(code));
+    expect(active).toEqual(expected);
+  });
+});

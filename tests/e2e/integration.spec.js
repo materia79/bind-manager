@@ -64,3 +64,87 @@ test.describe('J14: Profile editor on a pad without an exact profile', () => {
     expect(pressed).toEqual(['GP_B1:pressed', 'GP_B2:pressed', 'GP_B9:pressed', 'GP_B16:pressed', 'GP_B0:pressed', 'GP_B3:pressed']);
   });
 });
+
+/** Where focus is: which dialog holds it and a short description. */
+async function focusInfo(page) {
+  return page.evaluate(() => {
+    const a = document.activeElement;
+    const where = a === document.body ? 'body'
+      : a.closest('.bm-capture-mini-modal') ? 'mini'
+        : a.closest('.bm-tester-modal') ? 'tester'
+          : a.closest('.bm-debug-modal') ? 'remap'
+            : a.closest('.bm-capture-overlay, .bm-capture-modal') ? 'capture'
+              : a.closest('.bm-overlay') ? 'bindings'
+                : 'other';
+    return { where, cls: typeof a.className === 'string' ? a.className : '', footerId: a.dataset?.footerActionId ?? null };
+  });
+}
+
+const BINDINGS_OPEN = '.bm-overlay[style*="flex"]';
+
+async function openBindingsHarness(page, padSpec = XBOX_SERIES) {
+  const pad = await installFakeGamepad(page, padSpec);
+  await openHarness(page, { actions: 'few' });
+  await pad.connect();
+  await page.evaluate(() => window.__bm.open());
+  await expect(page.locator('.bm-modal')).toBeVisible();
+  return pad;
+}
+
+async function tabTimes(page, n, expectedWhere) {
+  for (let i = 0; i < n; i++) {
+    await page.keyboard.press(i % 7 === 6 ? 'Shift+Tab' : 'Tab');
+    expect((await focusInfo(page)).where, `Tab ${i + 1}`).toBe(expectedWhere);
+  }
+}
+
+for (const tool of [
+  { id: 'controller-test', modal: '.bm-tester-modal.bm-tester-open', where: 'tester' },
+  { id: 'input-debug', modal: '.bm-debug-modal.bm-debug-open', where: 'remap' },
+]) {
+  test.describe(`J5: focus across the bindings modal and ${tool.id}`, () => {
+    test.use({ viewport: { width: 1920, height: 1080 } });
+
+    test('tool from the footer: Tab stays in the tool, close returns to the footer, the modal trap and Escape work', async ({ page }) => {
+      await openBindingsHarness(page);
+      const footer = page.locator(`.bm-footer-action-btn[data-footer-action-id="${tool.id}"]`);
+      await footer.click();
+      await expect(page.locator(tool.modal)).toBeVisible();
+      expect((await focusInfo(page)).where).toBe(tool.where);
+      await tabTimes(page, 30, tool.where);
+
+      await page.locator(`${tool.modal} .bm-tool-close`).click();
+      await expect(page.locator(tool.modal)).toHaveCount(0);
+      expect(await focusInfo(page)).toMatchObject({ where: 'bindings', footerId: tool.id });
+      await tabTimes(page, 30, 'bindings');
+      await page.keyboard.press('Escape');
+      await expect(page.locator(BINDINGS_OPEN)).toHaveCount(0);
+    });
+
+    test('bind capture cancelled, then the tool: focus and Escape work at each step', async ({ page }) => {
+      await openBindingsHarness(page);
+      for (const device of ['keyboard', 'gamepad']) {
+        const slot = page.locator(`.bm-bind-btn[data-action-id="fire"][data-device="${device}"]`);
+        await slot.click();
+        await expect(page.locator('.bm-capture-modal')).toBeVisible();
+        expect((await focusInfo(page)).where, `${device} capture has focus`).toBe('capture');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.bm-capture-modal')).toBeHidden();
+        await expect(page.locator(BINDINGS_OPEN)).toHaveCount(1);
+        expect(await focusInfo(page)).toMatchObject({ where: 'bindings' });
+        expect((await focusInfo(page)).cls).toContain('bm-bind-btn');
+      }
+      const footer = page.locator(`.bm-footer-action-btn[data-footer-action-id="${tool.id}"]`);
+      await footer.click();
+      await expect(page.locator(tool.modal)).toBeVisible();
+      expect((await focusInfo(page)).where).toBe(tool.where);
+      await tabTimes(page, 10, tool.where);
+      await page.keyboard.press('Escape');
+      await expect(page.locator(tool.modal)).toHaveCount(0);
+      expect(await focusInfo(page)).toMatchObject({ where: 'bindings', footerId: tool.id });
+      await tabTimes(page, 10, 'bindings');
+      await page.keyboard.press('Escape');
+      await expect(page.locator(BINDINGS_OPEN)).toHaveCount(0);
+    });
+  });
+}

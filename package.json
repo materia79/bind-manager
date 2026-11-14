@@ -20,10 +20,10 @@
     "build:watch": "node scripts/build.js --watch",
     "demo": "npx --yes serve . -p 3001 --no-clipboard",
     "process_controller_defs": "node scripts/process-controller-defs.js",
-    "test": "vitest run --config tests/hygiene/vitest.guard.config.mjs",
+    "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "hygiene": "vitest run tests/hygiene --config tests/hygiene/vitest.guard.config.mjs",
+    "hygiene": "vitest run tests/hygiene",
     "setup:git": "node scripts/setup-git.mjs"
   },
   "devDependencies": {

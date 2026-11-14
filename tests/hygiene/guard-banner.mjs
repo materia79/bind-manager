@@ -1,5 +1,5 @@
-// vitest globalSetup (wired in tests/hygiene/vitest.guard.config.mjs, which
-// npm test and npm run hygiene use): when this clone's origin is the public
+// vitest globalSetup (wired in vitest.config.js, so npm test, npm run hygiene
+// and a bare npx vitest run all use it): when this clone's origin is the public
 // repository and the installed pre-push guard is missing or damaged, print a
 // framed block to stderr once per run, before the reporter starts. A
 // console.warn inside a passing test is not shown by vitest's reporter.

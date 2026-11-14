@@ -8,7 +8,7 @@
 // OS temp directory with scratch bare repositories as remotes; nothing here
 // talks to a real remote.
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFileSync, execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,6 +36,10 @@ import {
   scanFile,
 } from '../../scripts/pre-push.mjs';
 import { setupGit } from '../../scripts/setup-git.mjs';
+
+// The same limits as the tests that use helpers.js: the hook tests spawn git,
+// sh and node, which outlasts vitest's 5 s next to the full UI suite.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HAS_GIT = spawnSync('git', ['--version'], { windowsHide: true }).status === 0;

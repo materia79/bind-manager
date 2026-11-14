@@ -36,9 +36,9 @@ describe.skipIf(!HAS_GIT)('guard banner', () => {
     s.git(['remote', 'set-url', 'origin', s.pub]);
   });
 
-  it('is wired as a globalSetup of the config npm test and npm run hygiene use', async () => {
-    const { default: config } = await import('./vitest.guard.config.mjs');
+  it('is wired as a globalSetup of the project config (npm test, npm run hygiene, vitest run)', async () => {
+    const { default: config } = await import('../../vitest.config.js');
     expect(config.test.globalSetup.some((p) => /guard-banner\.mjs$/.test(p))).toBe(true);
-    expect(config.test.include).toEqual(['tests/**/*.test.js']); // the base config is kept
+    expect(config.test.include).toEqual(['tests/**/*.test.js']);
   });
 });

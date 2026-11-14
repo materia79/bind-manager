@@ -326,7 +326,9 @@ export function createBindManager(options = {}) {
      *
      * Modes:
      * - merge   (default): apply only actions present in payload
-     * - replace: apply payload actions and clear missing known actions
+     * - replace: apply payload actions and clear missing known actions (keyboard
+     *   and, for v2 payloads, gamepad slots); in v2 a device field missing from
+     *   an entry clears that device too. v1 payloads leave gamepad slots alone.
      *
      * @param {object | string} payload
      * @param {{ mode?: 'merge' | 'replace' }} [options]
@@ -372,13 +374,25 @@ export function createBindManager(options = {}) {
         const shouldProcess = hasEntry || (mode === 'replace' && !incomingActionIds.has(action.id));
         if (!shouldProcess) continue;
 
+        // Per device: the slot values to apply, or null to leave the device untouched.
+        // Replace mode clears (empty source) a missing action and, in v2, a missing
+        // device field. v1 payloads and legacy array entries cannot express gamepad
+        // bindings, so those are kept.
+        const replace = mode === 'replace';
+        const kbSource = hasEntry
+          ? (entry.keyboard ?? (replace && entry.keyboardMissing ? [] : null))
+          : [];
+        const gpSource = payloadVersion < 2 ? null
+          : hasEntry
+            ? (entry.gamepad ?? (replace && entry.gamepadMissing ? [] : null))
+            : [];
+
         let actionChanged = false;
 
         // ── Keyboard slots ──────────────────────────────────────────────────
-        if (!hasEntry || entry.keyboard) {
+        if (kbSource) {
           const kbTarget = Array.from({ length: action.slots }, (_, slot) => {
-            if (!hasEntry) return null;
-            const raw = entry.keyboard[slot];
+            const raw = kbSource[slot];
             if (raw === null || raw === undefined) return null;
             if (typeof raw === 'string') {
               if (isKnownCode(raw)) return raw;
@@ -401,9 +415,9 @@ export function createBindManager(options = {}) {
         }
 
         // ── Gamepad slots (v2 only) ─────────────────────────────────────────
-        if (payloadVersion >= 2 && hasEntry && entry.gamepad) {
+        if (gpSource) {
           const gpTarget = Array.from({ length: action.gamepadSlots }, (_, slot) => {
-            const raw = entry.gamepad[slot];
+            const raw = gpSource[slot];
             if (raw === null || raw === undefined) return null;
             if (typeof raw === 'string') {
               if (isGamepadCode(raw)) return raw;
@@ -734,20 +748,21 @@ function _parseImportPayload(payload) {
  * Normalise a raw binding entry from an import payload into { keyboard, gamepad }.
  * - v1 (array): treated as keyboard-only, gamepad is not provided (null)
  * - v2 (object with keyboard/gamepad): used directly; a missing device field
- *   is treated as not provided (null) and a present non-array field is reported
- *   in `invalidEntries` and also treated as not provided
+ *   is treated as not provided (null, flagged `<device>Missing` so replace mode
+ *   can clear it) and a present non-array field is reported in `invalidEntries`
+ *   and also treated as not provided (but not flagged missing)
  * Returns null if the entry is missing or unrecognisable.
  * @param {unknown} incoming
  * @param {number} payloadVersion
  * @param {string} actionId
  * @param {string[]} invalidEntries
- * @returns {{ keyboard: unknown[] | null, gamepad: unknown[] | null } | null}
+ * @returns {{ keyboard: unknown[] | null, gamepad: unknown[] | null, keyboardMissing: boolean, gamepadMissing: boolean } | null}
  */
 function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntries) {
   if (incoming == null) return null;
   if (Array.isArray(incoming)) {
     // v1 format — keyboard only
-    return { keyboard: incoming, gamepad: null };
+    return { keyboard: incoming, gamepad: null, keyboardMissing: false, gamepadMissing: false };
   }
   if (typeof incoming === 'object' && payloadVersion >= 2) {
     const pickDevice = (device) => {
@@ -760,6 +775,8 @@ function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntri
     return {
       keyboard: pickDevice('keyboard'),
       gamepad:  pickDevice('gamepad'),
+      keyboardMissing: !_hasOwn(incoming, 'keyboard') || incoming.keyboard === undefined,
+      gamepadMissing:  !_hasOwn(incoming, 'gamepad')  || incoming.gamepad  === undefined,
     };
   }
   return null;

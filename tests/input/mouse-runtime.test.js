@@ -482,7 +482,10 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     mouseup(2);
     expect(events).toEqual(['pressed', 'released']);
     expect(mouseRuntime.isPressed('MouseButton2')).toBe(false);
-    expect(contextMenu().defaultPrevented).toBe(true); // still bound in gameplay
+    // still bound in gameplay: a right click's context menu is cancelled
+    const rightClickMenu = new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true });
+    window.dispatchEvent(rightClickMenu);
+    expect(rightClickMenu.defaultPrevented).toBe(true);
     kbRuntime.stop();
     mouseRuntime.stop();
   });
@@ -608,6 +611,47 @@ describe('MouseRuntime focus loss and the gameplay context menu', () => {
     keyup('ShiftLeft');
     kbRuntime.stop();
     mouseRuntime.stop();
+  });
+
+  function contextMenuAt(target, init = {}) {
+    const event = new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it('cancels a right click on the game surface but not in text fields or the bind-manager UI', () => {
+    const { registry, store } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    document.body.innerHTML = `
+      <canvas id="game"></canvas>
+      <textarea id="chat"></textarea>
+      <input id="name" type="text">
+      <input id="toggle" type="checkbox">
+      <div id="notes" contenteditable="true"><span id="inner">x</span></div>
+      <div class="bm-overlay"><button id="bm-btn">Jump</button></div>`;
+    const $ = (id) => document.getElementById(id);
+    // jsdom does not implement isContentEditable (browsers report it for
+    // descendants of a contenteditable element; the e2e spec covers that)
+    Object.defineProperty($('inner'), 'isContentEditable', { value: true });
+
+    expect(contextMenuAt($('game'))).toBe(true);
+    expect(contextMenuAt(document.body)).toBe(true);
+    expect(contextMenuAt($('toggle'))).toBe(true); // not a text field
+    expect(contextMenuAt($('chat'))).toBe(false);
+    expect(contextMenuAt($('name'))).toBe(false);
+    expect(contextMenuAt($('inner'))).toBe(false);
+    expect(contextMenuAt($('bm-btn'))).toBe(false);
+  });
+
+  it('leaves keyboard-opened context menus alone (Shift+F10 / ContextMenu key: button -1)', () => {
+    const { registry, store } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    document.body.innerHTML = '<canvas id="game"></canvas>';
+    const game = document.getElementById('game');
+    expect(contextMenuAt(game, { button: -1 })).toBe(false);
+    // macOS Ctrl+click may report button 0: not a right click, left alone
+    expect(contextMenuAt(game, { button: 0 })).toBe(false);
+    expect(contextMenuAt(game)).toBe(true);
   });
 
   it('does not cancel the context menu while gameplay is suppressed', () => {

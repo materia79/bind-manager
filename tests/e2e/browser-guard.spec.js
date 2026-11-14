@@ -80,6 +80,41 @@ test.describe('Browser shortcut guard (demo)', () => {
     expect((await takeDefaults(page)).find((e) => e.code === 'KeyF').prevented).toBe(false);
   });
 
+  test('a bound right button cancels the context menu on the game surface only, not in text fields', async ({ page }) => {
+    // A second manager with the right button bound and the guard off, so only
+    // the mouse runtime's gameplay handling is in play (the demo's guard is not
+    // engaged: focus never enters its game area).
+    await page.evaluate(async () => {
+      const { createBindManager } = await import('/src/index.js');
+      const storage = { load: () => null, save() {}, clear() {} };
+      window.__aimManager = createBindManager({ namespace: 'e2e-aim', storage, container: document.createElement('div') });
+      window.__aimManager.registerAction({ id: 'aim', defaultBindings: ['MouseButton2'] });
+      const fixture = document.createElement('div');
+      fixture.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:#fff;display:flex;gap:8px;padding:8px';
+      fixture.innerHTML = `
+        <div id="e2e-surface" style="width:120px;height:60px;background:#333"></div>
+        <textarea id="e2e-chat" style="width:120px;height:60px"></textarea>
+        <input id="e2e-name" type="text" style="width:120px;height:60px">
+        <div id="e2e-notes" contenteditable="true" style="width:120px;height:60px"><b id="e2e-bold">bold</b></div>`;
+      document.body.appendChild(fixture);
+      // Registered after the manager's window listeners, so it sees their verdict
+      window.__menus = [];
+      window.addEventListener('contextmenu', (e) => {
+        window.__menus.push({ id: e.target.id, button: e.button, prevented: e.defaultPrevented });
+      });
+    });
+    const prevented = {};
+    for (const id of ['e2e-surface', 'e2e-chat', 'e2e-name', 'e2e-bold']) {
+      await page.locator(`#${id}`).click({ button: 'right' });
+      const menus = await page.evaluate(() => window.__menus.splice(0));
+      expect(menus.length, id).toBe(1);
+      expect(menus[0].button, id).toBe(2);
+      prevented[id] = menus[0].prevented;
+    }
+    expect(prevented).toEqual({ 'e2e-surface': true, 'e2e-chat': false, 'e2e-name': false, 'e2e-bold': false });
+    await page.evaluate(() => window.__aimManager.destroy());
+  });
+
   test('binds a wheel notch from the remap UI', async ({ page }) => {
     await page.locator('#open-btn').click();
     const row = page.locator('.bm-action-row', { hasText: 'Previous Item' });

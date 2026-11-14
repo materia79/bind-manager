@@ -22,14 +22,16 @@
  *   preventDefault fires on mousedown/mouseup (Firefox) and auxclick
  *   (Chrome), only when the button resolves to a bound action. The primary
  *   button is exempt so focus/selection semantics stay intact.
- * - During gameplay the context menu is cancelled while the right button
- *   (bare, or as a combo with the held modifiers) is bound, so the menu cannot
- *   swallow its mouseup
+ * - During gameplay the context menu of a right click (button 2) is cancelled
+ *   while the right button (bare, or as a combo with the held modifiers) is
+ *   bound, so the menu cannot swallow its mouseup; text fields and the
+ *   bind-manager UI keep their menu
  * - Window blur and the page becoming hidden release every held button
  *   (mouseups are lost then) and reset the wheel notch counter
  */
 import { buildComboCode } from './key-names.js';
 import { WheelNotchCounter } from './wheel-notches.js';
+import { isExemptInputTarget } from './browser-shortcut-guard.js';
 
 const WHEEL_CODE = /(^|\+)MouseWheel(Up|Down)$/;
 
@@ -355,10 +357,14 @@ export class MouseRuntime {
    * During gameplay a bound right button must not open the context menu: on
    * Linux/macOS it opens on mousedown and swallows the mouseup, leaving
    * MouseButton2 stuck. Capture has its own listener (_onContextMenu).
+   * Only a real right click (button 2) is cancelled: keyboard-opened menus
+   * (Shift+F10, ContextMenu key: button -1) and macOS Ctrl+click (may report
+   * button 0) are left alone, as are text fields and the bind-manager UI.
    * @private
    */
   _onGameplayContextMenu(event) {
-    if (this._suppressGameplay) return;
+    if (this._suppressGameplay || event.button !== 2) return;
+    if (isExemptInputTarget(event.target)) return;
     const modifiers = this._keyboardRuntime.getHeldModifiers();
     const dispatchCode = this._resolveDispatchCode(this._buttonCode(2), modifiers);
     if (this._isBoundNonPrimary(2, dispatchCode)) event.preventDefault();

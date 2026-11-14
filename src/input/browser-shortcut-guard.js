@@ -375,9 +375,7 @@ export class BrowserShortcutGuard {
    */
   _shouldHandle(event) {
     if (!this.isEngaged()) return false;
-    const el = event.target;
-    if (_isEditable(el)) return false;
-    if (el && typeof el.closest === 'function' && el.closest(BM_UI_SELECTOR)) return false;
+    if (isExemptInputTarget(event.target)) return false;
     this._maybeArmLeaveGuard();
     return true;
   }
@@ -512,6 +510,17 @@ export class BrowserShortcutGuard {
 function _toArray(value) {
   if (value == null) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * True for event targets that keep their browser defaults even while the game
+ * owns input: text fields and anything inside the bind-manager UI. Shared with
+ * MouseRuntime's gameplay context-menu handling (not part of the public API).
+ * @param {EventTarget | null} el
+ */
+export function isExemptInputTarget(el) {
+  if (_isEditable(el)) return true;
+  return !!(el && typeof el.closest === 'function' && el.closest(BM_UI_SELECTOR));
 }
 
 /** Text fields keep every browser default (typing, editing shortcuts, context menu). */

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Bind Manager Standalone Example</title>
+    <link rel="icon" href="data:," />
+    <style>
+      /*
+       * Optional host sizing. The library's UI scales with --bm-u (1px at
+       * 1920x1080). Min/max of the unit take effect on :root only; "html:root"
+       * wins over the library's own :root rule, which is injected later.
+       */
+      html:root {
+        --bm-u-max: 1.5px;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #10121c;
+        color: #d8dcf0;
+        font: 15px/1.4 system-ui, -apple-system, sans-serif;
+      }
+
+      button {
+        font: inherit;
+        padding: 6px 14px;
+        margin-right: 8px;
+      }
+
+      #log {
+        margin-top: 16px;
+        max-height: 60vh;
+        overflow: auto;
+        background: #0a0b12;
+        padding: 12px;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="open-binds" type="button">Key Bindings</button>
+    <button id="open-tester" type="button">Controller Test</button>
+    <pre id="log"></pre>
+
+    <script type="module">
+      import { createBindManager } from '../../src/index.js';
+
+      const logEl = document.getElementById('log');
+      const log = (...args) => {
+        logEl.textContent += args.join(' ') + '\n';
+      };
+
+      const binds = createBindManager({
+        namespace: 'standalone-example',
+        debug: true,
+        debugKey: 'F5',
+        // Input Remap and Controller Test, opened from the bindings modal's footer
+        builtInTools: true,
+      });
+
+      const save = binds.registerAction({
+        id: 'save',
+        label: 'Save',
+        description: 'Save document',
+        group: 'File',
+        slots: 2,
+        defaultBindings: ['KeyS', null],
+        gamepadSlots: 1,
+        defaultGamepadBindings: ['GP_B9'],
+      });
+
+      const open = binds.registerAction({
+        id: 'open',
+        label: 'Open',
+        description: 'Open document',
+        group: 'File',
+        slots: 1,
+        defaultBindings: ['KeyO'],
+        gamepadSlots: 1,
+        defaultGamepadBindings: ['GP_B0'],
+      });
+
+      save.showHint();
+      open.showHint();
+
+      save.onPressed(() => log('[action] save pressed'));
+      open.onPressed(() => log('[action] open pressed'));
+
+      binds.subscribe((event) => {
+        if (event.type === 'binding-changed') {
+          log('[bind]', event.actionId, event.device, 'slot', String(event.slot), '=>', String(event.newCode));
+        }
+      });
+
+      document.getElementById('open-binds').addEventListener('click', () => binds.open());
+      document.getElementById('open-tester').addEventListener('click', () => binds.openControllerTest());
+
+      log('Example ready. Press F5 or click "Key Bindings".');
+    </script>
+  </body>
+</html>

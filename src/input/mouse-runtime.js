@@ -25,7 +25,8 @@
  * - During gameplay the context menu of a right click (button 2) is cancelled
  *   while the right button (bare, or as a combo with the held modifiers) is
  *   bound, so the menu cannot swallow its mouseup; text fields and the
- *   bind-manager UI keep their menu
+ *   bind-manager UI keep their menu, and a right press there dispatches
+ *   nothing (no 'pressed', so nothing can stay pressed)
  * - Window blur and the page becoming hidden release every held button
  *   (mouseups are lost then) and reset the wheel notch counter
  */
@@ -202,6 +203,10 @@ export class MouseRuntime {
     }
 
     if (this._suppressGameplay) return;
+    // Text fields and the bind-manager UI keep their context menu, which opens
+    // on mousedown on Linux/macOS and swallows the mouseup: a right press there
+    // is not gameplay input, so it never becomes 'pressed' (and cannot stick).
+    if (event.button === 2 && isExemptInputTarget(event.target)) return;
 
     const modifiers = this._keyboardRuntime.getHeldModifiers();
     const dispatchCode = this._resolveDispatchCode(rawCode, modifiers);

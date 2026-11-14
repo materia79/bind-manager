@@ -216,48 +216,225 @@ test.describe('scale invariance', () => {
   });
 });
 
+const NO_JUMP_VIEWPORTS = [
+  { width: 1920, height: 1080 },
+  { width: 1000, height: 600 },
+  { width: 390, height: 844 },
+  { width: 820, height: 1180 },
+  { width: 1366, height: 600 },
+];
+const LONG_ID = `${'Very Long Vendor Controller Name '.repeat(6)}(STANDARD GAMEPAD Vendor: 1234 Product: 5678)`.slice(0, 200);
+
+/** Boxes of the given selectors (first match each), rounded to 1/100 px. */
+async function boxesOf(page, selectors) {
+  return page.evaluate((sels) => Object.fromEntries(sels.map((s) => {
+    const el = document.querySelector(s);
+    if (!el) return [s, null];
+    const r = el.getBoundingClientRect();
+    return [s, [r.x, r.y, r.width, r.height].map((v) => Math.round(v * 100) / 100)];
+  })), selectors);
+}
+
+function expectSameBoxes(ref, got, label) {
+  for (const [s, box] of Object.entries(ref)) {
+    expect(got[s], `${label}: ${s} present`).not.toBeNull();
+    const diff = box.map((v, i) => Math.abs(v - got[s][i]));
+    expect(Math.max(...diff), `${label}: ${s} ${JSON.stringify(box)} vs ${JSON.stringify(got[s])}`).toBeLessThanOrEqual(0.5);
+  }
+}
+
+const TESTER_FIXED = [
+  '.bm-tester-modal .bm-tester-panel',
+  '.bm-tester-modal .bm-tester-head',
+  '.bm-tester-modal .bm-tester-device',
+  '.bm-tester-modal .bm-tester-profile-chip',
+  '.bm-tester-modal .bm-tester-profile-select',
+  '.bm-tester-modal .bm-tester-close-btn',
+  '.bm-tester-modal .bm-tester-body',
+];
+const REMAP_FIXED = [
+  '.bm-debug-modal .bm-debug-panel',
+  '.bm-debug-modal .bm-debug-head',
+  '.bm-debug-modal .bm-debug-device',
+  '.bm-debug-modal .bm-debug-profile-select',
+  '.bm-debug-modal .bm-debug-body',
+];
+const MINI_FIXED = ['.bm-capture-mini-panel', '.bm-capture-mini-panel .bm-tool-head', '.bm-capture-mini-body'];
+
+for (const vp of NO_JUMP_VIEWPORTS) {
+  test.describe(`one fixed box in every state @ ${vp.width}x${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test('tester: panel and header never move or resize', async ({ page }) => {
+      const pad = await openDemo(page, { connect: false });
+      const panel = await openTester(page);
+      const ref = await boxesOf(page, TESTER_FIXED);
+      const box = ref[TESTER_FIXED[0]];
+      expect(box[0]).toBeGreaterThanOrEqual(0);
+      expect(box[1]).toBeGreaterThanOrEqual(0);
+      expect(box[0] + box[2]).toBeLessThanOrEqual(vp.width);
+      expect(box[1] + box[3]).toBeLessThanOrEqual(vp.height);
+      const check = async (label) => {
+        await frames(page);
+        expectSameBoxes(ref, await boxesOf(page, TESTER_FIXED), label);
+      };
+      await check('no pad');
+
+      await pad.connect();
+      await expect(panel.locator('.bm-tester-profile-select')).toBeEnabled();
+      await check('idle');
+      await pad.setAxes({ 0: -1, 1: -1 });
+      await pad.setButtons({ 0: 1, 5: 1 });
+      await expect(panel.locator('[data-code="GP_B0"]')).toHaveClass(/bm-active/);
+      await check('stick + 2 buttons');
+      await panel.locator('.bm-tester-debug-btn').click();
+      await check('debug');
+      await panel.locator('.bm-tester-debug-btn').click();
+      await panel.locator('.bm-tester-editor-btn').click();
+      await check('editor');
+      await panel.locator('.bm-tester-debug-btn').click();
+      await check('both');
+      for (let i = 0; i < 30; i++) {
+        await pad.setAxes({ 0: Math.sin(i), 1: Math.cos(i), 2: (i % 7) / 3.5 - 1, 3: -(i % 5) / 5 });
+        await pad.setButtons({ [i % 16]: 1, [(i + 7) % 16]: 0, 6: (i % 10) / 10, 7: 1 - (i % 10) / 10 });
+        await check(`frame ${i}`);
+      }
+      await pad.disconnect();
+      await check('disconnected');
+      await pad.connect();
+      await expect(panel.locator('.bm-tester-profile-select')).toBeEnabled();
+      await check('reconnected');
+      await pad.disconnect();
+      await pad.connect({ id: LONG_ID });
+      await expect(panel.locator('.bm-tester-device')).toHaveAttribute('title', new RegExp(`^${LONG_ID.slice(0, 20)}`));
+      await check('200-character id');
+      await pad.disconnect();
+      await pad.connect({ id: 'Big Pad (Vendor: 1111 Product: 2222)', buttonCount: 32, axisCount: 16 });
+      await pad.setButtons({ 20: 1, 31: 1 });
+      await pad.setAxes({ 12: 1 });
+      await expect(panel.locator('.bm-tester-raw-buttons span')).toHaveCount(32);
+      await check('32 buttons / 16 axes');
+    });
+
+    test('Input Remap and the capture mini modal never move or resize during a guided step', async ({ page }) => {
+      const pad = await openDemo(page);
+      await page.locator('.bm-footer-action-btn[data-footer-action-id="input-debug"]').click();
+      const panel = page.locator(REMAP);
+      await expect(panel).toBeVisible();
+      const ref = await boxesOf(page, REMAP_FIXED);
+      const check = async (label) => {
+        await frames(page);
+        expectSameBoxes(ref, await boxesOf(page, REMAP_FIXED), label);
+      };
+      await panel.locator('.bm-debug-start-btn').click();
+      await check('normalizing');
+      await expect(panel.locator('.bm-debug-capture-btn')).toBeEnabled({ timeout: 6000 });
+      await check('baseline captured');
+      await pad.setAxes({ 0: -1 });
+      await expect(panel.locator('.bm-debug-live-state')).toHaveText('Strongest signal');
+      await check('live');
+      await pad.reset();
+      await panel.locator('.bm-debug-capture-btn').click();
+      const mini = page.locator('.bm-capture-mini-modal.bm-open .bm-capture-mini-panel');
+      await expect(mini).toBeVisible();
+      await check('mini open (remap)');
+      const miniRef = await boxesOf(page, MINI_FIXED);
+      const mbox = miniRef[MINI_FIXED[0]];
+      expect(mbox[0] + mbox[2]).toBeLessThanOrEqual(vp.width);
+      expect(mbox[1] + mbox[3]).toBeLessThanOrEqual(vp.height);
+      await pad.setButton(0, 1);
+      await expect(mini.locator('.bm-capture-mini-live-state')).toHaveText('Strongest signal');
+      for (let i = 0; i < 5; i++) {
+        await pad.setButton(i % 4, (i % 3) / 2);
+        await frames(page);
+        expectSameBoxes(miniRef, await boxesOf(page, MINI_FIXED), `mini signal ${i}`);
+      }
+      await expect(mini).toBeHidden({ timeout: 8000 });
+      await check('step captured');
+    });
+  });
+}
+
 for (const vp of [{ width: 1000, height: 600 }, { width: 390, height: 844 }]) {
   test.describe(`below the floor @ ${vp.width}x${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test('tester panel fits the viewport and scrolls', async ({ page }) => {
+    test('tester body scrolls inside the fixed panel, one column, opened sections are scrolled into view', async ({ page }) => {
       await openDemo(page);
       const panel = await openTester(page);
+      const ref = await panel.boundingBox();
+      const body = panel.locator('.bm-tester-body');
       await panel.locator('.bm-tester-debug-btn').click();
+      await frames(page);
+      // the opened section is visible inside the body
+      const visible = async (sel) => page.evaluate((s) => {
+        const b = document.querySelector('.bm-tester-modal .bm-tester-body').getBoundingClientRect();
+        const r = document.querySelector(`.bm-tester-modal ${s}`).getBoundingClientRect();
+        return r.top < b.bottom - 20 && r.bottom > b.top + 20;
+      }, sel);
+      expect(await visible('.bm-tester-debug')).toBe(true);
       await panel.locator('.bm-tester-editor-btn').click();
       await frames(page);
-      const box = await panel.boundingBox();
-      expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.y).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width).toBeLessThanOrEqual(vp.width);
-      expect(box.y + box.height).toBeLessThanOrEqual(vp.height);
-      const scrolled = await panel.evaluate((el) => {
-        const can = el.scrollHeight > el.clientHeight;
-        el.scrollTop = 200;
-        return { can, top: el.scrollTop };
-      });
-      expect(scrolled.can).toBe(true);
-      expect(scrolled.top).toBeGreaterThan(0);
-      // one column: the side panel sits below the pad
+      expect(await visible('.bm-tester-editor')).toBe(true);
+      expectSameBox(await panel.boundingBox(), ref, 'after toggles');
+      expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
       const pad = await panel.locator('.bm-tester-pad').boundingBox();
       const side = await panel.locator('.bm-tester-debug').boundingBox();
       expect(side.y).toBeGreaterThanOrEqual(pad.y + pad.height - 1);
     });
 
-    test('Input Remap panel fits the viewport and scrolls', async ({ page }) => {
+    test('Input Remap body scrolls inside the fixed panel', async ({ page }) => {
       await openDemo(page);
       await page.locator('.bm-footer-action-btn[data-footer-action-id="input-debug"]').click();
       const panel = page.locator(REMAP);
       await expect(panel).toBeVisible();
-      const box = await panel.boundingBox();
-      expect(box.x + box.width).toBeLessThanOrEqual(vp.width);
-      expect(box.y + box.height).toBeLessThanOrEqual(vp.height);
-      // it scrolls when its content is taller than the viewport (it fits at 390x844)
-      expect(await panel.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
-      if (vp.height < 720) expect(await panel.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      expect(await panel.locator('.bm-debug-body').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+      // it scrolls when the content is taller than the box (at 390x844 the content fits)
+      if (vp.height < 720) expect(await panel.locator('.bm-debug-body').evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     });
   });
 }
+
+/** Smallest rendered font size (CSS px) of the visible pad labels. */
+async function smallestPadLabel(page) {
+  return page.evaluate(() => {
+    const svg = document.querySelector('.bm-tester-modal .bm-tester-pad');
+    const scale = svg.getScreenCTM().a;
+    let min = Infinity;
+    for (const el of svg.querySelectorAll('.bm-pad-label, .bm-pad-value')) {
+      if (!el.textContent || el.getClientRects().length === 0) continue;
+      min = Math.min(min, Number(el.getAttribute('font-size')) * scale);
+    }
+    return min;
+  });
+}
+
+test.describe('pad label legibility', () => {
+  test('at least 9 CSS px below the floor (the pad scrolls sideways instead)', async ({ browser }) => {
+    for (const vp of [{ width: 390, height: 844 }, { width: 1000, height: 600 }, { width: 820, height: 1180 }]) {
+      const page = await browser.newPage({ viewport: vp });
+      await openDemo(page);
+      const panel = await openTester(page);
+      await expect(panel.locator('.bm-tester-profile-select')).toBeEnabled();
+      await panel.locator('.bm-tester-debug-btn').click();
+      await frames(page);
+      expect(await smallestPadLabel(page), `${vp.width}x${vp.height}`).toBeGreaterThanOrEqual(9);
+      await page.close();
+    }
+  });
+
+  test('at least 10 CSS px at 1280x720 with a side column open', async ({ browser }) => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await openDemo(page);
+    const panel = await openTester(page);
+    await expect(panel.locator('.bm-tester-profile-select')).toBeEnabled();
+    await panel.locator('.bm-tester-debug-btn').click();
+    await panel.locator('.bm-tester-editor-btn').click();
+    await frames(page);
+    expect(await smallestPadLabel(page)).toBeGreaterThanOrEqual(10);
+    await page.close();
+  });
+});
 
 test.describe('bindings list', () => {
   for (const vp of [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]) {

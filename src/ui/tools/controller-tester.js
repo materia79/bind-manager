@@ -40,6 +40,7 @@ export function createControllerTester(ctx) {
     modal: q('.bm-tester-modal'),
     panel: q('.bm-tester-panel'),
     controller: q('.bm-tester-pad'),
+    body: q('.bm-tester-body'),
     device: q('.bm-tester-device'),
     profileChip: q('.bm-tester-profile-chip'),
     profileSelect: q('.bm-tester-profile-select'),
@@ -213,6 +214,7 @@ export function createControllerTester(ctx) {
 
   /** Show or hide the Debug and Profile editor panels; the tester panel keeps its size. */
   function setPanels(debugOpen, editorOpen) {
+    const opened = debugOpen && !state.debugOpen ? els.debugSection : editorOpen && !state.editorOpen ? els.editorSection : null;
     state.debugOpen = debugOpen;
     state.editorOpen = editorOpen;
     els.debugSection.hidden = !debugOpen;
@@ -223,6 +225,16 @@ export function createControllerTester(ctx) {
     els.panel.classList.toggle('bm-editor-on', editorOpen);
     els.panel.classList.toggle('bm-side-open', debugOpen || editorOpen);
     if (state.isOpen) updateFrame();
+    if (opened) revealInBody(opened);
+  }
+
+  /** In the one-column layout, scroll a just-opened section into view inside the body (the panel stays put). */
+  function revealInBody(section) {
+    const body = els.body;
+    if (!body || body.scrollHeight <= body.clientHeight) return;
+    const delta = section.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    if (delta > 0 && delta < body.clientHeight - 40) return;
+    body.scrollTop += delta;
   }
 
   async function captureSelectedUpdate() {
@@ -399,7 +411,7 @@ export function createControllerTester(ctx) {
 
     state.activeGamepadIndex = gp.index;
     const resolvedProfile = manager.getResolvedGamepadProfile(gp.index);
-    const signature = `${gp.index}:${profileSignature(resolvedProfile)}`;
+    const signature = `${gp.index}:${gp.id}:${profileSignature(resolvedProfile)}`;
     if (signature !== state.lastProfileSignature) {
       state.lastProfileSignature = signature;
       refreshProfileControls(profileControls, gp.index);

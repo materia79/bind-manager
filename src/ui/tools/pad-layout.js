@@ -107,7 +107,7 @@ function stick(side, cx, cy) {
       ? { left: 'GP_A0N', right: 'GP_A0P', up: 'GP_A1N', down: 'GP_A1P' }
       : { left: 'GP_A2N', right: 'GP_A2P', up: 'GP_A3N', down: 'GP_A3P' },
     shape: { type: 'circle', cx, cy, r: STICK_RING_R + STICK_TICK_OUTER },
-    label: { x: cx, y: cy, size: 17, anchor: 'middle', maxWidth: STICK_DOT_R * 2 - 6 },
+    label: { x: cx, y: cy, size: LABEL_S, anchor: 'middle', maxWidth: STICK_DOT_R * 2 - 6 },
   };
 }
 
@@ -139,7 +139,7 @@ function extrasRow() {
   const gap = 20;
   const total = EXTRA_CODES.length * w + (EXTRA_CODES.length - 1) * gap;
   const x0 = (PAD_VIEWBOX.width - total) / 2;
-  return EXTRA_CODES.map((code, i) => centreEl(code, 'extra', rect(x0 + i * (w + gap), 608, w, 36, 8), 17, 8));
+  return EXTRA_CODES.map((code, i) => centreEl(code, 'extra', rect(x0 + i * (w + gap), 608, w, 36, 8), LABEL_S, 8));
 }
 
 const LAYOUTS = {

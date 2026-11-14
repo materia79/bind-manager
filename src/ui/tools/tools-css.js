@@ -5,7 +5,10 @@
  * token), so the tools look the same on every resolution with the same aspect
  * ratio. Panels have a fixed size in u; live values sit in fixed-height boxes so
  * nothing moves when input arrives. Below the floor (narrow or short viewports)
- * panels become one scrolling column.
+ * the tester and Input Remap panels fill the viewport minus 8 px per side, the
+ * capture mini modal keeps its size within it, and the content scrolls inside
+ * a fixed box; the header keeps a fixed height. Below the floor --bm-u is at its
+ * floor (0.6667px), so u lengths there are fixed CSS lengths.
  */
 
 const u = (n) => `calc(${n} * var(--bm-u))`;
@@ -21,6 +24,8 @@ const T = TOOL_PANEL_SIZES;
 const HEAD_H = 64;
 const BODY_PAD = 16;
 const SIDE_W = 480;
+/** Below the floor the pad keeps this width (520px at the u floor) so its smallest label stays >= 9px. */
+const PAD_MIN_W = 780;
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 export const BUILT_IN_TOOLS_CSS = `
@@ -92,7 +97,7 @@ export const BUILT_IN_TOOLS_CSS = `
 }
 .bm-capture-mini-panel .bm-tool-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .bm-tool-device {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   height: ${u(22)};
   line-height: ${u(22)};
@@ -427,28 +432,72 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-capture-mini-live-state { color: #a7eaff; font-size: var(--bm-fs-xs); }
 .bm-capture-mini-live { color: #a7eaff; box-shadow: inset 0 0 0 1px rgba(100, 180, 220, 0.2); background: rgba(9, 18, 27, 0.8); }
 
-/* ---- Below the floor: one column, panel scrolls inside the viewport ---- */
+/* ---- Below the floor: one fixed box per viewport, content scrolls inside it ---- */
 @media (max-width: 1279px), (max-height: 719px) {
   .bm-tester-panel,
-  .bm-debug-panel,
-  .bm-capture-mini-panel {
-    max-width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
-    height: auto;
-    overflow-y: auto;
+  .bm-debug-panel {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
   }
-  .bm-tool-head { flex-wrap: wrap; height: auto; min-height: ${u(HEAD_H)}; padding: ${u(10)} ${u(BODY_PAD)}; }
-  .bm-tool-select { flex: 1 1 ${u(200)}; width: auto; min-width: 0; }
+  .bm-capture-mini-panel {
+    width: min(${u(T.captureMini.width)}, calc(100vw - 16px));
+    height: min(${u(T.captureMini.height)}, calc(100vh - 16px));
+  }
   .bm-tester-body,
   .bm-tester-panel.bm-side-open .bm-tester-body,
-  .bm-debug-body { grid-template-columns: minmax(0, 1fr); flex: none; }
-  .bm-tester-pad-wrap { flex: none; aspect-ratio: 1000 / 660; }
+  .bm-debug-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max-content;
+    align-content: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .bm-tester-main { min-height: auto; }
+  .bm-tester-pad-wrap { flex: none; overflow-x: auto; overflow-y: hidden; }
+  .bm-tester-pad {
+    position: static;
+    width: max(100%, ${u(PAD_MIN_W)});
+    height: auto;
+    aspect-ratio: 1000 / 660;
+  }
+  .bm-tester-side { min-height: auto; }
   .bm-tester-side > section,
-  .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-debug { flex: none; }
-  .bm-tester-raw,
+  .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side > section { flex: none; overflow: visible; }
+  .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { overflow: visible; }
+  .bm-tester-raw { flex: none; height: ${u(208)}; }
   .bm-tester-bindings-section,
   .bm-tester-bindings-list { flex: none; }
+  .bm-debug-guide,
+  .bm-debug-output { overflow: visible; }
   .bm-debug-results { flex: none; height: ${u(360)}; }
-  .bm-capture-mini-body { flex: none; }
+  .bm-capture-mini-body { overflow-y: auto; }
+}
+
+/* Narrow: the tool header takes two fixed rows (title, name, close / chip, select, toggles). */
+@media (max-width: 799px) {
+  .bm-tester-head,
+  .bm-debug-head {
+    flex-wrap: wrap;
+    align-content: space-evenly;
+    row-gap: 0;
+    height: ${u(HEAD_H * 2 - 8)};
+  }
+  .bm-tester-head::after,
+  .bm-debug-head::after { content: ''; flex: 0 0 100%; height: 0; order: 2; }
+  .bm-tester-head > .bm-tool-title,
+  .bm-tester-head > .bm-tool-device,
+  .bm-tester-head > .bm-tool-close,
+  .bm-debug-head > .bm-tool-title,
+  .bm-debug-head > .bm-tool-device,
+  .bm-debug-head > .bm-tool-close { order: 1; }
+  .bm-tester-head > .bm-tool-chip,
+  .bm-tester-head > .bm-tool-select,
+  .bm-tester-head > .bm-tool-toggle,
+  .bm-debug-head > .bm-tool-chip,
+  .bm-debug-head > .bm-tool-select { order: 3; }
+  .bm-tester-head > .bm-tool-select,
+  .bm-debug-head > .bm-tool-select { flex: 1 1 0; width: auto; min-width: 0; }
 }
 `;

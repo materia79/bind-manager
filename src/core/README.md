@@ -466,9 +466,7 @@ These tools are not part of the minimal binding loop, but they are part of the c
 
 Injects the shared stylesheet once, into `<head>`, when the first UI controller mounts. Every length is a multiple of `--bm-u`, every text size a font token; see "Sizing and Theming" in the root README. The built-in tools inject a second stylesheet when they mount.
 
-<!-- STATUS AT THIS VERSION: being changed; replace this note when it is. -->
-Status at this version: the built-in tools' text follows only a `--bm-u` set on `:root` and ignores `--bm-font-*` and an ancestor's `--bm-u` (their lengths do follow an ancestor's `--bm-u`).
-<!-- END STATUS -->
+The built-in tools' text follows the host the same way: their stylesheet re-declares the four `--bm-fs-*` tokens on `.bm-built-in-tools-root`, so an ancestor's `--bm-u` and the host's `--bm-font-*` reach them.
 
 This matters because the core-created UI controllers assume the styles have been injected before rendering.
 

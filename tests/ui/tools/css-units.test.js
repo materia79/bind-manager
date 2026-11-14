@@ -4,12 +4,15 @@ import { BUILT_IN_TOOLS_CSS, TOOL_PANEL_SIZES } from '../../../src/ui/tools/tool
 /**
  * Every length in the tools CSS must be calc(N * var(--bm-u)) or a font token.
  * Allowed exceptions: 1px hairlines, media query conditions, and the agreed
- * below-the-floor limits calc(100vw - 16px) / calc(100vh - 16px) (and 100dvh).
+ * below-the-floor limits calc(100vw - 16px) / calc(100vh - 16px) (and 100dvh),
+ * and the 9px / 10px floors of the re-declared font tokens (as in styles.js).
  */
 function stripAllowed(css) {
   return css
     .replace(/@media[^{]*\{/g, '@media {')
-    .replace(/calc\(100d?v[wh] - 16px\)/g, 'ALLOWED');
+    .replace(/calc\(100d?v[wh] - 16px\)/g, 'ALLOWED')
+    // The text-size floors of the font tokens, mirrored from styles.js (9px / 10px minimum).
+    .replace(/max\((9|10)px, calc\(\d+ \* var\(--bm-u\)\)\)/g, 'ALLOWED');
 }
 
 describe('built-in tools CSS units', () => {

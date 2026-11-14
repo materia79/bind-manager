@@ -503,7 +503,7 @@ The library injects its stylesheet into `<head>` when the manager mounts (inside
 
 The bindings modal is capped at the viewport whatever these say: at most `100vw - min(32u, 4vw)` wide and `100dvh - min(32u, 4dvh)` tall. The three size variables are no longer declared on `:root` (their defaults are fallbacks where they are used), so `getComputedStyle(document.documentElement)` returns nothing for them. Set the font tokens through `--bm-font-*`; a host value for the internal `--bm-fs-*` tokens is replaced on the library's roots.
 
-For the built-in tools' text, see the caveat under [Known Gaps](#known-gaps).
+The built-in tools (Input Remap, Controller Test) follow the same rules: an ancestor's `--bm-u` and the `--bm-font-*` variables size their text as they size the modal's.
 
 At 1280x720 and below, the smallest text is 9.33px (`--bm-fs-xs`), the others 10px, 11.33px and 14px.
 
@@ -713,12 +713,6 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - The Controller Test's controller view keeps a minimum width of 780u (520px); on phone-sized viewports it scrolls sideways.
 - The smallest text is about 9.3 CSS px at 1280x720 and below.
 - The guided capture has one preset (DualSense layout) and tags every capture with the `dualsense` family.
-
-<!-- STATUS AT THIS VERSION: the item below is being changed; replace this block when it is. -->
-**Being changed (status at this version):**
-
-- **Text size of the built-in tools.** Their lengths follow a `--bm-u` set on an ancestor, but their text follows only a `--bm-u` set on `:root`, and `--bm-font-*` does not reach them.
-<!-- END STATUS -->
 
 ## ThreeJS and Standalone Examples
 

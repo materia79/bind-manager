@@ -29,6 +29,18 @@ const PAD_MIN_W = 780;
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 export const BUILT_IN_TOOLS_CSS = `
+/*
+ * The font tokens again on the tools' root (mirrors styles.js for the bindings
+ * modal), so a --bm-u set on any ancestor resizes the tools' text too, and the
+ * host's --bm-font-xs / -s / -m / -l (on :root or any ancestor) reach it.
+ */
+.bm-built-in-tools-root {
+  --bm-fs-xs: var(--bm-font-xs, max(9px, calc(14 * var(--bm-u))));
+  --bm-fs-s: var(--bm-font-s, max(10px, calc(15 * var(--bm-u))));
+  --bm-fs-m: var(--bm-font-m, calc(17 * var(--bm-u)));
+  --bm-fs-l: var(--bm-font-l, calc(21 * var(--bm-u)));
+}
+
 .bm-debug-modal,
 .bm-tester-modal,
 .bm-capture-mini-modal {

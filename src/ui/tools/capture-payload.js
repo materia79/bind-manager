@@ -60,69 +60,6 @@ export function cloneJson(value) {
   return value == null ? null : JSON.parse(JSON.stringify(value));
 }
 
-export function toDetectedFromMappingEntry(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  if (entry.kind === 'button' && Number.isInteger(entry.index) && entry.index >= 0) return { code: `GP_B${entry.index}`, kind: 'button', index: entry.index, direction: null, score: 1, frames: 1, peakDelta: 1, peakRaw: 1 };
-  if (entry.kind === 'axis' && Number.isInteger(entry.index) && entry.index >= 0) {
-    const direction = entry.direction === 'negative' ? 'negative' : 'positive';
-    return { code: `GP_A${entry.index}${direction === 'negative' ? 'N' : 'P'}`, kind: 'axis', index: entry.index, direction, score: 1, frames: 1, peakDelta: 1, peakRaw: 1 };
-  }
-  return null;
-}
-
-export function getPayloadOverrideMapping(payload) {
-  const mapping = {};
-  const buttonEntries = payload?.controllerDefinition?.buttons || {};
-  for (const [code, entry] of Object.entries(buttonEntries)) {
-    if (!entry || typeof entry.buttonIndex !== 'number') continue;
-    mapping[code] = { kind: 'button', index: entry.buttonIndex };
-  }
-  const axisEntries = payload?.controllerDefinition?.axes || {};
-  for (const [code, entry] of Object.entries(axisEntries)) {
-    if (!entry || typeof entry.axisIndex !== 'number') continue;
-    const direction = entry.direction === 'negative' ? 'negative' : 'positive';
-    mapping[code] = { kind: 'axis', index: entry.axisIndex, direction };
-  }
-  return mapping;
-}
-
-export function normalizePayloadForProcessing(payload, resolvedMapping = {}) {
-  if (!payload || typeof payload !== 'object') return;
-  const preset = getCapturePreset(DEFAULT_CAPTURE_PRESET);
-  payload.sequence = Array.isArray(payload.sequence) && payload.sequence.length > 0 ? payload.sequence : cloneJson(preset.steps);
-  payload.controllerDefinition = payload.controllerDefinition && typeof payload.controllerDefinition === 'object' ? payload.controllerDefinition : { buttons: {}, axes: {} };
-  payload.controllerDefinition.buttons = payload.controllerDefinition.buttons && typeof payload.controllerDefinition.buttons === 'object' ? payload.controllerDefinition.buttons : {};
-  payload.controllerDefinition.axes = payload.controllerDefinition.axes && typeof payload.controllerDefinition.axes === 'object' ? payload.controllerDefinition.axes : {};
-  const existingByExpected = payload.byExpected && typeof payload.byExpected === 'object' ? { ...payload.byExpected } : {};
-  for (const item of Array.isArray(payload.captures) ? payload.captures : []) {
-    if (!item || typeof item.expectedCode !== 'string') continue;
-    existingByExpected[item.expectedCode] = item;
-  }
-  const removedCodes = new Set(Array.isArray(payload?.testerOverrides?.removedCodes) ? payload.testerOverrides.removedCodes : []);
-  const payloadOverrideMapping = getPayloadOverrideMapping(payload);
-  const captures = [];
-  const byExpected = {};
-  for (let i = 0; i < payload.sequence.length; i++) {
-    const step = payload.sequence[i] || {};
-    const expectedCode = step.expectedCode;
-    if (typeof expectedCode !== 'string') continue;
-    const existing = existingByExpected[expectedCode] && typeof existingByExpected[expectedCode] === 'object' ? existingByExpected[expectedCode] : null;
-    let detected = existing?.detected ?? null;
-    if (!detected && !removedCodes.has(expectedCode)) {
-      const mappingEntry = payloadOverrideMapping[expectedCode] || resolvedMapping[expectedCode] || null;
-      detected = toDetectedFromMappingEntry(mappingEntry);
-    }
-    const capture = { step: i + 1, label: step.label || existing?.label || expectedCode, expectedCode, instruction: step.instruction || existing?.instruction || `Captured from tester update for ${expectedCode}.`, skipped: false, matched: !!detected, detected };
-    captures.push(capture);
-    byExpected[expectedCode] = cloneJson(capture);
-  }
-  payload.captures = captures;
-  payload.byExpected = byExpected;
-  if (!payload.runMeta || typeof payload.runMeta !== 'object') payload.runMeta = {};
-  payload.runMeta.totalSteps = payload.sequence.length;
-  payload.runMeta.completedSteps = captures.filter((entry) => !!entry.detected).length;
-}
-
 export function validateCapturePayload(payload) {
   const errors = [];
   const warnings = [];

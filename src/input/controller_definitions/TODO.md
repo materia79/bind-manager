@@ -13,6 +13,8 @@ Open work on captures, the generator and hardware verification. Items are checke
 - [x] Document the capture workflow: [README.md](README.md#adding-a-controller-profile).
 - [x] Record `gamepad.mapping` in the capture JSON (`runMeta.targetController.mapping`); Input Remap and the Controller Test note a standard-mapped pad and the tool's validation refuses its capture; the generator refuses `mapping: 'standard'`, warns on an old 17/18-button, 4-axis capture without the field, and refuses a layout change of an existing profile without `--replace-layout`.
 
+- [x] Removed the dead `normalizePayloadForProcessing`, `getPayloadOverrideMapping` and `toDetectedFromMappingEntry` from `src/ui/tools/capture-payload.js` (no callers) and the stale "tester edit-mode exports" comment in the generator.
+
 ## No longer applicable
 
 - Trigger and PS-button disambiguation in the PS5 sample: PS is raw button 12, the triggers are buttons 6/7 plus axes 3/4; only the D-pad shares axis 9, as the hat it is.
@@ -31,4 +33,3 @@ Open work on captures, the generator and hardware verification. Items are checke
 - [ ] Hardware verification with a real DualSense (Firefox raw layout and Chrome standard mapping): face buttons, D-pad and diagonals, PS, triggers, manual profile override.
 - [ ] Add the Xbox Elite paddle labels (`GP_B17`..`GP_B20` of `GAMEPAD_LABEL_VARIANTS['xbox-elite']`) to the unverified list: they come from research, not from hardware.
 - [ ] Verify the labels in `GAMEPAD_UNVERIFIED_LABELS` (`../gamepad-profiles.js`) on hardware: Xbox `GP_B17` (Share outside Chrome on Windows), Steam `GP_B17`..`GP_B23` (back-button order, the 2026 Steam Controller), Stadia `GP_B17`/`GP_B18` (Assistant and Capture may be swapped).
-- [ ] Dead code in `src/ui/tools/capture-payload.js`: `normalizePayloadForProcessing` has no callers, and `getPayloadOverrideMapping` and `toDetectedFromMappingEntry` are called only from inside it; the comment in `scripts/process-controller-defs.js` about "tester edit-mode exports" refers to that old format.

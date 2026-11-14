@@ -368,8 +368,8 @@ export function toControllerDefinition(capture, fileName, defsDir = DEFS_DIR) {
     };
   }
 
-  // Fallback: include controllerDefinition mappings (useful for tester edit-mode exports
-  // that only modify a subset of captures or have null detected entries).
+  // Fallback: Input Remap also writes controllerDefinition.buttons / .axes; they
+  // fill codes whose capture entry has no detected input (a hand-trimmed capture).
   const fallbackButtons = capture?.controllerDefinition?.buttons;
   if (fallbackButtons && typeof fallbackButtons === 'object') {
     for (const [expected, entry] of Object.entries(fallbackButtons)) {

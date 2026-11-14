@@ -69,7 +69,7 @@ export function createControllerTester(ctx) {
     triggerEditSection: q('.bm-tester-trigger-edit'),
   };
   const codeButtons = [...els.triggerEditSection.querySelectorAll('.bm-tester-code-btn')];
-  const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
+  const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device, note: q('.bm-tester-profile-note') };
 
   const writer = createDomWriter();
   const pad = createPadView(els.controller, writer);

@@ -61,7 +61,7 @@ export function createInputDebugger(ctx) {
     releaseDialog: null,
   };
 
-  const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
+  const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device, note: q('.bm-debug-profile-note') };
   const writer = createDomWriter();
   const liveGrid = bindSignalGrid(els.live, writer);
 

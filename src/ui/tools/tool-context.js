@@ -8,7 +8,7 @@ import {
   parseProfileOverrideValue,
   formatProfileSummary,
 } from './profile-options.js';
-import { gamepadDeviceName, profileChip } from '../profile-display.js';
+import { gamepadDeviceName, profileChip, IGNORED_OVERRIDE_NOTE } from '../profile-display.js';
 
 /**
  * Runtime helpers shared by the built-in tools: DOM lookup inside the mounted root,
@@ -247,7 +247,14 @@ export function createToolContext(manager, root) {
    * @param {{ select: HTMLSelectElement, chip: HTMLElement, device: HTMLElement }} controls
    */
   function refreshProfileControls(controls, preferredGamepadIndex = null) {
-    const { select, chip, device } = controls;
+    const { select, chip, device, note } = controls;
+    // A saved exact profile that does not fit this pad: a note next to the select.
+    const setNote = (ignored) => {
+      if (!note) return;
+      note.hidden = !ignored;
+      note.textContent = ignored ? IGNORED_OVERRIDE_NOTE : '';
+      note.title = ignored ? IGNORED_OVERRIDE_NOTE : '';
+    };
     const gp = preferredGamepadIndex == null ? pickGamepad() : getGamepadByIndex(preferredGamepadIndex) || pickGamepad();
     if (!gp) {
       device.textContent = 'No controller';
@@ -257,6 +264,7 @@ export function createToolContext(manager, root) {
       chip.title = 'Profile: waiting for controller';
       select.innerHTML = '<option value="__auto__">Auto detect</option>';
       select.disabled = true;
+      setNote(false);
       return;
     }
     const resolved = manager.getResolvedGamepadProfile(gp.index);
@@ -276,6 +284,7 @@ export function createToolContext(manager, root) {
     chip.dataset.source = resolved.source || 'none';
     chip.title = chipInfo.title;
     select.title = formatProfileSummary(resolved);
+    setNote(!!resolved.ignoredOverride);
   }
 
   function wireProfileControls({ controls, resolveGamepadIndex, onChange }) {

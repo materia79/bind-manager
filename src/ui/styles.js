@@ -295,6 +295,17 @@ const CSS = `
   color: var(--bm-warn-text);
 }
 
+/* A saved exact profile that does not fit the pad: a short note after the select (wraps to its own line) */
+.bm-profile-note {
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--bm-warn-text);
+  font-size: var(--bm-fs-xs);
+}
+
 .bm-profile-select {
   flex: 0 1 calc(300 * var(--bm-u));
   min-width: 0;

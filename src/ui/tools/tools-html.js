@@ -13,7 +13,8 @@ function profileHeader(prefix) {
   return `
           <div class="bm-tool-device bm-${p}-device">No controller</div>
           <span class="bm-tool-chip bm-${p}-profile-chip" data-source="none" title="Profile source">—</span>
-          <select class="bm-tool-select bm-${p}-profile-select" aria-label="Controller profile"></select>`;
+          <select class="bm-tool-select bm-${p}-profile-select" aria-label="Controller profile"></select>
+          <span class="bm-tool-profile-note bm-${p}-profile-note" role="note" hidden></span>`;
 }
 
 /** Static markup of the built-in tools, mounted once by createBuiltInToolsController. */

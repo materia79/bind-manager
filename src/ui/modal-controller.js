@@ -1,7 +1,7 @@
 import { getKeyLabel } from '../input/key-names.js';
 import { injectStyles } from './styles.js';
 import { getGamepadLabel } from '../input/gamepad-profiles.js';
-import { gamepadDeviceName, profileChip } from './profile-display.js';
+import { gamepadDeviceName, profileChip, IGNORED_OVERRIDE_NOTE } from './profile-display.js';
 
 /**
  * Controls the key binding modal UI.
@@ -437,8 +437,10 @@ export class ModalController {
       ...options.families.map((option) => ({ value: _serialiseProfileOverrideValue(option), label: `Family: ${option.label}` })),
     ];
 
+    const ignored = !!resolved.ignoredOverride;
     return {
-      key: `${primaryGamepad.index}|${primaryGamepad.id}|${optionList.map((o) => o.value).join(',')}`,
+      key: `${primaryGamepad.index}|${primaryGamepad.id}|${ignored ? 'ignored' : ''}|${optionList.map((o) => o.value).join(',')}`,
+      ignored,
       connected: true,
       gamepadIndex: primaryGamepad.index,
       gamepadId: primaryGamepad.id,
@@ -531,7 +533,7 @@ export class ModalController {
       <div class="bm-profile-panel" data-key="${_esc(state.key)}">
         <span class="bm-profile-name" title="${_esc(state.gamepadId)}">${_esc(state.name)}</span>
         <span class="bm-profile-chip bm-profile-chip--${state.source}" title="${_esc(state.sourceTitle)}">${_esc(state.sourceLabel)}</span>
-        <select class="bm-profile-select" data-gamepad-index="${state.gamepadIndex}" aria-label="Controller profile">${options}</select>
+        <select class="bm-profile-select" data-gamepad-index="${state.gamepadIndex}" aria-label="Controller profile">${options}</select>${state.ignored ? `<span class="bm-profile-note" role="note">${_esc(IGNORED_OVERRIDE_NOTE)}</span>` : ''}
       </div>
     `;
   }

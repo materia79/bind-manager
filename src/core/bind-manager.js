@@ -117,6 +117,7 @@ export function createBindManager(options = {}) {
   // tries again; the failure is warned once and readable via getStorageStatus().
   const storageStatus = { ok: true, failedSaves: 0, lastError: null, lastFailure: null };
   let warnedSaveFailure = false;
+  let warnedIgnoredOverride = false;
   const unsubPersist = store.onCommit(() => {
     let ok;
     let error = null;
@@ -289,12 +290,21 @@ export function createBindManager(options = {}) {
 
     /**
      * Persist a manual profile override for a connected gamepad.
+     * An exact profile that does not fit the pad's layout is stored anyway (the
+     * pad may report a raw layout later) but not applied: the resolved profile
+     * reports it in `ignoredOverride`, and the first such case warns once.
      * @param {number} [gamepadIndex=0]
      * @param {{ type: 'profile', key: string } | { type: 'family', family: string } | null} override
-     * @returns {boolean}
+     * @returns {boolean} true when stored
      */
     setGamepadProfileOverride(gamepadIndex = 0, override = null) {
-      return gamepadRuntime.setProfileOverride(gamepadIndex, override);
+      const stored = gamepadRuntime.setProfileOverride(gamepadIndex, override);
+      const ignored = stored ? gamepadRuntime.getResolvedProfile(gamepadIndex).ignoredOverride : null;
+      if (ignored && !warnedIgnoredOverride) {
+        warnedIgnoredOverride = true;
+        console.warn(`[BindManager] The exact profile "${ignored.key}" does not fit the layout of the controller in slot ${gamepadIndex}; it is saved but not applied (see getResolvedGamepadProfile().ignoredOverride).`);
+      }
+      return stored;
     },
 
     /**

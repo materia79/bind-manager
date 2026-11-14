@@ -246,6 +246,7 @@ export function createInputDebugger(ctx) {
       label: step.label,
       expectedCode: step.expectedCode,
       instruction: step.instruction,
+      optional: step.optional === true,
       skipped: false,
       matched: false,
       detected: null,
@@ -263,7 +264,7 @@ export function createInputDebugger(ctx) {
     state.currentStepIndex = idx;
     const step = preset.steps[idx];
     const row = state.captures[idx];
-    setProgress(`Step ${idx + 1}/${preset.steps.length}: ${step.label}`);
+    setProgress(`Step ${idx + 1}/${preset.steps.length}: ${step.label}${step.optional ? ' (optional)' : ''}`);
     if (row?.detected) {
       setStatus(`${step.instruction} Captured: ${row.detected.code}. Use Redo to recapture or Next to continue.`);
     } else {
@@ -382,7 +383,7 @@ export function createInputDebugger(ctx) {
   function setCountdown(text) { els.countdown.textContent = text; }
 
   /**
-   * Up front, before a 27-step run: a pad the browser already reports in the
+   * Up front, before a 28-step run: a pad the browser already reports in the
    * standard layout needs no exact profile (the capture would be refused).
    */
   function updateLayoutNote(gp) {

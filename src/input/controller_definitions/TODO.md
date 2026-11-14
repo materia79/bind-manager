@@ -24,7 +24,7 @@ Open work on captures, the generator and hardware verification. Items are checke
 ## Open
 
 - [ ] Warn when a generated profile has no `sourceButtons`/`sourceAxes` (a capture without `targetController`): it can never apply.
-- [ ] A touchpad step (`GP_B17`) in the DualSense preset, and a re-capture of `054c-0ce6`: the shipped raw profile has no touchpad mapping (raw button 13 is unmapped).
+- [ ] A re-capture of `054c-0ce6` with the real pad in a browser that reports the raw layout, now that the preset has the optional touchpad step (`GP_B17`): the shipped raw profile has no touchpad mapping (raw button 13 is unmapped).
 - [ ] More capture presets (Xbox, Switch Pro, …) and a family taken from the preset or the detected family instead of the hard-coded `dualsense`; steps for `GP_B18`..`GP_B23` where a pad has them.
 - [ ] Make Input Remap's validation match the generator's: a step without a detected input passes the tool's check but fails the generator (`<code>: detected mapping is missing`); the tool's own id parser (`parseControllerId` in `src/ui/tools/capture-payload.js`) reads Chrome ids and Firefox ids with 4-digit vendor/product, but not the zero-stripped Firefox form (`54c-ce6-…`) that `parseGamepadId` accepts, so such a pad gets "Controller id does not expose a vendor/product pair".
 - [ ] A path from the Controller Test's Download JSON (an edited profile definition) to a shipped profile, or a clear statement in the tool that it is not one.

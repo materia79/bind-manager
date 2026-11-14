@@ -211,6 +211,8 @@ export function validateCaptureSanity(capture) {
     expectedSeen.add(expected);
 
     if (!detected || typeof detected !== 'object') {
+      // An optional step (the touchpad click) may be left out: nothing to map.
+      if (entry.optional === true) continue;
       errors.push(`${expected}: detected mapping is missing`);
       continue;
     }

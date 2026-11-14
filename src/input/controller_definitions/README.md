@@ -113,7 +113,7 @@ This workflow was run end to end with a simulated raw DualSense (a test fake pad
 
 1. Use a browser that reports the controller's **raw** layout (`mapping` is not `'standard'`; older Firefox versions do for the DualSense). When the browser already reports the standard layout (most pads in Chrome; the id contains `STANDARD GAMEPAD`), Input Remap shows a note as soon as it opens: no exact profile is needed there, the family labels apply. A capture made anyway ends with that note as its validation error, and the generator refuses it.
 2. Open **Input Remap** (bindings modal footer, or `manager.openInputRemap()`), keep the preset "DualSense / PlayStation Layout", release every control and press **Start Debug** (2 s baseline).
-3. For each of the 27 steps, hold the named input and press **Capture** (5 s window, the strongest stable input wins), then **Next**. **Back** and **Redo** fix a step.
+3. For each of the 27 steps (and the optional 28th, Touchpad click), hold the named input and press **Capture** (5 s window, the strongest stable input wins), then **Next**. **Back** and **Redo** fix a step.
 4. Check the validation line. "D-Pad mappings are not distinct enough yet for reliable processing." is expected for a hat D-pad (all four directions on one axis); the generator turns that case into hat entries.
 5. **Download JSON** (the file is named `<vendor>-<product>_dualsense.json`) and put it into `src/input/controller_definitions/captures/`.
 6. Run `npm run process_controller_defs` and check its warnings. The run writes `profiles/<vendor>-<product>.js` and `index.js`.
@@ -126,7 +126,7 @@ This workflow was run end to end with a simulated raw DualSense (a test fake pad
 
 What else to know before relying on it:
 
-- **One preset.** The guided capture knows only the DualSense layout, tags every capture `family: 'dualsense'` and uses the step labels ("L2 (digital)") as exact labels. There is no step for `GP_B17` or above, so a touchpad, Share or paddles cannot be captured.
+- **One preset.** The guided capture knows only the DualSense layout, tags every capture `family: 'dualsense'` and uses the step labels ("L2 (digital)") as exact labels. Its last step, "Touchpad click" (`GP_B17`), is optional: skip it with **Next** on a pad without one (the tool and the generator accept it left out). There are no steps for `GP_B18` and above, so Share on other pads or paddles cannot be captured.
 - **The tool's validation is weaker than the generator's.** A step without a detected input is skipped by the tool's check, so "ready to export" can show for an incomplete run that the generator then rejects (`<code>: detected mapping is missing`).
 - **Without `targetController`** (a hand-edited capture), the vendor/product comes from the file name and the counts are `null`, so the profile never applies; nothing warns.
 - **The Controller Test's Download JSON is not a capture.** It exports the current (exact or edited) profile definition; the generator cannot read it (it expects `captures`), and there is no supported path from that file to a shipped profile.
@@ -138,7 +138,7 @@ The repository ships one exact profile:
 
 - `054c-0ce6` (DualSense), captured from the raw layout Firefox reports: `sourceButtons: 14`, `sourceAxes: 12`. Face buttons are remapped (raw 1 is Cross, raw 0 is Square), PS is raw button 12, the D-pad is a hat on axis 9, the right stick is on axes 2 (X) and 5 (Y), the analog triggers are axes 3 and 4.
 
-It has no touchpad mapping (`GP_B17`): its capture had no such step, so on a raw DualSense the touchpad click is not mapped. A DualSense that Chrome remaps (`mapping: 'standard'`) does not use this profile; the `dualsense` family labels apply there, including Touchpad for `GP_B17`.
+It has no touchpad mapping (`GP_B17`): its capture predates the optional touchpad step, so on a raw DualSense the touchpad click is not mapped until the real pad is re-captured in a browser that reports the raw layout (the generated profile is not hand-edited). A DualSense that Chrome remaps (`mapping: 'standard'`) does not use this profile; the `dualsense` family labels apply there, including Touchpad for `GP_B17`.
 
 ## Important invariants and caveats
 

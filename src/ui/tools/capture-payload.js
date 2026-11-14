@@ -37,6 +37,8 @@ export const CAPTURE_PRESETS = {
       { label: 'Right Stick Right', expectedCode: 'GP_A2P', instruction: 'Move and hold the right stick fully right.' },
       { label: 'Right Stick Up', expectedCode: 'GP_A3N', instruction: 'Move and hold the right stick fully up.' },
       { label: 'Right Stick Down', expectedCode: 'GP_A3P', instruction: 'Move and hold the right stick fully down.' },
+      // Optional (skip with Next): a pad without a touchpad click loses nothing.
+      { label: 'Touchpad click', expectedCode: 'GP_B17', instruction: 'Optional: press the touchpad down until it clicks and hold it. No touchpad? Skip with Next.', optional: true },
     ],
   },
 };

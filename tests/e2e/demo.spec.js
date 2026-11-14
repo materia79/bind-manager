@@ -151,7 +151,7 @@ test.describe('library tools on the demo page', () => {
 
     await page.locator('.bm-debug-start-btn').click();
     await expect(page.locator('.bm-debug-status')).toContainText('Baseline captured', { timeout: 6000 });
-    await expect(page.locator('.bm-debug-progress')).toHaveText('Step 1/27: Cross');
+    await expect(page.locator('.bm-debug-progress')).toHaveText('Step 1/28: Cross');
 
     await fakeInput(page, 'b0', true);
     await page.locator('.bm-debug-capture-btn').click();

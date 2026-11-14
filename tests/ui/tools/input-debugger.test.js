@@ -28,7 +28,7 @@ describe('Input Remap', () => {
     const payload = JSON.parse(root.querySelector('.bm-debug-results').value);
     expect(Object.keys(payload)).toEqual(['schemaVersion', 'generatedAt', 'runMeta', 'sequence', 'captures', 'byExpected', 'controllerDefinition']);
     expect(payload.schemaVersion).toBe(1);
-    expect(payload.sequence).toHaveLength(27);
+    expect(payload.sequence).toHaveLength(28); // 27 steps and the optional touchpad step (L8)
     expect(Object.keys(payload.controllerDefinition)).toEqual(['sourceControllerId', 'profileHint', 'family', 'buttons', 'axes']);
   });
 

@@ -90,6 +90,14 @@ for (const screen of TOOL_SCREENS) {
       await pad.setAxes({ 0: -1, 1: -0.4 });
       await expect(panel.locator('.bm-debug-live-state')).toHaveText('Strongest signal');
       await shoot(page, 'input-remap', 'active', screen);
+
+      // Capture mini modal with a live signal
+      await panel.locator('.bm-debug-capture-btn').click();
+      const mini = page.locator('.bm-capture-mini-modal.bm-open .bm-capture-mini-panel');
+      await expect(mini.locator('.bm-capture-mini-live-state')).toHaveText('Strongest signal');
+      await shoot(page, 'capture-mini', 'active', screen);
+      await mini.locator('.bm-capture-mini-cancel-btn').click();
+      await expect(mini).toBeHidden();
     });
 
     test('controller tester', async ({ page }) => {

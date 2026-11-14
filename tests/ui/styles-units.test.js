@@ -9,6 +9,16 @@ const CSS = SOURCE.match(/const CSS = `([\s\S]*?)`;/)?.[1] ?? '';
 
 const TOKEN_LINE = /^\s*--bm-(u-min|u-max|u|fs-xs|fs-s|fs-m|fs-l)\s*:/;
 
+const ROOT_TOKEN_LINES = [
+  '  --bm-u-min: 0.6667px;',
+  '  --bm-u-max: 2px;',
+  '  --bm-u: clamp(var(--bm-u-min), min(100vw / 1920, 100vh / 1080), var(--bm-u-max));',
+  '  --bm-fs-xs: max(9px, calc(14 * var(--bm-u)));',
+  '  --bm-fs-s: max(10px, calc(15 * var(--bm-u)));',
+  '  --bm-fs-m: calc(17 * var(--bm-u));',
+  '  --bm-fs-l: calc(21 * var(--bm-u));',
+];
+
 /** CSS without comments and without the seven token lines, as [lineNumber, text] pairs. */
 function checkedLines() {
   const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
@@ -24,15 +34,30 @@ describe('styles.js units', () => {
     expect(CSS).toContain('--bm-u: clamp(var(--bm-u-min), min(100vw / 1920, 100vh / 1080), var(--bm-u-max));');
   });
 
-  it('keeps exactly the seven scale-unit token lines', () => {
-    expect(CSS.split('\n').filter((line) => TOKEN_LINE.test(line))).toHaveLength(7);
+  it('keeps the seven scale-unit token lines in :root byte-identical', () => {
+    const root = CSS.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const rootTokens = root.split('\n').filter((line) => TOKEN_LINE.test(line));
+    expect(rootTokens).toEqual(ROOT_TOKEN_LINES);
   });
 
+  it('re-declares only the font tokens on the library roots, identical to :root', () => {
+    // Re-declared on .bm-overlay, .bm-capture-overlay and .bm-hints so that --bm-u set on any ancestor resizes text too
+    const roots = CSS.match(/\n\.bm-overlay,\n\.bm-capture-overlay,\n\.bm-hints \{([\s\S]*?)\}/)?.[1] ?? '';
+    const rootTokens = roots.split('\n').filter((line) => TOKEN_LINE.test(line));
+    expect(rootTokens).toEqual(ROOT_TOKEN_LINES.slice(3));
+    const allTokenLines = CSS.split('\n').filter((line) => TOKEN_LINE.test(line));
+    expect(allTokenLines).toHaveLength(7 + 4);
+  });
+
+  it('takes the modal size defaults from --bm-u where they are used, not from :root', () => {
+    const root = CSS.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    expect(root).not.toMatch(/--bm-modal-(width|max-h|radius):/);
+    expect(CSS).toContain('var(--bm-modal-width, calc(1080 * var(--bm-u)))');
+    expect(CSS).toContain('var(--bm-modal-max-h, calc(880 * var(--bm-u)))');
+  });
   it('uses no px value other than 1px outside the token lines', () => {
     const offenders = [];
     for (const [line, text] of checkedLines()) {
-      // The below-the-floor breakpoint is a viewport size, not a length in the layout
-      if (/^\s*@media \(max-width: 1279px\), \(max-height: 719px\) \{\s*$/.test(text)) continue;
       for (const match of text.matchAll(/(-?\d*\.?\d+)px\b/g)) {
         // 1px hairlines (a -1px shadow offset is the same hairline)
         if (match[1] !== '1' && match[1] !== '-1') offenders.push(`${line}: ${text.trim()}`);

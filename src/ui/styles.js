@@ -11,8 +11,15 @@ const CSS = `
 
    Every length is a multiple of --bm-u (1px at 1920x1080, scales with the
    viewport, clamped to [--bm-u-min, --bm-u-max]), so the UI looks the same on
-   any resolution with the same aspect ratio. Set --bm-u: 1px for fixed sizes.
+   any resolution with the same aspect ratio. Set --bm-u: 1px (on :root or any
+   ancestor) for fixed sizes; --bm-u-min / --bm-u-max take effect on :root.
    Borders are drawn as box-shadow rings so they never shift the layout.
+
+   Size overrides without a default here (the default is used where they apply,
+   so it follows --bm-u set on any ancestor):
+     --bm-modal-width   default calc(1080 * var(--bm-u))
+     --bm-modal-max-h   default calc(880 * var(--bm-u))
+     --bm-modal-radius  default calc(12 * var(--bm-u))
    ================================================================ */
 
 :root {
@@ -23,13 +30,10 @@ const CSS = `
   --bm-overlay-bg:   rgba(0, 0, 0, 0.75);
   --bm-modal-bg:     #1e1e2e;
   --bm-modal-border: #3a3a5c;
-  --bm-modal-radius: calc(12 * var(--bm-u));
-  --bm-modal-width:  calc(880 * var(--bm-u));
-  --bm-modal-max-h:  calc(880 * var(--bm-u));
 
   --bm-text-primary:   #e0e0f0;
-  --bm-text-secondary: #9090b0;
-  --bm-text-desc:      #6a6a90;
+  --bm-text-secondary: #b0b0d0;
+  --bm-text-desc:      #9898c0;
 
   --bm-group-bg:     #16162a;
   --bm-group-border: #2a2a44;
@@ -79,6 +83,16 @@ const CSS = `
   box-sizing: border-box;
 }
 
+/* The font tokens again, so a --bm-u set on any ancestor (not only :root) resizes text as well */
+.bm-overlay,
+.bm-capture-overlay,
+.bm-hints {
+  --bm-fs-xs: max(9px, calc(14 * var(--bm-u)));
+  --bm-fs-s: max(10px, calc(15 * var(--bm-u)));
+  --bm-fs-m: calc(17 * var(--bm-u));
+  --bm-fs-l: calc(21 * var(--bm-u));
+}
+
 :where(.bm-overlay, .bm-capture-overlay) :where(button, select) {
   margin: 0;
   border: 0;
@@ -108,11 +122,14 @@ const CSS = `
 
 /* ---- Modal container ---- */
 .bm-modal {
+  position: relative;
   background: var(--bm-modal-bg);
-  border-radius: var(--bm-modal-radius);
-  width: var(--bm-modal-width);
-  max-width: calc(100vw - 32 * var(--bm-u));
-  max-height: var(--bm-modal-max-h);
+  border-radius: var(--bm-modal-radius, calc(12 * var(--bm-u)));
+  width: var(--bm-modal-width, calc(1080 * var(--bm-u)));
+  /* Never larger than the viewport, whatever --bm-u or the host sizes say */
+  max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
+  max-height: min(var(--bm-modal-max-h, calc(880 * var(--bm-u))), calc(100vh - min(32 * var(--bm-u), 4vh)));
+  max-height: min(var(--bm-modal-max-h, calc(880 * var(--bm-u))), calc(100dvh - min(32 * var(--bm-u), 4dvh)));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -126,6 +143,17 @@ const CSS = `
 }
 .bm-modal:focus {
   outline: none;
+}
+
+/* Measures --bm-u in px for the layout decision in modal-controller.js */
+.bm-u-probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(1000 * var(--bm-u));
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* ---- Header ---- */
@@ -142,13 +170,18 @@ const CSS = `
 
 .bm-modal-title {
   margin: 0;
+  min-width: 0;
   font-size: var(--bm-fs-l);
   font-weight: 600;
   line-height: 1.2;
   color: var(--bm-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bm-close-btn {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -174,6 +207,8 @@ const CSS = `
   flex: 1 1 auto;
   min-height: 0;
   padding: calc(16 * var(--bm-u)) 0;
+  /* The scrollbar space is always reserved, so the layout does not depend on overflow */
+  scrollbar-gutter: stable;
 }
 .bm-modal-body::-webkit-scrollbar {
   width: calc(10 * var(--bm-u));
@@ -203,10 +238,11 @@ const CSS = `
 .bm-profile-panel {
   display: flex;
   align-items: center;
-  gap: calc(12 * var(--bm-u));
-  height: calc(48 * var(--bm-u));
+  flex-wrap: wrap;
+  gap: calc(8 * var(--bm-u)) calc(12 * var(--bm-u));
+  min-height: calc(48 * var(--bm-u));
   margin: 0 calc(24 * var(--bm-u)) calc(8 * var(--bm-u));
-  padding: 0 calc(8 * var(--bm-u)) 0 calc(16 * var(--bm-u));
+  padding: calc(8 * var(--bm-u)) calc(8 * var(--bm-u)) calc(8 * var(--bm-u)) calc(16 * var(--bm-u));
   border-radius: calc(8 * var(--bm-u));
   background: var(--bm-group-bg);
   box-shadow: inset 0 0 0 1px var(--bm-group-border);
@@ -222,7 +258,7 @@ const CSS = `
 }
 
 .bm-profile-panel-empty {
-  height: calc(40 * var(--bm-u));
+  min-height: calc(40 * var(--bm-u));
 }
 .bm-profile-panel-empty .bm-profile-name {
   color: var(--bm-text-desc);
@@ -256,8 +292,9 @@ const CSS = `
 }
 
 .bm-profile-select {
-  flex: 0 0 calc(300 * var(--bm-u));
+  flex: 0 1 calc(300 * var(--bm-u));
   min-width: 0;
+  max-width: 100%;
   height: calc(32 * var(--bm-u));
   padding: 0 calc(32 * var(--bm-u)) 0 calc(12 * var(--bm-u));
   appearance: none;
@@ -339,29 +376,74 @@ const CSS = `
 .bm-action-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: calc(12 * var(--bm-u));
   flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   margin-left: auto;
 }
 
+/*
+ * Layouts, chosen in modal-controller.js from the modal's real width and the
+ * widest slot counts over all actions (--bm-kb-slots, --bm-gp-slots):
+ *   bm-layout-inline   label | keyboard slots | gamepad slots | reset
+ *   bm-layout-stacked  label | keyboard row above gamepad row | reset
+ *   bm-layout-narrow   label on its own line, then the stacked rows
+ * Device rows have a fixed width, so slot columns line up across all rows.
+ * Every level may still shrink and wrap, so nothing ever overflows sideways.
+ */
 .bm-device-rows {
   display: flex;
   align-items: center;
-  gap: calc(16 * var(--bm-u));
+  flex-wrap: wrap;
+  gap: calc(6 * var(--bm-u)) calc(28 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
 }
 
 .bm-device-row {
   display: flex;
   align-items: center;
   gap: calc(8 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
 }
 
-/* Fixed width per device (badge + widest slot count), so slot columns line up across rows */
 .bm-device-row--keyboard {
   width: calc((32 + var(--bm-kb-slots, 2) * 154 - 6) * var(--bm-u));
 }
 .bm-device-row--gamepad {
+  position: relative;
   width: calc((32 + var(--bm-gp-slots, 1) * 154 - 6) * var(--bm-u));
+}
+
+/* Divider between the keyboard and the gamepad group on one line */
+.bm-layout-inline .bm-device-row--gamepad::before {
+  content: '';
+  position: absolute;
+  left: calc(-14 * var(--bm-u));
+  top: calc(6 * var(--bm-u));
+  bottom: calc(6 * var(--bm-u));
+  width: 1px;
+  background: var(--bm-modal-border);
+}
+
+.bm-layout-stacked .bm-device-rows,
+.bm-layout-narrow .bm-device-rows {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.bm-layout-stacked .bm-device-row,
+.bm-layout-narrow .bm-device-row {
+  width: calc((32 + max(var(--bm-kb-slots, 2), var(--bm-gp-slots, 1)) * 154 - 6) * var(--bm-u));
+}
+.bm-layout-narrow .bm-action-info {
+  flex-basis: 100%;
+}
+.bm-layout-narrow .bm-action-controls {
+  margin-left: 0;
 }
 
 .bm-device-badge {
@@ -383,17 +465,23 @@ const CSS = `
 
 .bm-bind-slots {
   display: flex;
+  flex-wrap: wrap;
   gap: calc(6 * var(--bm-u));
+  min-width: 0;
 }
 
 .bm-slot {
   display: inline-flex;
   align-items: center;
   gap: calc(4 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ---- Bind button ---- */
 .bm-bind-btn {
+  flex: 0 1 auto;
+  min-width: 0;
   width: calc(120 * var(--bm-u));
   height: calc(36 * var(--bm-u));
   padding: 0 calc(10 * var(--bm-u));
@@ -451,8 +539,9 @@ const CSS = `
   height: calc(24 * var(--bm-u));
   padding: 0;
   border-radius: calc(6 * var(--bm-u));
+  flex-shrink: 0;
   background: transparent;
-  color: var(--bm-text-desc);
+  color: var(--bm-text-secondary);
   line-height: 1;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
@@ -499,6 +588,7 @@ const CSS = `
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: calc(12 * var(--bm-u));
   min-height: calc(64 * var(--bm-u));
   padding: calc(14 * var(--bm-u)) calc(24 * var(--bm-u));
@@ -510,16 +600,25 @@ const CSS = `
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: calc(8 * var(--bm-u));
-  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
   margin-left: auto;
 }
 
 /* ---- Conflict warning ---- */
 .bm-conflict-warning {
-  flex: 1 1 auto;
+  flex: 1 1 calc(240 * var(--bm-u));
   min-width: 0;
   font-size: var(--bm-fs-s);
+  line-height: 1.3;
+  /* At most three lines; the full text is in the title */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   color: var(--bm-warn-text);
   background: var(--bm-warn-bg);
   box-shadow: inset 0 0 0 1px var(--bm-warn-border);
@@ -537,8 +636,11 @@ const CSS = `
   height: calc(36 * var(--bm-u));
   padding: 0 calc(16 * var(--bm-u));
   border-radius: calc(6 * var(--bm-u));
+  max-width: 100%;
   font-weight: 500;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: background 0.15s, box-shadow 0.15s, color 0.15s;
 }
@@ -599,7 +701,10 @@ const CSS = `
 
 .bm-capture-modal {
   width: calc(480 * var(--bm-u));
-  max-width: calc(100vw - 32 * var(--bm-u));
+  max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
+  max-height: calc(100vh - min(32 * var(--bm-u), 4vh));
+  max-height: calc(100dvh - min(32 * var(--bm-u), 4dvh));
+  overflow-y: auto;
   padding: calc(24 * var(--bm-u));
   border-radius: calc(12 * var(--bm-u));
   background: linear-gradient(180deg, rgba(58, 42, 0, 0.98), rgba(27, 20, 0, 0.98));
@@ -617,6 +722,7 @@ const CSS = `
 
 .bm-capture-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: calc(16 * var(--bm-u));
@@ -663,10 +769,12 @@ const CSS = `
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(16 * var(--bm-u));
+  bottom: min(16 * var(--bm-u), 2vh);
   z-index: var(--bm-z-hints);
   width: fit-content;
-  max-width: calc(100vw - 32 * var(--bm-u));
+  max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
+  max-height: calc(100vh - 2 * min(16 * var(--bm-u), 2vh));
+  overflow: hidden;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -731,35 +839,6 @@ const CSS = `
   box-shadow: inset 0 0 0 1px rgba(92, 124, 250, 0.35);
 }
 
-/* ====== Below 1280x720: --bm-u sits on its floor, fit the viewport instead ====== */
-@media (max-width: 1279px), (max-height: 719px) {
-  .bm-modal {
-    max-width: calc(100vw - 24 * var(--bm-u));
-    max-height: min(var(--bm-modal-max-h), calc(100vh - 24 * var(--bm-u)));
-    max-height: min(var(--bm-modal-max-h), calc(100dvh - 24 * var(--bm-u)));
-  }
-  .bm-action-controls,
-  .bm-device-rows,
-  .bm-modal-footer,
-  .bm-footer-actions {
-    flex-wrap: wrap;
-  }
-  .bm-profile-panel {
-    height: auto;
-    min-height: calc(48 * var(--bm-u));
-    flex-wrap: wrap;
-    padding-top: calc(8 * var(--bm-u));
-    padding-bottom: calc(8 * var(--bm-u));
-  }
-  .bm-capture-modal {
-    max-width: calc(100vw - 24 * var(--bm-u));
-    max-height: calc(100vh - 24 * var(--bm-u));
-    overflow-y: auto;
-  }
-  .bm-hints {
-    max-width: calc(100vw - 24 * var(--bm-u));
-  }
-}
 `;
 
 let _injected = false;

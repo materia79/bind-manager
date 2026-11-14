@@ -42,21 +42,21 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-capture-mini-modal { z-index: 10040; background: rgba(0, 0, 0, 0.55); }
 .bm-capture-mini-modal.bm-open { display: flex; }
 
-/* ---- Panels: fixed size in u ---- */
+/* ---- Panels: fixed size in u. Hairlines are inset shadows so they take no layout space. ---- */
 .bm-tool-panel {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   flex: none;
-  border: 1px solid #35506d;
+  --bm-tool-line: #35506d;
   border-radius: ${u(10)};
   background: #0f1a26;
   color: #d6ecff;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: var(--bm-fs-s);
   line-height: 1.4;
-  box-shadow: 0 ${u(20)} ${u(60)} rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0 0 1px var(--bm-tool-line), 0 ${u(20)} ${u(60)} rgba(0, 0, 0, 0.6);
 }
 .bm-tool-panel *,
 .bm-tool-panel *::before,
@@ -64,11 +64,11 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tool-panel :where(h2, h3, dl, dd, ul) { margin: 0; padding: 0; }
 
 .bm-tester-panel { width: ${u(T.tester.width)}; height: ${u(T.tester.height)}; }
-.bm-debug-panel { width: ${u(T.debug.width)}; height: ${u(T.debug.height)}; background: #111526; border-color: #38446b; }
+.bm-debug-panel { width: ${u(T.debug.width)}; height: ${u(T.debug.height)}; background: #111526; --bm-tool-line: #38446b; }
 .bm-capture-mini-panel {
   width: ${u(T.captureMini.width)};
   height: ${u(T.captureMini.height)};
-  border-color: rgba(110, 200, 230, 0.35);
+  --bm-tool-line: rgba(110, 200, 230, 0.35);
   background: linear-gradient(180deg, rgba(10, 22, 34, 0.98), rgba(8, 16, 24, 0.98));
 }
 
@@ -80,7 +80,7 @@ export const BUILT_IN_TOOLS_CSS = `
   gap: ${u(12)};
   height: ${u(HEAD_H)};
   padding: 0 ${u(BODY_PAD)};
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
 }
 .bm-tool-title {
   flex: none;
@@ -177,7 +177,7 @@ export const BUILT_IN_TOOLS_CSS = `
   min-height: 0;
   overflow: hidden;
   padding: ${u(12)};
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
   border-radius: ${u(8)};
   background: rgba(255, 255, 255, 0.03);
 }
@@ -203,7 +203,7 @@ export const BUILT_IN_TOOLS_CSS = `
   grid-auto-rows: ${u(22)};
   column-gap: ${u(10)};
   padding: ${u(6)} ${u(10)};
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   border-radius: ${u(6)};
   background: rgba(0, 0, 0, 0.24);
   font-family: ${MONO};
@@ -260,7 +260,7 @@ export const BUILT_IN_TOOLS_CSS = `
 
 .bm-tester-active-codes {
   padding: 0 ${u(10)};
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   border-radius: ${u(6)};
   background: rgba(0, 0, 0, 0.24);
   font-family: ${MONO};
@@ -273,7 +273,7 @@ export const BUILT_IN_TOOLS_CSS = `
   overflow-y: auto;
   scrollbar-gutter: stable;
   padding: ${u(6)} ${u(10)};
-  border: 1px solid rgba(100, 180, 220, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(100, 180, 220, 0.18);
   border-radius: ${u(6)};
   background: rgba(7, 15, 23, 0.88);
   font-family: ${MONO};
@@ -412,7 +412,7 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-capture-mini-instruction { font-size: var(--bm-fs-m); line-height: ${u(22)}; color: #d6ecff; }
 .bm-capture-mini-countdown { color: #8fd6ff; }
 .bm-capture-mini-live-state { color: #a7eaff; font-size: var(--bm-fs-xs); }
-.bm-capture-mini-live { color: #a7eaff; border-color: rgba(100, 180, 220, 0.2); background: rgba(9, 18, 27, 0.8); }
+.bm-capture-mini-live { color: #a7eaff; box-shadow: inset 0 0 0 1px rgba(100, 180, 220, 0.2); background: rgba(9, 18, 27, 0.8); }
 
 /* ---- Below the floor: one column, panel scrolls inside the viewport ---- */
 @media (max-width: 1279px), (max-height: 719px) {

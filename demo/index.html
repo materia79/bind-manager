@@ -5,13 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bind Manager — Demo</title>
   <style>
+    /*
+     * Page chrome scales like the library UI: --demo-u is 1px at 1920x1080 and
+     * follows the viewport, clamped to [0.6667px, 2px]. It repeats the clamp of
+     * the library's --bm-u instead of reading it, because the library injects
+     * its stylesheet later and this sheet must not depend on that order.
+     * Text that would get too small has a px floor.
+     */
+    :root {
+      --demo-u: clamp(0.6667px, min(100vw / 1920, 100vh / 1080), 2px);
+      --demo-fs-s: max(10px, calc(13 * var(--demo-u)));
+      --demo-fs-m: max(11px, calc(15 * var(--demo-u)));
+      --demo-gap: calc(8 * var(--demo-u));
+      --demo-edge: calc(16 * var(--demo-u));
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
 
     body {
       background: #0d0d1a;
       color: #c8c8e0;
       font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
+      font-size: var(--demo-fs-m);
       min-height: 100vh;
       overflow: hidden;
     }
@@ -24,6 +40,7 @@
       height: 100%;
       background: radial-gradient(ellipse at 50% 40%, #0f2a4a 0%, #050510 70%);
     }
+    #game-canvas:focus { outline: none; }
 
     /* Grid overlay for depth cue */
     #game-canvas::after {
@@ -33,38 +50,52 @@
       background-image:
         linear-gradient(rgba(80,120,255,0.07) 1px, transparent 1px),
         linear-gradient(90deg, rgba(80,120,255,0.07) 1px, transparent 1px);
-      background-size: 60px 60px;
+      background-size: calc(60 * var(--demo-u)) calc(60 * var(--demo-u));
     }
 
-    /* ── HUD: top-left action log ── */
-    #log {
+    /* ── HUD frame: event log on the left, controls on the right ── */
+    #hud {
       position: fixed;
-      top: 14px;
-      left: 14px;
+      inset: var(--demo-edge) var(--demo-edge) auto var(--demo-edge);
       z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: calc(16 * var(--demo-u));
+      pointer-events: none;
+    }
+    #hud > * { pointer-events: auto; }
+
+    .hud-panel {
       background: rgba(0, 0, 0, 0.65);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 8px;
-      padding: 10px 14px;
-      min-width: 280px;
-      max-height: 220px;
-      overflow-y: auto;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+      border-radius: calc(10 * var(--demo-u));
       backdrop-filter: blur(8px);
     }
 
-    #log-title {
-      font-size: 11px;
+    /* ── Event log ── */
+    #log {
+      width: calc(440 * var(--demo-u));
+      min-width: 0;
+      max-height: calc(300 * var(--demo-u));
+      overflow-y: auto;
+      padding: calc(12 * var(--demo-u)) calc(16 * var(--demo-u));
+    }
+
+    #log-title,
+    .hud-panel-title {
+      font-size: var(--demo-fs-s);
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #5c7cfa;
-      margin-bottom: 6px;
+      margin-bottom: calc(6 * var(--demo-u));
     }
 
     .log-entry {
-      font-size: 12px;
+      font-size: var(--demo-fs-s);
       color: #a0a0c0;
-      padding: 2px 0;
+      padding: calc(3 * var(--demo-u)) 0;
       border-bottom: 1px solid rgba(255,255,255,0.05);
     }
     .log-entry:last-child { border-bottom: none; }
@@ -74,51 +105,72 @@
     .log-entry.changed  { color: #ffa040; }
     .log-entry.info     { color: #7090c0; }
 
-    /* ── HUD: top-right controls ── */
+    /* ── Controls ── */
     #controls {
-      position: fixed;
-      top: 14px;
-      right: 14px;
-      z-index: 100;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--demo-gap);
+      align-items: flex-end;
+      max-height: calc(100vh - 2 * var(--demo-edge));
+      overflow-y: auto;
+    }
+
+    .hud-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: var(--demo-gap);
       align-items: flex-end;
     }
 
     .hud-btn {
       background: rgba(92, 124, 250, 0.2);
-      border: 1px solid rgba(92, 124, 250, 0.5);
-      border-radius: 7px;
+      border: 0;
+      box-shadow: inset 0 0 0 1px rgba(92, 124, 250, 0.5);
+      border-radius: calc(8 * var(--demo-u));
       color: #c0ccff;
-      font-size: 13px;
+      font-size: var(--demo-fs-m);
       font-family: inherit;
+      line-height: 1.2;
       cursor: pointer;
-      padding: 7px 16px;
-      transition: background 0.15s, border-color 0.15s;
+      padding: calc(8 * var(--demo-u)) calc(18 * var(--demo-u));
+      transition: background 0.15s, box-shadow 0.15s;
     }
-    .guard-status {
-      font-size: 11px;
-      color: #7090c0;
-      background: rgba(0, 0, 0, 0.55);
-      border-radius: 6px;
-      padding: 4px 10px;
-    }
-    #game-canvas:focus { outline: none; }
-
     .hud-btn:hover {
       background: rgba(92, 124, 250, 0.4);
-      border-color: #5c7cfa;
+      box-shadow: inset 0 0 0 1px #5c7cfa;
     }
+    .hud-btn:focus-visible {
+      outline: calc(2 * var(--demo-u)) solid #5c7cfa;
+      outline-offset: calc(2 * var(--demo-u));
+    }
+    .hud-btn:disabled { opacity: 0.4; cursor: default; }
 
     #hint-toggle-btn {
       background: rgba(40, 140, 80, 0.2);
-      border-color: rgba(40, 200, 100, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(40, 200, 100, 0.4);
       color: #80dca0;
     }
     #hint-toggle-btn:hover {
       background: rgba(40, 140, 80, 0.4);
-      border-color: rgba(40,200,100,0.8);
+      box-shadow: inset 0 0 0 1px rgba(40,200,100,0.8);
+    }
+
+    .hud-tool-btn {
+      background: rgba(200, 144, 0, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(200, 144, 0, 0.5);
+      color: #ffd480;
+    }
+    .hud-tool-btn:hover {
+      background: rgba(200, 144, 0, 0.32);
+      box-shadow: inset 0 0 0 1px rgba(255, 196, 64, 0.85);
+    }
+
+    .guard-status {
+      font-size: var(--demo-fs-s);
+      color: #7090c0;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: calc(6 * var(--demo-u));
+      padding: calc(4 * var(--demo-u)) calc(10 * var(--demo-u));
     }
 
     /* ── Centre title ── */
@@ -130,26 +182,43 @@
       text-align: center;
       pointer-events: none;
       z-index: 50;
+      width: max-content;
+      max-width: calc(100vw - 2 * var(--demo-edge));
     }
     #center-text h1 {
-      font-size: 28px;
+      font-size: max(20px, calc(42 * var(--demo-u)));
       font-weight: 700;
       color: rgba(200, 210, 255, 0.9);
-      text-shadow: 0 0 40px rgba(92,124,250,0.6);
-      margin-bottom: 8px;
+      text-shadow: 0 0 calc(40 * var(--demo-u)) rgba(92,124,250,0.6);
+      margin-bottom: calc(8 * var(--demo-u));
     }
     #center-text p {
-      font-size: 13px;
+      font-size: var(--demo-fs-m);
       color: rgba(150, 160, 200, 0.7);
     }
     #center-text kbd {
       display: inline-block;
       background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 3px;
-      padding: 1px 6px;
-      font-size: 12px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+      border-radius: calc(3 * var(--demo-u));
+      padding: calc(1 * var(--demo-u)) calc(6 * var(--demo-u));
+      font-size: var(--demo-fs-s);
       font-family: inherit;
+    }
+
+    /* Narrow viewports (phones, small windows): controls on top, log below. */
+    @media (max-width: 760px) {
+      #hud {
+        flex-direction: column;
+        align-items: stretch;
+        inset: 8px 8px auto 8px;
+        gap: 8px;
+      }
+      #controls { order: -1; align-items: stretch; max-height: none; overflow: visible; }
+      .hud-buttons { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+      .hud-buttons .hud-btn { padding: 6px 10px; }
+      #log { width: auto; max-height: 22vh; }
+      #center-text { top: auto; bottom: 30vh; transform: translateX(-50%); }
     }
   </style>
 </head>
@@ -157,17 +226,23 @@
 
   <div id="game-canvas" tabindex="0" title="Click to capture the cursor (Esc releases)"></div>
 
-  <div id="log">
-    <div id="log-title">Event Log</div>
-  </div>
+  <div id="hud">
+    <div id="log" class="hud-panel" aria-live="polite">
+      <div id="log-title">Event Log</div>
+    </div>
 
-  <div id="controls">
-    <button class="hud-btn" id="open-btn">⚙ Key Bindings</button>
-    <button class="hud-btn" id="hint-toggle-btn">👁 Toggle Hints</button>
-    <button class="hud-btn" id="reset-btn">↺ Reset All</button>
-    <button class="hud-btn" id="fullscreen-btn">⛶ Fullscreen + Keyboard Lock</button>
-    <button class="hud-btn" id="leave-guard-btn">🚪 Arm Leave Guard</button>
-    <div id="guard-status" class="guard-status">Guard: idle</div>
+    <div id="controls">
+      <div class="hud-buttons">
+        <button class="hud-btn" id="open-btn" type="button">⚙ Key Bindings</button>
+        <button class="hud-btn hud-tool-btn" id="open-tester-btn" type="button">🎮 Controller Test</button>
+        <button class="hud-btn hud-tool-btn" id="open-remap-btn" type="button">🧭 Input Remap</button>
+        <button class="hud-btn" id="hint-toggle-btn" type="button">👁 Toggle Hints</button>
+        <button class="hud-btn" id="reset-btn" type="button">↺ Reset All</button>
+        <button class="hud-btn" id="fullscreen-btn" type="button">⛶ Fullscreen + Keyboard Lock</button>
+        <button class="hud-btn" id="leave-guard-btn" type="button">🚪 Arm Leave Guard</button>
+      </div>
+      <div id="guard-status" class="guard-status">Guard: idle</div>
+    </div>
   </div>
 
   <div id="center-text">

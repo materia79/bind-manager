@@ -10,6 +10,10 @@
  *  - Manager-controlled open/close/toggle
  *  - Debug mode: F5 toggles the modal (prevents browser refresh)
  *  - Reset All
+ *  - Gamepad defaults, including an extra button (GP_B17)
+ *  - The built-in tools (Input Remap, Controller Test), opened from the
+ *    bindings modal's footer or from the HUD buttons
+ *  - The browser shortcut guard (focus, pointer lock, fullscreen, leave guard)
  *
  * Bindings are persisted in localStorage under namespace "bind-manager-demo".
  */
@@ -44,6 +48,7 @@ const moveForward = manager.registerAction({
   group: 'Movement',
   slots: 2,
   defaultBindings: ['KeyW', 'ArrowUp'],
+  defaultGamepadBindings: ['GP_A1N'],
 });
 
 const moveBackward = manager.registerAction({
@@ -53,6 +58,7 @@ const moveBackward = manager.registerAction({
   group: 'Movement',
   slots: 2,
   defaultBindings: ['KeyS', 'ArrowDown'],
+  defaultGamepadBindings: ['GP_A1P'],
 });
 
 const moveLeft = manager.registerAction({
@@ -62,6 +68,7 @@ const moveLeft = manager.registerAction({
   group: 'Movement',
   slots: 2,
   defaultBindings: ['KeyA', 'ArrowLeft'],
+  defaultGamepadBindings: ['GP_A0N'],
 });
 
 const moveRight = manager.registerAction({
@@ -71,6 +78,7 @@ const moveRight = manager.registerAction({
   group: 'Movement',
   slots: 2,
   defaultBindings: ['KeyD', 'ArrowRight'],
+  defaultGamepadBindings: ['GP_A0P'],
 });
 
 const jump = manager.registerAction({
@@ -80,6 +88,7 @@ const jump = manager.registerAction({
   group: 'Movement',
   slots: 2,
   defaultBindings: ['Space', null],
+  defaultGamepadBindings: ['GP_B0'],
 });
 
 // Combat
@@ -90,6 +99,7 @@ const attack = manager.registerAction({
   group: 'Combat',
   slots: 1,
   defaultBindings: ['KeyF'],
+  defaultGamepadBindings: ['GP_B7'],
 });
 
 const block = manager.registerAction({
@@ -99,6 +109,7 @@ const block = manager.registerAction({
   group: 'Combat',
   slots: 1,
   defaultBindings: ['KeyG'],
+  defaultGamepadBindings: ['GP_B6'],
 });
 
 const interact = manager.registerAction({
@@ -108,6 +119,7 @@ const interact = manager.registerAction({
   group: 'Combat',
   slots: 1,
   defaultBindings: ['KeyE'],
+  defaultGamepadBindings: ['GP_B2'],
 });
 
 // UI
@@ -118,6 +130,7 @@ const openMap = manager.registerAction({
   group: 'Interface',
   slots: 1,
   defaultBindings: ['KeyM'],
+  defaultGamepadBindings: ['GP_B17'],
 });
 
 const openInventory = manager.registerAction({
@@ -127,6 +140,7 @@ const openInventory = manager.registerAction({
   group: 'Interface',
   slots: 1,
   defaultBindings: ['KeyI'],
+  defaultGamepadBindings: ['GP_B3'],
 });
 
 const sprint = manager.registerAction({
@@ -136,6 +150,7 @@ const sprint = manager.registerAction({
   group: 'Movement',
   slots: 1,
   defaultBindings: ['ShiftLeft'],
+  defaultGamepadBindings: ['GP_B10'],
 });
 
 // Mouse wheel (one notch = one press) and a Ctrl+wheel chord
@@ -145,6 +160,7 @@ const nextItem = manager.registerAction({
   group: 'Inventory',
   slots: 2,
   defaultBindings: ['MouseWheelDown', 'BracketRight'],
+  defaultGamepadBindings: ['GP_B5'],
 });
 
 const prevItem = manager.registerAction({
@@ -153,6 +169,7 @@ const prevItem = manager.registerAction({
   group: 'Inventory',
   slots: 2,
   defaultBindings: ['MouseWheelUp', 'BracketLeft'],
+  defaultGamepadBindings: ['GP_B4'],
 });
 
 const zoomCamera = manager.registerAction({
@@ -162,6 +179,8 @@ const zoomCamera = manager.registerAction({
   group: 'Camera',
   slots: 2,
   defaultBindings: ['ControlLeft+MouseWheelUp', 'ControlLeft+MouseWheelDown'],
+  gamepadSlots: 2,
+  defaultGamepadBindings: ['GP_B12', 'GP_B13'],
 });
 
 // ── 3. Configure which hints are visible by default ──────────────────────────
@@ -196,7 +215,7 @@ sprint.onPressed(() => log('sprint start', 'pressed'));
 sprint.onReleased(() => log('sprint stop', 'released'));
 nextItem.onPressed(() => log('next item (wheel notch)', 'pressed'));
 prevItem.onPressed(() => log('previous item (wheel notch)', 'pressed'));
-zoomCamera.onPressed((e) => log(`zoom camera ${e.code.endsWith('Up') ? 'in' : 'out'}`, 'pressed'));
+zoomCamera.onPressed((e) => log(`zoom camera ${e.code === 'GP_B12' || e.code?.endsWith('Up') ? 'in' : 'out'}`, 'pressed'));
 
 // ── 5. Binding change subscription ───────────────────────────────────────────
 
@@ -215,6 +234,9 @@ manager.subscribe((event) => {
 // ── 6. HUD button wiring ─────────────────────────────────────────────────────
 
 document.getElementById('open-btn').addEventListener('click', () => manager.open());
+// The built-in tools: also reachable from the bindings modal's footer.
+document.getElementById('open-tester-btn').addEventListener('click', () => manager.openControllerTest());
+document.getElementById('open-remap-btn').addEventListener('click', () => manager.openInputRemap());
 
 let hintsVisible = true;
 document.getElementById('hint-toggle-btn').addEventListener('click', () => {

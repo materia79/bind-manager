@@ -174,6 +174,11 @@ export function createPadView(svg, writer) {
     for (const node of nodes) writer.cls(node.g, 'bm-active', activeSet.has(node.code));
   }
 
+  /** Moved but below the pressed threshold: a partial fill, visibly not pressed. */
+  function setPartial(partialSet) {
+    for (const node of nodes) writer.cls(node.g, 'bm-partial', partialSet.has(node.code));
+  }
+
   /** x, y in -1..1 (logical stick axes). */
   function setStick(side, x, y) {
     const s = sticks[side];
@@ -219,6 +224,7 @@ export function createPadView(svg, writer) {
 
   function clear() {
     setActive(new Set());
+    setPartial(new Set());
     setStick('left', 0, 0);
     setStick('right', 0, 0);
     setTrigger('left', 0);
@@ -229,6 +235,7 @@ export function createPadView(svg, writer) {
     setLayout,
     setLabels,
     setActive,
+    setPartial,
     setStick,
     setTrigger,
     setEdit,

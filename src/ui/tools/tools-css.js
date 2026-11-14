@@ -421,6 +421,8 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-pad-tick .bm-pad-shape { fill: rgba(191, 223, 244, 0.16); stroke: rgba(191, 223, 244, 0.32); }
 .bm-pad-fill { fill: rgba(76, 201, 240, 0.5); pointer-events: none; }
 .bm-pad-el.bm-active .bm-pad-shape { fill: #4cc9f0; stroke: #c9f4ff; }
+/* Moved, but below the threshold the game needs: a faint fill and a dashed edge, never the pressed fill */
+.bm-pad-el.bm-partial .bm-pad-shape { fill: rgba(76, 201, 240, 0.22); stroke: #7fdcf5; stroke-dasharray: 6 4; }
 .bm-pad-el.bm-active .bm-pad-label { fill: #04202c; }
 .bm-pad-glyph { fill: none; stroke: #d9edfa; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
 .bm-pad-el.bm-active .bm-pad-glyph { stroke: #04202c; }

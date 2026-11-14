@@ -18,6 +18,7 @@ import { createPadView } from './pad-view.js';
 import { getStickLayoutForFamily } from './pad-layout.js';
 import { profileSignature } from './profile-options.js';
 import { GAMEPAD_LABEL_VARIANTS } from '../../input/gamepad-profiles.js';
+import { readMappingEntryMagnitude } from '../../input/gamepad-runtime.js';
 import { restoreFocusAfterClose, pushDialog, keepFocusInPanel } from './focus.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
@@ -26,6 +27,8 @@ const NO_PAD_HINT = 'Connect a controller to begin.';
 const HINT_TTL_MS = 4000;
 /** Edit-mode auto capture counts hold frames at this pace, independent of the display rate. */
 const EDIT_SAMPLE_MS = 100;
+/** A button value above this, below the pressed rule, shows as a partial fill. */
+const PARTIAL_MIN = 0.05;
 
 /**
  * Controller Tester tool: live controller view with one status line, a Debug
@@ -453,8 +456,8 @@ export function createControllerTester(ctx) {
 
     const mapping = resolvedProfile?.definition?.mapping;
     const baseline = state.baseline || createNeutralBaseline(gp);
-    const activeCodes = getActiveLogicalCodes(gp, baseline, mapping);
-    applyHighlights(activeCodes);
+    const { active: activeCodes, partial: partialCodes } = readPadCodes(gp, baseline, mapping);
+    applyHighlights(activeCodes, partialCodes);
     updateSticks(gp, baseline, mapping);
     updateTriggers(gp, baseline, mapping);
 
@@ -561,9 +564,42 @@ export function createControllerTester(ctx) {
     };
   }
 
-  function applyHighlights(activeCodes) {
+  /**
+   * Codes shown pressed and partly moved. Pressed means the game gets 'pressed':
+   * the manager's logical state with its own rule and thresholds. Movement below
+   * the threshold (a button value, an axis past the deadband) shows as partial.
+   * The trigger edit targets (GP_B6A / GP_B7A) keep the tester's own reading.
+   */
+  function readPadCodes(gp, baseline, mapping) {
+    const own = getActiveLogicalCodes(gp, baseline, mapping);
+    const logical = typeof manager.getGamepadLogicalState === 'function' ? manager.getGamepadLogicalState(gp.index) : null;
+    if (!logical) return { active: own, partial: [] };
+    const { deadband, analogThreshold } = manager.getGamepadThresholds();
+    const active = own.filter((code) => code.endsWith('A'));
+    const partial = [];
+    logical.buttons.forEach((pressed, i) => {
+      const code = `GP_B${i}`;
+      if (pressed) active.push(code);
+      else if (readButtonMagnitude(gp, mapping, i) > PARTIAL_MIN) partial.push(code);
+    });
+    logical.axes.forEach((v, a) => {
+      const dir = v < 0 ? 'N' : 'P';
+      if (Math.abs(v) > analogThreshold) active.push(`GP_A${a}${dir}`);
+      else if (Math.abs(v) > deadband) partial.push(`GP_A${a}${dir}`);
+    });
+    return { active, partial };
+  }
+
+  function readButtonMagnitude(gp, mapping, i) {
+    const entry = mapping?.[`GP_B${i}`];
+    if (entry) return readMappingEntryMagnitude(gp, entry, mapping);
+    return mapping ? 0 : (gp.buttons?.[i]?.value ?? 0);
+  }
+
+  function applyHighlights(activeCodes, partialCodes = []) {
     const active = new Set(activeCodes);
     pad.setActive(active);
+    pad.setPartial(new Set(partialCodes));
     for (const btn of codeButtons) writer.cls(btn, 'bm-active', active.has(btn.dataset.code));
   }
 

@@ -371,6 +371,28 @@ export class GamepadRuntime {
   }
 
   /**
+   * The thresholds this runtime dispatches with (read-only copy).
+   * @returns {{ deadband: number, analogThreshold: number, buttonThreshold: number }}
+   */
+  getThresholds() {
+    return { deadband: this._deadband, analogThreshold: this._analogThreshold, buttonThreshold: BUTTON_PRESS_THRESHOLD };
+  }
+
+  /**
+   * The logical state of a connected gamepad right now, exactly as the runtime
+   * reads it for dispatch (mapping, button rule): buttons GP_B0..GP_B23 pressed
+   * or not, axes GP_A0..GP_A3 as values; a direction is pressed past
+   * analogThreshold. Null when the pad is not connected.
+   * @param {number} [gamepadIndex=0]
+   * @returns {{ buttons: boolean[], axes: number[] } | null}
+   */
+  getLogicalState(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    return gp ? this._snapshotLogicalState(gp) : null;
+  }
+
+  /**
    * Returns info about all currently connected gamepads.
    * @returns {{ index: number, id: string, profile: string }[]}
    */

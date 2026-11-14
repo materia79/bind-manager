@@ -272,6 +272,25 @@ export function createBindManager(options = {}) {
     },
 
     /**
+     * The thresholds gamepad input is dispatched with (read-only copy).
+     * @returns {{ deadband: number, analogThreshold: number, buttonThreshold: number }}
+     */
+    getGamepadThresholds() {
+      return gamepadRuntime.getThresholds();
+    },
+
+    /**
+     * The logical state of a connected gamepad right now, as the runtime reads
+     * it for dispatch: `buttons` (GP_B0..GP_B23, pressed or not) and `axes`
+     * (GP_A0..GP_A3 values; a direction is pressed past analogThreshold).
+     * @param {number} [gamepadIndex=0]
+     * @returns {{ buttons: boolean[], axes: number[] } | null}
+     */
+    getGamepadLogicalState(gamepadIndex = 0) {
+      return gamepadRuntime.getLogicalState(gamepadIndex);
+    },
+
+    /**
      * Get info about all currently connected gamepads.
      * @returns {{ index: number, id: string, profile: string }[]}
      */

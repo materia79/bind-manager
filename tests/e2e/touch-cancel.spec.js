@@ -208,3 +208,49 @@ for (const size of SIZES) {
     }
   });
 }
+
+
+for (const size of SIZES) {
+  test.describe(`F1: a double tap on Cancel never starts a new capture @ ${size.width}x${size.height}`, () => {
+    test.use({ viewport: size, hasTouch: true });
+
+    for (const device of ['gamepad', 'keyboard']) {
+      for (const how of ['touch', 'mouse']) {
+        test(`${device} capture, ${how} double ${how === 'touch' ? 'tap' : 'click'} on Cancel over a bind button`, async ({ page }) => {
+          const pad = await openPage(page);
+          const slot = page.locator(`.bm-bind-btn[data-action-id="a3"][data-slot="0"][data-device="${device}"]`);
+          const sb = await slot.boundingBox();
+          await page.touchscreen.tap(sb.x + sb.width / 2, sb.y + sb.height / 2);
+          await expect(page.locator('.bm-capture-modal')).toBeVisible();
+          const point = await findPointOver(page, '.bm-capture-cancel-btn', '.bm-bind-btn', { scrollBody: true });
+          const before = await bindings(page);
+
+          if (how === 'touch') {
+            await page.touchscreen.tap(point.x, point.y);
+            await page.waitForTimeout(60);
+            await page.touchscreen.tap(point.x, point.y);
+          } else {
+            await page.mouse.dblclick(point.x, point.y);
+          }
+          await page.waitForTimeout(700);
+
+          await expect(page.locator('.bm-capture-modal')).toBeHidden();
+          await expect(page.locator('.bm-bind-btn.bm-capturing')).toHaveCount(0);
+          expect(await focusWhere(page)).toBe('bindings');
+          await page.keyboard.press('KeyZ');
+          await pad.setButton(2, 1);
+          await page.waitForTimeout(150);
+          await pad.setButton(2, 0);
+          await page.waitForTimeout(100);
+          expect(await bindings(page), 'nothing was bound').toBe(before);
+
+          // A deliberate tap after the window starts a capture.
+          await page.touchscreen.tap(point.x, point.y);
+          await expect(page.locator('.bm-capture-modal')).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(page.locator('.bm-capture-modal')).toBeHidden();
+        });
+      }
+    }
+  });
+}

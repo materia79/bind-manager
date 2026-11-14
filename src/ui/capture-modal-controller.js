@@ -160,7 +160,10 @@ export class CaptureModalController {
       // Touch and pen still produce a click at the tap point, which now lies on the bindings modal
       this._shieldNextClick(event.pointerId);
     }
-    this._onCancel?.();
+    // The owner learns that a pointer ended the capture (a second, fast tap is
+    // a real tap on what lies underneath, see ModalController).
+    const pointer = event?.type === 'pointerdown';
+    this._onCancel?.({ pointer, rect: pointer ? this._cancelBtn?.getBoundingClientRect() ?? null : null });
   }
 
   /**

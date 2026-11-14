@@ -44,6 +44,8 @@ export class ModalController {
     /** @type {{ actionId: string, slot: number, device: string, buttonEl: HTMLElement } | null} */
     this._captureTarget = null;
     this._warningTimeout = null;
+    /** After a capture is cancelled by pointer: until when, and over which area (the Cancel button), taps are ignored. */
+    this._pointerGuard = { until: 0, rect: null };
     this._unsubscribeStore = null;
     this._onGamepadChange = null;
 
@@ -72,7 +74,7 @@ export class ModalController {
         return;
       }
       const btn = e.target instanceof Element ? e.target.closest('button') : null;
-      if (btn && this._overlay.contains(btn)) this._handleButtonClick(btn);
+      if (btn && this._overlay.contains(btn)) this._handleButtonClick(btn, e);
     });
 
     this._overlay.addEventListener('change', (e) => {
@@ -257,13 +259,17 @@ export class ModalController {
   }
 
   /** Delegated click handling for every button in the modal. */
-  _handleButtonClick(btn) {
+  _handleButtonClick(btn, event = null) {
     const cls = btn.classList;
     if (cls.contains('bm-close-btn')) {
       this.close();
       return;
     }
     if (this._captureTarget) return;
+    // Just after a capture was cancelled by pointer, a second fast tap or click on
+    // the Cancel button's spot lands on the slot that was under the dialog: ignore
+    // it. Elsewhere, and keyboard activation (detail 0), pass.
+    if ((cls.contains('bm-bind-btn') || cls.contains('bm-clear-slot-btn')) && this._isGuardedPointerClick(event)) return;
 
     if (cls.contains('bm-reset-all-btn')) {
       this._store.resetAll();
@@ -560,7 +566,7 @@ export class ModalController {
         title: 'Capture Gamepad Input',
         message: 'Press the gamepad input to bind now.',
         detail: 'This capture stays open until input is detected or Escape cancels it.',
-        onCancel: () => this._cancelCapture(),
+        onCancel: (info) => this._cancelCaptureFrom(info),
       });
       this._gamepadRuntime.startCapture((code) => {
         this._endCapture(actionId, slot, 'gamepad');
@@ -579,7 +585,7 @@ export class ModalController {
         title: 'Capture Input',
         message: 'Press a key or mouse button to bind now.',
         detail: 'Modifier combos supported. Escape cancels.',
-        onCancel: () => this._cancelCapture(),
+        onCancel: (info) => this._cancelCaptureFrom(info),
       });
       let captured = false;
       const commitCapture = (code, device) => {
@@ -604,6 +610,21 @@ export class ModalController {
       this._runtime.startCapture((code) => commitCapture(code, 'keyboard'));
       this._mouseRuntime?.startCapture((code) => commitCapture(code, 'mouse'));
     }
+  }
+
+  /** Cancel requested by the capture dialog; a pointer cancel arms the pointer guard. */
+  _cancelCaptureFrom(info) {
+    if (info?.pointer && info.rect) this._pointerGuard = { until: performance.now() + POINTER_GUARD_MS, rect: info.rect };
+    this._cancelCapture();
+  }
+
+  /** A pointer click within POINTER_GUARD_MS of a pointer cancel, on the Cancel button's spot. */
+  _isGuardedPointerClick(event) {
+    const { until, rect } = this._pointerGuard;
+    if (!event || event.detail === 0 || !rect || performance.now() >= until) return false;
+    const m = POINTER_GUARD_MARGIN_PX;
+    return event.clientX >= rect.left - m && event.clientX <= rect.right + m
+      && event.clientY >= rect.top - m && event.clientY <= rect.bottom + m;
   }
 
   _cancelCapture() {
@@ -738,6 +759,11 @@ export class ModalController {
 }
 
 const FOCUSABLE = 'button, select, input, textarea, [href], [tabindex]:not([tabindex="-1"])';
+
+/** How long after a capture ended by pointer a tap or click on a bind or clear button is ignored. */
+const POINTER_GUARD_MS = 350;
+/** Slack around the Cancel button's rectangle for the guard (finger jitter). */
+const POINTER_GUARD_MARGIN_PX = 12;
 
 /** Classes that identify a focusable control across re-renders, most specific first. */
 const FOCUS_ROLES = [

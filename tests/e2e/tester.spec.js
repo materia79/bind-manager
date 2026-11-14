@@ -300,3 +300,81 @@ test.describe('live controller view', () => {
     await expect(target).toHaveClass(/bm-active/);
   });
 });
+
+/** True when the focused element is inside the given selector. */
+async function focusInside(page, selector) {
+  return page.evaluate((sel) => {
+    const box = document.querySelector(sel);
+    return !!box && box.contains(document.activeElement);
+  }, selector);
+}
+
+test.describe('focus management', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  test('tester traps Tab, returns focus to its footer button on Escape, then Escape closes the bindings modal', async ({ page }) => {
+    await openDemo(page);
+    const panel = await openTester(page);
+    await panel.locator('.bm-tester-editor-btn').click();
+    for (let i = 0; i < 25; i++) {
+      await page.keyboard.press('Tab');
+      expect(await focusInside(page, TESTER), `Tab ${i}`).toBe(true);
+    }
+    for (let i = 0; i < 25; i++) {
+      await page.keyboard.press('Shift+Tab');
+      expect(await focusInside(page, TESTER), `Shift+Tab ${i}`).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.bm-tester-modal')).not.toHaveClass(/bm-tester-open/);
+    await expect(page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.bm-modal')).toBeHidden();
+  });
+
+  test('after a capture update completes, focus stays in the tester and Escape still closes it', async ({ page }) => {
+    const pad = await openDemo(page);
+    const panel = await openTester(page);
+    await panel.locator('.bm-tester-editor-btn').click();
+    await panel.locator('.bm-tester-edit-toggle-btn').click();
+    await panel.locator('.bm-tester-pad [data-code="GP_B3"]').click();
+    await panel.locator('.bm-tester-capture-update-btn').click();
+    const mini = page.locator('.bm-capture-mini-modal.bm-open .bm-capture-mini-panel');
+    await expect(mini).toBeVisible({ timeout: 3000 });
+    // the mini modal traps Tab too
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('Tab');
+      expect(await focusInside(page, '.bm-capture-mini-panel'), `mini Tab ${i}`).toBe(true);
+    }
+    await pad.setButton(2, 1);
+    await expect(mini).toBeHidden({ timeout: 8000 });
+    await pad.reset();
+    expect(await focusInside(page, TESTER)).toBe(true);
+    await expect(panel.locator('.bm-tester-capture-update-btn')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.bm-tester-modal')).not.toHaveClass(/bm-tester-open/);
+    await expect(page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]')).toBeFocused();
+  });
+
+  test('Input Remap: Escape in the mini modal cancels it, focus lands in the tool, Escape closes the tool', async ({ page }) => {
+    await openDemo(page);
+    await page.locator('.bm-footer-action-btn[data-footer-action-id="input-debug"]').click();
+    const panel = page.locator(REMAP);
+    await expect(panel).toBeVisible();
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      expect(await focusInside(page, REMAP), `Tab ${i}`).toBe(true);
+    }
+    await panel.locator('.bm-debug-start-btn').click();
+    await expect(panel.locator('.bm-debug-capture-btn')).toBeEnabled({ timeout: 6000 });
+    await panel.locator('.bm-debug-capture-btn').click();
+    const mini = page.locator('.bm-capture-mini-modal.bm-open .bm-capture-mini-panel');
+    await expect(mini).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(mini).toBeHidden();
+    await expect(panel).toBeVisible();
+    expect(await focusInside(page, REMAP)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.bm-debug-modal')).not.toHaveClass(/bm-debug-open/);
+    await expect(page.locator('.bm-footer-action-btn[data-footer-action-id="input-debug"]')).toBeFocused();
+  });
+});

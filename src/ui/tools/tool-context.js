@@ -2,6 +2,7 @@ import { _esc } from './esc.js';
 import { getStrongestSignal, toGpCode, formatSignalFields } from './signals.js';
 import { cloneJson } from './capture-payload.js';
 import { createDomWriter } from './dom-writer.js';
+import { trapTab, focusFirst } from './focus.js';
 import {
   serialiseProfileOverrideValue,
   parseProfileOverrideValue,
@@ -164,7 +165,7 @@ export function createToolContext(manager, root) {
     };
   }
 
-  async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000, task = null }) {
+  async function captureWithMiniModal({ title, instruction, gamepadIndex, baseline, durationMs = 5000, task = null, returnFocus = null }) {
     const els = {
       modal: q('.bm-capture-mini-modal'),
       panel: q('.bm-capture-mini-panel'),
@@ -194,6 +195,10 @@ export function createToolContext(manager, root) {
     els.panel.focus();
     const onCancel = () => { cancelled = true; };
     const onKeydown = (event) => {
+      if (event.key === 'Tab') {
+        trapTab(els.panel, event);
+        return;
+      }
       if (event.code !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
@@ -227,7 +232,8 @@ export function createToolContext(manager, root) {
       els.panel.removeEventListener('keydown', onKeydown);
       els.modal.classList.remove('bm-open');
       els.modal.setAttribute('aria-hidden', 'true');
-      if (previousActiveElement?.isConnected) previousActiveElement.focus();
+      // The opener is often still disabled here; fall back to the owning tool panel.
+      focusFirst(previousActiveElement, returnFocus);
     }
     if (cancelled || task?.cancelled) return null;
     const top = [...scoreMap.values()].sort((a, b) => b.score - a.score)[0] || null;

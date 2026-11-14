@@ -17,6 +17,7 @@ import { createDomWriter } from './dom-writer.js';
 import { createPadView } from './pad-view.js';
 import { getStickLayoutForFamily } from './pad-layout.js';
 import { profileSignature } from './profile-options.js';
+import { trapTab, restoreFocusAfterClose } from './focus.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
 const NO_PAD_HINT = 'Connect a controller to begin.';
@@ -92,6 +93,7 @@ export function createControllerTester(ctx) {
     editAutoCapture: { key: null, signal: null, frames: 0 },
     editCooldown: false,
     tasks: new Set(),
+    opener: null,
   };
 
   /** Start a cancellable task that close() and unmount cancel. */
@@ -171,10 +173,13 @@ export function createControllerTester(ctx) {
     if (ev.code === 'Escape') {
       ev.preventDefault();
       close();
+    } else if (ev.key === 'Tab') {
+      trapTab(els.panel, ev);
     }
   });
 
   function open() {
+    state.opener = document.activeElement instanceof HTMLElement && !els.modal.contains(document.activeElement) ? document.activeElement : null;
     state.isOpen = true;
     state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('bm-tester-open');
@@ -191,6 +196,8 @@ export function createControllerTester(ctx) {
   }
 
   function close() {
+    const wasOpen = state.isOpen;
+    const hadFocus = els.modal.contains(document.activeElement) || document.activeElement === document.body;
     state.isOpen = false;
     cancelTasks();
     state.calibrating = false;
@@ -200,6 +207,8 @@ export function createControllerTester(ctx) {
     stopPolling();
     clearVisuals();
     updateEditUiState();
+    if (wasOpen && hadFocus) restoreFocusAfterClose(state.opener);
+    state.opener = null;
   }
 
   /** Show or hide the Debug and Profile editor panels; the tester panel keeps its size. */
@@ -233,6 +242,7 @@ export function createControllerTester(ctx) {
     } finally {
       endTask(task);
     }
+    if (!task.cancelled && document.activeElement === els.panel && !els.captureUpdateBtn.disabled) els.captureUpdateBtn.focus();
   }
 
   async function runCaptureUpdate(gp, task) {
@@ -255,6 +265,7 @@ export function createControllerTester(ctx) {
       baseline,
       durationMs: 5000,
       task,
+      returnFocus: els.panel,
     });
     // Closed or unmounted meanwhile: write nothing.
     if (task.cancelled) return;

@@ -2,6 +2,7 @@ import { _esc } from './esc.js';
 import { getStrongestSignal, formatSignalFields } from './signals.js';
 import { createDomWriter } from './dom-writer.js';
 import { profileSignature } from './profile-options.js';
+import { trapTab, restoreFocusAfterClose } from './focus.js';
 import {
   CAPTURE_PRESETS,
   DEFAULT_CAPTURE_PRESET,
@@ -56,6 +57,7 @@ export function createInputDebugger(ctx) {
     liveTimer: null,
     lastProfileSignature: null,
     task: null,
+    opener: null,
   };
 
   const profileControls = { select: els.profileSelect, chip: els.profileChip, device: els.device };
@@ -145,10 +147,13 @@ export function createInputDebugger(ctx) {
     if (ev.code === 'Escape') {
       ev.preventDefault();
       close();
+    } else if (ev.key === 'Tab') {
+      trapTab(els.panel, ev);
     }
   });
 
   function open() {
+    state.opener = document.activeElement instanceof HTMLElement && !els.modal.contains(document.activeElement) ? document.activeElement : null;
     state.isOpen = true;
     state.cancel = false;
     state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
@@ -167,6 +172,8 @@ export function createInputDebugger(ctx) {
   }
 
   function close() {
+    const wasOpen = state.isOpen;
+    const hadFocus = els.modal.contains(document.activeElement) || document.activeElement === document.body;
     state.isOpen = false;
     state.cancel = true;
     state.task?.cancel();
@@ -176,6 +183,8 @@ export function createInputDebugger(ctx) {
     els.modal.setAttribute('aria-hidden', 'true');
     stopLiveMonitor();
     updateButtonState();
+    if (wasOpen && hadFocus) restoreFocusAfterClose(state.opener);
+    state.opener = null;
   }
 
   async function runDebug() {
@@ -286,6 +295,7 @@ export function createInputDebugger(ctx) {
       baseline: state.baseline,
       durationMs: 5000,
       task,
+      returnFocus: els.panel,
     });
     if (state.task === task) state.task = null;
     // Closed or unmounted meanwhile: record nothing.
@@ -299,6 +309,7 @@ export function createInputDebugger(ctx) {
     renderOutput();
     updateCurrentStepUi();
     updateButtonState();
+    if (document.activeElement === els.panel && !els.captureBtn.disabled) els.captureBtn.focus();
   }
 
   function renderOutput() {

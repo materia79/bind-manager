@@ -303,13 +303,10 @@ const CSS = `
   padding: 0 calc(32 * var(--bm-u)) 0 calc(12 * var(--bm-u));
   appearance: none;
   background-color: var(--bm-btn-bg);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--bm-text-secondary) 50%),
-    linear-gradient(135deg, var(--bm-text-secondary) 50%, transparent 50%);
-  background-position:
-    calc(100% - 18 * var(--bm-u)) 50%,
-    calc(100% - 13 * var(--bm-u)) 50%;
-  background-size: calc(5 * var(--bm-u)) calc(5 * var(--bm-u));
+  /* SVG chevron in the default --bm-text-secondary; sized from the s token, so never below 8px */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.75 6 6.25l4.5-4.5' fill='none' stroke='%23b0b0d0' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: calc(100% - 12 * var(--bm-u)) 50%;
+  background-size: calc(0.8 * var(--bm-fs-s)) auto;
   background-repeat: no-repeat;
   box-shadow: inset 0 0 0 1px var(--bm-btn-border);
   border-radius: calc(6 * var(--bm-u));

@@ -15,8 +15,9 @@ describe('HintsController gamepad labels', () => {
           id: '054c-0ce6-DualSense Wireless Controller',
           index: 0,
           connected: true,
-          buttons: [],
-          axes: [],
+          mapping: '',
+          buttons: Array.from({ length: 14 }, () => ({ pressed: false, value: 0 })),
+          axes: new Array(12).fill(0),
         },
       ],
     });

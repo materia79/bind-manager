@@ -19,6 +19,9 @@ import { getStickLayoutForFamily } from './pad-layout.js';
 import { profileSignature } from './profile-options.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
+const NO_PAD_HINT = 'Connect a controller to begin.';
+/** A transient hint shows this long, or until the connection state changes. */
+const HINT_TTL_MS = 4000;
 /** Edit-mode auto capture counts hold frames at this pace, independent of the display rate. */
 const EDIT_SAMPLE_MS = 100;
 
@@ -65,6 +68,7 @@ export function createControllerTester(ctx) {
   const writer = createDomWriter();
   const pad = createPadView(els.controller, writer);
   pad.setLayout('offset');
+  pad.setEmpty(true);
   const signalGrid = bindSignalGrid(els.signal, writer);
   const raw = { buttons: [], axes: [] };
 
@@ -78,7 +82,8 @@ export function createControllerTester(ctx) {
     baseline: null,
     calibrating: false,
     lastProfileSignature: null,
-    hint: DEFAULT_HINT,
+    hint: null,
+    connection: 'none',
     debugOpen: false,
     editorOpen: false,
     editMode: false,
@@ -157,7 +162,7 @@ export function createControllerTester(ctx) {
     state.activeGamepadIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
     els.modal.classList.add('bm-tester-open');
     els.modal.setAttribute('aria-hidden', 'false');
-    state.hint = DEFAULT_HINT;
+    state.hint = null;
     state.lastProfileSignature = null;
     updateLastSignal(null);
     setActiveCodes([]);
@@ -283,12 +288,12 @@ export function createControllerTester(ctx) {
 
     state.calibrating = true;
     els.calibrateBtn.disabled = true;
-    setHint('Calibrating baseline. Release all controls...');
+    setHint('Calibrating baseline. Release all controls...', { sticky: true });
 
     try {
       const baseline = await captureBaseline(gp.index, 1500, {
         shouldCancel: () => !state.isOpen,
-        onTick: (secondsLeft) => setHint(`Calibrating baseline. Release all controls... ${secondsLeft}s`),
+        onTick: (secondsLeft) => setHint(`Calibrating baseline. Release all controls... ${secondsLeft}s`, { sticky: true }),
       });
 
       if (baseline) {
@@ -327,13 +332,16 @@ export function createControllerTester(ctx) {
   function updateFrame() {
     if (!state.isOpen) return;
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex) || pickGamepad();
+    state.connection = gp ? `pad:${gp.index}` : 'none';
+    const hint = currentHint(gp ? DEFAULT_HINT : NO_PAD_HINT);
     if (!gp) {
       if (state.activeGamepadIndex != null || state.lastProfileSignature !== 'none') {
         state.lastProfileSignature = 'none';
         refreshProfileControls(profileControls, null);
       }
       state.activeGamepadIndex = null;
-      writeStatus('No controller · Connect a controller to begin.');
+      pad.setEmpty(true);
+      writeStatus(`No controller · ${hint}`);
       setActiveCodes([]);
       updateLastSignal(null);
       updateRawTable(null, null);
@@ -349,6 +357,7 @@ export function createControllerTester(ctx) {
       refreshProfileControls(profileControls, gp.index);
       applyControllerLabels(gp.index);
     }
+    pad.setEmpty(false);
 
     const mapping = resolvedProfile?.definition?.mapping;
     const baseline = state.baseline || createNeutralBaseline(gp);
@@ -391,7 +400,7 @@ export function createControllerTester(ctx) {
       }
     }
 
-    writeStatus(`Slot ${gp.index} · Connected · ${state.hint}`);
+    writeStatus(`Slot ${gp.index} · Connected · ${hint}`);
   }
 
   function applyEditCapture(strongest, gp) {
@@ -457,9 +466,19 @@ export function createControllerTester(ctx) {
     for (let i = 0; i < axisCount; i++) writer.text(raw.axes[i], formatRawAxis(gamepad, baseline, i));
   }
 
-  function setHint(text) {
-    state.hint = text;
+  /**
+   * Show a hint in the status line. It expires after HINT_TTL_MS (sticky ones when replaced)
+   * or when the connection state changes, then the default hint of the state shows.
+   */
+  function setHint(text, { sticky = false } = {}) {
+    state.hint = { text, connection: state.connection, until: sticky ? Infinity : performance.now() + HINT_TTL_MS };
     if (state.isOpen) updateFrame();
+  }
+
+  function currentHint(fallback) {
+    const h = state.hint;
+    if (h && (h.connection !== state.connection || performance.now() > h.until)) state.hint = null;
+    return state.hint?.text ?? fallback;
   }
 
   function writeStatus(text) {

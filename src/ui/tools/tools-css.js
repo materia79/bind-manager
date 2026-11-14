@@ -357,6 +357,11 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-pad-ring { fill: rgba(6, 12, 20, 0.6); stroke: rgba(178, 214, 236, 0.4); stroke-width: 2; }
 .bm-pad-cross { stroke: rgba(180, 210, 228, 0.16); stroke-width: 1.5; }
 .bm-pad-hit { fill: transparent; stroke: none; }
+.bm-pad-message { display: none; fill: #cfe6f5; font-weight: 600; }
+.bm-pad-empty .bm-pad-message { display: inline; }
+.bm-pad-empty .bm-pad-el,
+.bm-pad-empty .bm-pad-stick { display: none; }
+.bm-pad-empty .bm-pad-outline { opacity: 0.4; }
 .bm-pad-tick .bm-pad-shape { fill: rgba(191, 223, 244, 0.16); stroke: rgba(191, 223, 244, 0.32); }
 .bm-pad-fill { fill: rgba(76, 201, 240, 0.5); pointer-events: none; }
 .bm-pad-el.bm-active .bm-pad-shape { fill: #4cc9f0; stroke: #c9f4ff; }

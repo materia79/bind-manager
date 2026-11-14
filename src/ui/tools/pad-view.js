@@ -65,7 +65,10 @@ function triggerMarkup(el) {
 
 /** Inner markup of the pad <svg> for one stick layout. */
 export function renderPadSvgContent(stickLayout) {
-  const parts = [`<path class="bm-pad-outline" d="${PAD_OUTLINE_PATH}"/>`];
+  const parts = [
+    `<path class="bm-pad-outline" d="${PAD_OUTLINE_PATH}"/>`,
+    `<text class="bm-pad-message" x="${PAD_VIEWBOX.width / 2}" y="330" font-size="30" text-anchor="middle" ${TEXT_ATTRS}>Connect a controller and press any button</text>`,
+  ];
   for (const el of buildPadLayout(stickLayout)) {
     if (el.kind === 'stick') parts.push(stickMarkup(el));
     else if (el.kind === 'trigger') parts.push(triggerMarkup(el));
@@ -180,6 +183,11 @@ export function createPadView(svg, writer) {
     writer.cls(t.g, 'bm-analog', q > 0);
   }
 
+  /** Empty state: dimmed outline and a message, no elements, labels or extra keys. */
+  function setEmpty(empty) {
+    writer.cls(svg, 'bm-pad-empty', empty);
+  }
+
   function setEdit(editMode, selectedCode) {
     writer.cls(svg, 'bm-pad-edit', editMode);
     for (const node of nodes) {
@@ -203,6 +211,7 @@ export function createPadView(svg, writer) {
     setStick,
     setTrigger,
     setEdit,
+    setEmpty,
     clear,
     getLayout: () => stickLayout,
     getNode: (code) => byCode.get(code)?.g ?? null,

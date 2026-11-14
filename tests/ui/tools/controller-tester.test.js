@@ -117,6 +117,73 @@ describe('controller tester frame loop', () => {
     }
   });
 
+  it('shows a deliberate empty state without a controller and picks the layout on connect', () => {
+    const fake = createFakePad();
+    let connected = false;
+    const manager = createFakeManager({ family: 'dualsense' });
+    vi.stubGlobal('navigator', { ...globalThis.navigator, getGamepads: () => (connected ? [fake.pad, null, null, null] : [null, null, null, null]) });
+    const tools = createBuiltInToolsController(manager, { builtInTools: true });
+    tools.mount(document.body);
+    t = { tools, q: (s) => document.querySelector(`.bm-built-in-tools-root ${s}`) };
+    tools.openControllerTest();
+    raf.step();
+    const svg = t.q('.bm-tester-pad');
+    expect(svg.classList.contains('bm-pad-empty')).toBe(true);
+    expect(t.q('.bm-pad-message').textContent).toBe('Connect a controller and press any button');
+    expect(t.q('.bm-tester-status').textContent).toBe('No controller · Connect a controller to begin.');
+
+    connected = true;
+    raf.step();
+    expect(svg.classList.contains('bm-pad-empty')).toBe(false);
+    // dualsense: symmetric layout, B17 is the touchpad
+    expect(t.q('.bm-tester-pad [data-code="GP_B17"]').getAttribute('class')).toContain('bm-pad-touchpad');
+
+    connected = false;
+    raf.step();
+    expect(svg.classList.contains('bm-pad-empty')).toBe(true);
+  });
+
+  it('lets transient hints expire on a state change or after a few seconds', () => {
+    const fake = createFakePad();
+    let connected = false;
+    vi.stubGlobal('navigator', { ...globalThis.navigator, getGamepads: () => (connected ? [fake.pad, null, null, null] : [null, null, null, null]) });
+    const tools = createBuiltInToolsController(createFakeManager(), { builtInTools: true });
+    tools.mount(document.body);
+    t = { tools, q: (s) => document.querySelector(`.bm-built-in-tools-root ${s}`) };
+    const now = vi.spyOn(performance, 'now');
+    let clock = 1000;
+    now.mockImplementation(() => clock);
+    try {
+      tools.openControllerTest();
+      raf.step();
+      t.q('.bm-tester-editor-btn').click();
+      t.q('.bm-tester-calibrate-btn').click();
+      expect(t.q('.bm-tester-status').textContent).toBe('No controller · No controller detected. Connect one, then calibrate.');
+      clock += 2000;
+      raf.step();
+      expect(t.q('.bm-tester-status').textContent).toMatch(/No controller detected/);
+      clock += 3000;
+      raf.step();
+      expect(t.q('.bm-tester-status').textContent).toBe('No controller · Connect a controller to begin.');
+
+      t.q('.bm-tester-calibrate-btn').click();
+      expect(t.q('.bm-tester-status').textContent).toMatch(/No controller detected/);
+      connected = true;
+      clock += 16;
+      raf.step();
+      expect(t.q('.bm-tester-status').textContent).toBe('Slot 0 · Connected · Press any button, trigger, d-pad direction or stick.');
+
+      // a hint set while connected expires after its time
+      t.q('.bm-tester-calibrate-btn').click();
+      expect(t.q('.bm-tester-status').textContent).toMatch(/Calibrating baseline/);
+      clock += 10_000;
+      raf.step();
+      expect(t.q('.bm-tester-status').textContent).toMatch(/Calibrating baseline/); // still calibrating: kept alive by its ticks
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('stops the loop on close', () => {
     t = mountTester();
     t.tools.openControllerTest();

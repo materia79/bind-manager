@@ -151,9 +151,9 @@ window.addEventListener('keydown', (e) => {
 - When the modal is open, gameplay key dispatch is suppressed to avoid accidental movement while rebinding.
 - When the modal opens, every gamepad input that was pressed gets a `released` event (and analog actions a final 0), so `inputState` above never stays stuck; an input still held when the modal closes stays silent until it is pressed again.
 - Stick directions dispatch `pressed`/`released` past the analog threshold (0.5). For smooth movement, register an action with `analog: true` and read `onAnalog((e) => …)` values instead; one final `analog` event with value 0 arrives when the stick returns to rest.
-- If you use Pointer Lock, release it when the modal opens and re-lock on close: `binds.onActiveChange((active) => { if (active) document.exitPointerLock(); })`. Set `binds.keepCursorAfterClose = true` if the library should leave your cursor state alone on close.
+- If you use Pointer Lock, release it when the modal opens and re-lock on close: `binds.onActiveChange((active) => { if (active) document.exitPointerLock(); })`. bind-manager never changes the cursor or pointer lock itself; `binds.keepCursorAfterClose` is only a flag the library stores for your own code.
 - `binds.isActionPressed('move-forward')` is an alternative to the `inputState` flags when you prefer polling in the loop.
-- The optional browser shortcut guard (`browserGuard: { target: renderer.domElement }`) stops Space from scrolling and Ctrl+S from saving the page while the game owns input (root README).
+- The optional browser shortcut guard (`browserGuard: { target: renderer.domElement }`) stops Space from scrolling and Ctrl+S from saving the page while the game owns input: while the canvas has pointer lock, has focus, or is inside the fullscreen element (or after `binds.browserGuard.setGameOwnsInput(true)`), and never while the bindings modal, a capture, a built-in tool or a text field is active (root README, "Browser Shortcut Guard").
 
 ## Suggested Pattern
 

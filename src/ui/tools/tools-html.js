@@ -85,6 +85,7 @@ export function getBuiltInToolsHtml() {
                 <button class="bm-tool-btn bm-tool-toggle bm-tester-edit-toggle-btn" aria-pressed="false">Edit mode</button>
                 <button class="bm-tool-btn bm-tester-capture-update-btn" disabled>Capture update</button>
                 <button class="bm-tool-btn bm-tester-download-updated-btn" disabled>Download JSON</button>
+                <button class="bm-tool-btn bm-tester-reset-edits-btn" disabled title="Discard every in-memory mapping edit of this controller">Reset edits</button>
               </div>
               <div class="bm-tester-trigger-edit" data-disabled="true">
                 <span>Trigger targets</span>

@@ -513,8 +513,12 @@ export class GamepadRuntime {
     if (!editable.mapping || typeof editable.mapping !== 'object') editable.mapping = {};
     if (!editable.labels || typeof editable.labels !== 'object') editable.labels = {};
 
+    const baseMapping = this._baseMapping(gp);
     if (!entry || typeof entry !== 'object') {
-      delete editable.mapping[code];
+      // Removing an edit restores the code's base entry (the exact profile's,
+      // else the standard layout's identity entry); without one the code is unmapped.
+      if (baseMapping[code]) editable.mapping[code] = deepClone(baseMapping[code]);
+      else delete editable.mapping[code];
     } else {
       const normalised = this._normaliseMappingEntry(entry);
       if (!normalised) return false;
@@ -539,20 +543,66 @@ export class GamepadRuntime {
     }
 
     editable.capturedAt = new Date().toISOString();
-    this._profileDefinitionOverrides.set(identityKey, editable);
+    // A mapping back to its base is no edit: drop it, the source returns to
+    // exact / family / generic.
+    if (this._sameMapping(editable.mapping, baseMapping)) {
+      for (const key of getGamepadIdentityKeys(gp.id)) this._profileDefinitionOverrides.delete(key);
+    } else {
+      this._profileDefinitionOverrides.set(identityKey, editable);
+    }
     this._resolvedProfileByGamepadIndex.delete(gp.index);
     this._emitProfileChange(gp);
     return true;
   }
 
   /**
-   * Remove a logical mapping entry from the active gamepad profile in memory.
+   * Remove a logical mapping entry from the active gamepad profile in memory:
+   * the code gets its base entry back (the exact profile's, or on a pad
+   * without one the standard layout's).
    * @param {number} [gamepadIndex=0]
    * @param {string} code
    * @returns {boolean}
    */
   removeProfileMappingEntry(gamepadIndex = 0, code) {
     return this.setProfileMappingEntry(gamepadIndex, code, null);
+  }
+
+  /**
+   * Discard every in-memory mapping edit of a connected gamepad.
+   * @param {number} [gamepadIndex=0]
+   * @returns {boolean} true when there were edits
+   */
+  resetProfileMapping(gamepadIndex = 0) {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return false;
+    const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
+    if (!gp) return false;
+    let deleted = false;
+    for (const key of getGamepadIdentityKeys(gp.id)) deleted = this._profileDefinitionOverrides.delete(key) || deleted;
+    if (!deleted) return false;
+    this._resolvedProfileByGamepadIndex.delete(gp.index);
+    this._emitProfileChange(gp);
+    return true;
+  }
+
+  /**
+   * Mapping of a pad without its in-memory edits: the exact profile's when one
+   * applies, else the identity mapping of its standard layout.
+   * @private
+   */
+  _baseMapping(gamepad) {
+    const resolved = resolveGamepadProfile(gamepad, { override: this._getOverrideForGamepadId(gamepad.id) });
+    const mapping = resolved.definition?.mapping;
+    return mapping && typeof mapping === 'object' ? mapping : identityMapping(gamepad);
+  }
+
+  /** Two mappings with the same normalised entries. @private */
+  _sameMapping(a, b) {
+    const norm = (mapping) => Object.keys(mapping).sort()
+      .map((code) => [code, this._normaliseMappingEntry(mapping[code])])
+      .filter(([, entry]) => entry)
+      .map(([code, e]) => `${code}:${e.kind}:${e.index}:${e.direction}:${e.value ?? ''}:${e.tolerance ?? ''}`)
+      .join('|');
+    return norm(a) === norm(b);
   }
 
   /**

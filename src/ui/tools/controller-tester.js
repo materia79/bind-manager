@@ -58,6 +58,7 @@ export function createControllerTester(ctx) {
     editToggleBtn: q('.bm-tester-edit-toggle-btn'),
     captureUpdateBtn: q('.bm-tester-capture-update-btn'),
     downloadUpdatedBtn: q('.bm-tester-download-updated-btn'),
+    resetEditsBtn: q('.bm-tester-reset-edits-btn'),
     editTarget: q('.bm-tester-edit-target'),
     editStatus: q('.bm-tester-edit-status'),
     bindingsSection: q('.bm-tester-bindings-section'),
@@ -150,6 +151,7 @@ export function createControllerTester(ctx) {
     });
   });
   els.downloadUpdatedBtn.addEventListener('click', downloadUpdatedPayload);
+  els.resetEditsBtn.addEventListener('click', resetEdits);
   wireProfileControls({
     controls: profileControls,
     resolveGamepadIndex: () => state.activeGamepadIndex,
@@ -418,6 +420,7 @@ export function createControllerTester(ctx) {
       state.lastProfileSignature = signature;
       refreshProfileControls(profileControls, gp.index);
       applyControllerLabels(gp.index);
+      els.resetEditsBtn.disabled = !hasEdits();
     }
     pad.setEmpty(false);
 
@@ -483,11 +486,28 @@ export function createControllerTester(ctx) {
     setEditStatus(successMsg);
   }
 
-  /** The in-memory profile changed: refresh the header and the pad labels. */
+  /** The in-memory profile changed: refresh the header, the pad labels and the edit buttons. */
   function profileEdited(gamepadIndex) {
     state.lastProfileSignature = null;
     refreshProfileControls(profileControls, gamepadIndex);
     applyControllerLabels(gamepadIndex);
+    els.resetEditsBtn.disabled = !hasEdits();
+  }
+
+  /** True when the active pad has in-memory mapping edits. */
+  function hasEdits() {
+    if (state.activeGamepadIndex == null) return false;
+    return manager.getResolvedGamepadProfile(state.activeGamepadIndex)?.source === 'memory-edit';
+  }
+
+  function resetEdits() {
+    const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
+    if (!gp || typeof manager.resetGamepadProfileMapping !== 'function') return;
+    const reset = manager.resetGamepadProfileMapping(gp.index);
+    profileEdited(gp.index);
+    refreshSelectedBindingsList();
+    setEditStatus(reset ? 'Discarded the in-memory mapping edits of this controller.' : 'No in-memory edits to discard.');
+    keepFocusInPanel(els.panel);
   }
 
   function applyControllerLabels(gamepadIndex = 0) {
@@ -698,6 +718,7 @@ export function createControllerTester(ctx) {
     const canCapture = state.editMode && state.selectedCode && !state.captureUpdateInProgress;
     els.captureUpdateBtn.disabled = !canCapture;
     els.downloadUpdatedBtn.disabled = state.activeGamepadIndex == null;
+    els.resetEditsBtn.disabled = !hasEdits();
     refreshSelectedBindingsList();
     // A control that just disabled itself (Capture update) hands focus to the panel.
     if (state.isOpen) keepFocusInPanel(els.panel);

@@ -317,13 +317,25 @@ export function createBindManager(options = {}) {
     },
 
     /**
-     * Remove a logical mapping entry from the active gamepad profile in memory.
+     * Remove a logical mapping entry from the active gamepad profile in memory:
+     * the code gets its base entry back (the exact profile's, or the standard
+     * layout's on a pad without one). A mapping back to its base is no edit.
      * @param {number} [gamepadIndex=0]
      * @param {string} code
      * @returns {boolean}
      */
     removeGamepadProfileMappingEntry(gamepadIndex = 0, code) {
       return gamepadRuntime.removeProfileMappingEntry(gamepadIndex, code);
+    },
+
+    /**
+     * Discard every in-memory mapping edit of a connected gamepad; it maps by
+     * its exact profile, or its standard layout, again.
+     * @param {number} [gamepadIndex=0]
+     * @returns {boolean} true when there were edits
+     */
+    resetGamepadProfileMapping(gamepadIndex = 0) {
+      return gamepadRuntime.resetProfileMapping(gamepadIndex);
     },
 
     /**

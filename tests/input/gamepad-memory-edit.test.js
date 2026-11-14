@@ -78,11 +78,15 @@ describe('GamepadRuntime — J14: memory edit on a pad without an exact profile'
     expect(def.family).toBe('xbox');
   });
 
-  it('removing an entry leaves the rest working', () => {
+  it('removing an entry leaves the rest working (and restores its own identity entry, F3)', () => {
     const { runtime, press } = setup();
+    runtime.setProfileMappingEntry(0, 'GP_B1', { kind: 'button', index: 4 });
+    runtime.setProfileMappingEntry(0, 'GP_B2', { kind: 'button', index: 5 });
     expect(runtime.removeProfileMappingEntry(0, 'GP_B1')).toBe(true);
-    expect(press({ pressed: [1] })).toEqual([]);
+    expect(press({ pressed: [1] })).toEqual(['GP_B1']);
     expect(press({ pressed: [0] })).toEqual(['GP_B0']);
+    expect(press({ pressed: [5] })).toEqual(['GP_B2', 'GP_B5']);
+    runtime.removeProfileMappingEntry(0, 'GP_B2');
     expect(press({ pressed: [2] })).toEqual(['GP_B2']);
     expect(press({ axes: [1, 0, 0, 0] })).toEqual(['GP_A0P']);
   });

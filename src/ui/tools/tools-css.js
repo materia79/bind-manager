@@ -309,7 +309,8 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tester-raw span,
 .bm-tester-raw-axis { display: block; overflow: hidden; white-space: pre; }
 
-.bm-tester-editor-actions { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: ${u(8)}; }
+.bm-tester-editor-actions { flex: none; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: ${u(8)}; }
+.bm-tester-editor-actions .bm-tester-calibrate-btn { grid-column: span 2; }
 .bm-tester-editor-actions .bm-tool-btn { width: 100%; }
 .bm-tester-trigger-edit {
   flex: none;

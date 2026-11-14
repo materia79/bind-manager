@@ -152,6 +152,24 @@ function deepClone(value) {
 }
 
 /**
+ * Mapping that reproduces the standard layout of a pad: every logical button
+ * and axis direction the pad has, mapped to its own raw button or axis.
+ * @param {{ buttons?: ArrayLike<unknown>, axes?: ArrayLike<unknown> } | null} gamepad
+ * @returns {Record<string, { kind: 'button' | 'axis', index: number, direction?: 'negative' | 'positive' }>}
+ */
+function identityMapping(gamepad) {
+  const mapping = {};
+  const buttons = Math.min(gamepad?.buttons?.length ?? 0, GP_BUTTON_COUNT);
+  const axes = Math.min(gamepad?.axes?.length ?? 0, GP_AXIS_COUNT);
+  for (let i = 0; i < buttons; i++) mapping[`GP_B${i}`] = { kind: 'button', index: i };
+  for (let a = 0; a < axes; a++) {
+    mapping[`GP_A${a}N`] = { kind: 'axis', index: a, direction: 'negative' };
+    mapping[`GP_A${a}P`] = { kind: 'axis', index: a, direction: 'positive' };
+  }
+  return mapping;
+}
+
+/**
  * Build the override map from persisted data, applying the same
  * normalisation as setProfileOverride(); invalid entries are dropped.
  * @param {unknown} stored
@@ -908,7 +926,9 @@ export class GamepadRuntime {
       profileHint: base.profileHint ?? resolvedProfile?.profileHint ?? resolvedProfile?.family ?? 'generic',
       family: base.family ?? resolvedProfile?.family ?? 'generic',
       labels: base.labels && typeof base.labels === 'object' ? base.labels : {},
-      mapping: base.mapping && typeof base.mapping === 'object' ? base.mapping : {},
+      // Without an exact profile the pad runs on its standard layout: start
+      // from that identity mapping, so an edit changes only its own entry.
+      mapping: base.mapping && typeof base.mapping === 'object' ? base.mapping : identityMapping(gamepad),
     };
   }
 

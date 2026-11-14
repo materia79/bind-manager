@@ -4,7 +4,13 @@ import {
   getControllerProfile,
   getControllerProfiles,
 } from './controller_definitions/index.js';
-import { detectGamepadProfile, GAMEPAD_PROFILES, getGamepadLabel } from './gamepad-profiles.js';
+import {
+  detectGamepadProfile,
+  GAMEPAD_PROFILES,
+  getGamepadLabel,
+  getGamepadLabelVariant,
+  parseGamepadId,
+} from './gamepad-profiles.js';
 
 function normaliseFamily(value) {
   if (typeof value !== 'string') return null;
@@ -12,15 +18,30 @@ function normaliseFamily(value) {
   return trimmed || null;
 }
 
+/**
+ * Stable key for a controller model: `vendor-product` when the id carries
+ * vendor/product numbers (Chrome or Firefox form), else `id:<lowercase id>`.
+ * @param {string | null | undefined} gamepadId
+ * @returns {string | null}
+ */
 export function getGamepadIdentityKey(gamepadId) {
-  if (typeof gamepadId !== 'string') return null;
+  return getGamepadIdentityKeys(gamepadId)[0] ?? null;
+}
+
+/**
+ * All identity keys a stored override may use for this id, preferred first.
+ * Before Chrome-form ids were parsed, their key was `id:<lowercase id>`; that
+ * legacy key is kept as a fallback so persisted overrides still apply.
+ * @param {string | null | undefined} gamepadId
+ * @returns {string[]}
+ */
+export function getGamepadIdentityKeys(gamepadId) {
+  if (typeof gamepadId !== 'string') return [];
   const trimmed = gamepadId.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-/);
-  if (match) {
-    return `${match[1].toLowerCase()}-${match[2].toLowerCase()}`;
-  }
-  return `id:${trimmed.toLowerCase()}`;
+  if (!trimmed) return [];
+  const legacy = `id:${trimmed.toLowerCase()}`;
+  const { key } = parseGamepadId(trimmed);
+  return key ? [key, legacy] : [legacy];
 }
 
 export function normaliseGamepadProfileOverride(override) {
@@ -54,7 +75,21 @@ export function getControllerFamily(profile, gamepadId = null) {
   );
 }
 
+function withDeviceInfo(resolved, gamepadId) {
+  const { vendorId, productId } = parseGamepadId(gamepadId);
+  return {
+    ...resolved,
+    vendorId,
+    productId,
+    labelVariant: getGamepadLabelVariant(resolved.family, vendorId, productId),
+  };
+}
+
 export function resolveGamepadProfile(gamepadId, options = {}) {
+  return withDeviceInfo(resolveGamepadProfileBase(gamepadId, options), gamepadId);
+}
+
+function resolveGamepadProfileBase(gamepadId, options) {
   const override = normaliseGamepadProfileOverride(options.override ?? null);
   if (override?.type === 'profile') {
     const definition = getControllerProfile(override.key);
@@ -172,5 +207,5 @@ export function getResolvedGamepadLabel(code, resolvedProfile) {
 
   const family = normaliseFamily(resolvedProfile?.family) ?? 'generic';
   const fallbackFamily = GAMEPAD_PROFILES[family] ? family : 'generic';
-  return getGamepadLabel(code, fallbackFamily);
+  return getGamepadLabel(code, fallbackFamily, resolvedProfile?.labelVariant ?? null);
 }

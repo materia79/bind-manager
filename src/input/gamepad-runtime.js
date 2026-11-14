@@ -15,9 +15,11 @@
  *   'bm-gamepad-disconnected' { detail: Gamepad }
  */
 import { GP_AXIS_COUNT, GP_BUTTON_COUNT, isGamepadCode } from './gamepad-codes.js';
+import { parseGamepadId } from './gamepad-profiles.js';
 import {
   getAvailableGamepadProfileOptions,
   getGamepadIdentityKey,
+  getGamepadIdentityKeys,
   getResolvedGamepadLabel,
   normaliseGamepadProfileOverride,
   resolveGamepadProfile,
@@ -266,8 +268,7 @@ export class GamepadRuntime {
   getProfileOverride(gamepadIndex = 0) {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
     const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
-    const identityKey = getGamepadIdentityKey(gp?.id ?? null);
-    return identityKey ? this._profileOverrides.get(identityKey) ?? null : null;
+    return this._getOverrideForGamepadId(gp?.id ?? null);
   }
 
   /**
@@ -286,6 +287,7 @@ export class GamepadRuntime {
       return this.clearProfileOverride(gamepadIndex);
     }
 
+    for (const legacyKey of getGamepadIdentityKeys(gp.id).slice(1)) this._profileOverrides.delete(legacyKey);
     this._profileOverrides.set(identityKey, normalised);
     this._resolvedProfileByGamepadIndex.delete(gp.index);
     this._emitProfileChange(gp.index, gp.id);
@@ -302,7 +304,8 @@ export class GamepadRuntime {
     const identityKey = getGamepadIdentityKey(gp?.id ?? null);
     if (!gp || !identityKey) return false;
 
-    const deleted = this._profileOverrides.delete(identityKey);
+    let deleted = false;
+    for (const key of getGamepadIdentityKeys(gp.id)) deleted = this._profileOverrides.delete(key) || deleted;
     this._resolvedProfileByGamepadIndex.delete(gp.index);
     this._emitProfileChange(gp.index, gp.id);
     return deleted;
@@ -618,8 +621,11 @@ export class GamepadRuntime {
   }
 
   _getOverrideForGamepadId(gamepadId) {
-    const identityKey = getGamepadIdentityKey(gamepadId);
-    return identityKey ? this._profileOverrides.get(identityKey) ?? null : null;
+    for (const key of getGamepadIdentityKeys(gamepadId)) {
+      const override = this._profileOverrides.get(key);
+      if (override) return override;
+    }
+    return null;
   }
 
   _emitProfileChange(gamepadIndex, gamepadId) {
@@ -657,11 +663,7 @@ export class GamepadRuntime {
     if (existing) return deepClone(existing);
 
     const base = deepClone(resolvedProfile?.definition) || {};
-    const idMatch = typeof gamepad?.id === 'string'
-      ? gamepad.id.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-(.+)$/)
-      : null;
-    const vendorId = idMatch?.[1]?.toLowerCase() ?? null;
-    const productId = idMatch?.[2]?.toLowerCase() ?? null;
+    const { vendorId, productId } = parseGamepadId(gamepad?.id ?? null);
 
     return {
       key: base.key ?? (vendorId && productId ? `${vendorId}-${productId}` : identityKey ?? 'custom-profile'),

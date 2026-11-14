@@ -182,22 +182,119 @@ export function isGamepadLabelUnverified(code, family) {
 }
 
 /**
+ * Parse vendor id, product id and device name from a browser Gamepad.id.
+ *
+ * Known forms:
+ * - Firefox: `054c-0ce6-DualSense Wireless Controller` (some platforms drop
+ *   leading zeros: `54c-ce6-…`)
+ * - Chrome:  `DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)`;
+ *   the `STANDARD GAMEPAD ` tag is missing when Chrome has no remap
+ * - no ids:  `Xbox 360 Controller (XInput STANDARD GAMEPAD)`, `xinput`,
+ *   `Xbox Wireless Controller (STANDARD GAMEPAD)`,
+ *   `DualSense Wireless Controller Extended Gamepad` (Safari)
+ *
+ * @param {string | null | undefined} gamepadId
+ * @returns {{ vendorId: string | null, productId: string | null, key: string | null, name: string }}
+ *   `key` is `vendor-product` (lowercase, 4 hex digits each) when both ids are known.
+ */
+export function parseGamepadId(gamepadId) {
+  if (typeof gamepadId !== 'string' || !gamepadId.trim()) {
+    return { vendorId: null, productId: null, key: null, name: '' };
+  }
+  const trimmed = gamepadId.trim();
+  let vendorId = null;
+  let productId = null;
+  let name = trimmed;
+
+  const firefox = trimmed.match(/^([0-9a-f]{1,4})-([0-9a-f]{1,4})-(.*)$/i);
+  const chrome = firefox ? null : trimmed.match(/\bvendor:\s*([0-9a-f]{4})\s+product:\s*([0-9a-f]{4})\b/i);
+  if (firefox) {
+    vendorId = firefox[1].toLowerCase().padStart(4, '0');
+    productId = firefox[2].toLowerCase().padStart(4, '0');
+    name = firefox[3].trim();
+  } else if (chrome) {
+    vendorId = chrome[1].toLowerCase();
+    productId = chrome[2].toLowerCase();
+  }
+  // Drop the browser's mapping tag "( … STANDARD GAMEPAD … )" / "(Vendor: … )"
+  // and Safari's GCController profile suffix.
+  name = name
+    .replace(/\s*\([^()]*(?:standard gamepad|vendor:|xinput)[^()]*\)\s*$/i, '')
+    .replace(/\s+(?:extended|micro) gamepad$/i, '')
+    .trim();
+
+  return {
+    vendorId,
+    productId,
+    key: vendorId && productId ? `${vendorId}-${productId}` : null,
+    name,
+  };
+}
+
+const DEVICE_IDS_BY_FAMILY = {
+  xbox: {
+    '045e': ['02d1', '02dd', '02ea', '02ff', '02e0', '02fd', '02e3', '0b00', '0b05',
+      '0b06', '0b0a', '0b0c', '0b12', '0b13', '0b20', '0b21', '0b22'],
+  },
+  xbox360: {
+    '045e': ['028e', '028f', '0291', '02a1', '02a9', '0719'],
+    '046d': ['c21d', 'c21e', 'c21f'], // Logitech F310/F510/F710 in X mode
+    '28de': ['11ff'],                 // Steam Input virtual pad
+    '1949': ['041a'],                 // Amazon Luna over USB
+  },
+  dualshock4: { '054c': ['05c4', '09cc', '0ba0'] },
+  dualsense: { '054c': ['0ce6', '0df2', '0e5f'] }, // DualSense, Edge, Access
+  'switch-pro': { '057e': ['2009', '2006', '2007', '200e'] },
+  steam: { '28de': ['1205', '1302', '1303', '1304', '1305', '1102', '1142'] },
+  stadia: { '18d1': ['9400'] },
+};
+
+/** Family per `vendor-product` key. With ids present, only this table decides. */
+export const GAMEPAD_DEVICE_FAMILIES = (() => {
+  const table = {};
+  for (const [family, vendors] of Object.entries(DEVICE_IDS_BY_FAMILY)) {
+    for (const [vendor, products] of Object.entries(vendors)) {
+      for (const product of products) table[`${vendor}-${product}`] = family;
+    }
+  }
+  return Object.freeze(table);
+})();
+
+/**
+ * Name patterns, used only when the id carries no vendor/product numbers.
+ * Order matters: the XInput strings name an "Xbox 360 Controller" whatever
+ * the real generation is, so they map to `xbox` before the 360 pattern runs.
+ * A bare "Wireless Controller" is what older setups report for a DualShock 4;
+ * it differs from DualSense only at index 8 (Share vs Create).
+ */
+const NAME_PATTERNS = [
+  [/xinput/i, 'xbox', 'raw'],
+  [/x-?box 360/i, 'xbox360'],
+  [/x-?box (?:wireless|one|series|elite|adaptive)/i, 'xbox'],
+  [/dualsense/i, 'dualsense'],
+  [/dualshock/i, 'dualshock4'],
+  [/^wireless controller$/i, 'dualshock4'],
+  [/^pro controller/i, 'switch-pro'],
+  [/joy-con/i, 'switch-pro'],
+  [/steam (?:deck|controller)/i, 'steam'],
+  [/stadia/i, 'stadia'],
+];
+
+/**
  * Detect the best matching profile name from a browser Gamepad.id string.
+ * Vendor/product ids (Chrome or Firefox form) are looked up in
+ * GAMEPAD_DEVICE_FAMILIES; name patterns apply only when there are no ids.
  *
  * @param {string} gamepadId - The raw Gamepad.id string from the browser API
  * @returns {GamepadProfileName}
  */
 export function detectGamepadProfile(gamepadId) {
   if (!gamepadId || typeof gamepadId !== 'string') return 'generic';
-  const id = gamepadId.toLowerCase();
-
-  // Xbox detection – covers Xbox 360, Xbox One, Xbox Series, and Microsoft virtual adapters
-  if (/xinput|xbox|microsoft|045e/.test(id)) return 'xbox';
-
-  // PlayStation detection – covers DualShock 4 (054c:09cc), DualSense (054c:0ce6),
-  // and plain "Wireless Controller" gamepad.id often reported on Chrome
-  if (/054c|playstation|dualshock|dualsense|wireless controller/.test(id)) return 'dualsense';
-
+  const parsed = parseGamepadId(gamepadId);
+  if (parsed.key) return GAMEPAD_DEVICE_FAMILIES[parsed.key] ?? 'generic';
+  for (const [pattern, family, on] of NAME_PATTERNS) {
+    if (pattern.test(on === 'raw' ? gamepadId : parsed.name)) return family;
+  }
   return 'generic';
 }
 

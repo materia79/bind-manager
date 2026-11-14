@@ -701,6 +701,28 @@ describe('GamepadRuntime — stored profile overrides', () => {
     });
   });
 
+  it('applies an override stored under the legacy id: key of a Chrome-form id and migrates it on change', () => {
+    const chromeId = 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)';
+    const legacyKey = `id:${chromeId.toLowerCase()}`;
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [makeGamepad(chromeId, 0)],
+    });
+    const saved = [];
+    const { runtime } = setup({
+      profileOverrides: { [legacyKey]: { type: 'family', family: 'xbox' } },
+      onProfileOverridesChange: (overrides) => saved.push(overrides),
+    });
+    expect(runtime.getProfileOverride(0)).toEqual({ type: 'family', family: 'xbox' });
+    expect(runtime.getActiveProfile(0)).toBe('xbox');
+
+    runtime.setProfileOverride(0, { type: 'family', family: 'dualsense' });
+    expect(saved.at(-1)).toEqual({ '054c-0ce6': { type: 'family', family: 'dualsense' } });
+
+    expect(runtime.clearProfileOverride(0)).toBe(true);
+    expect(saved.at(-1)).toEqual({});
+  });
+
   it('ignores a stored value that is not an object map', () => {
     const { runtime } = setup({ profileOverrides: ['oops'] });
     expect(runtime._profileOverrides.size).toBe(0);

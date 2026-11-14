@@ -709,7 +709,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 ## Known Gaps
 
 - The shipped DualSense exact profile (`054c-0ce6`) has no touchpad mapping: the guided capture has no step for `GP_B17`, so the touchpad click is not mapped on a raw (Firefox) DualSense. A binding on `GP_B17` still shows the family label "Touchpad" there, although it cannot fire. With Chrome's standard mapping `GP_B17` works and is labelled Touchpad.
-- Labels in `GAMEPAD_UNVERIFIED_LABELS` (Xbox Share, the Steam back buttons, Stadia Assistant/Capture) are not verified on hardware. The Xbox Elite paddle labels (Paddle 1..4) come from research too and are not verified on hardware either; they are not listed in `GAMEPAD_UNVERIFIED_LABELS`.
+- Labels in `GAMEPAD_UNVERIFIED_LABELS` (Xbox Share, the Steam back buttons, Stadia Assistant/Capture, and the Xbox Elite paddles Paddle 1..4 under the `xbox-elite` variant) are not verified on hardware; `isGamepadLabelUnverified(code, family, variant)` checks a code against them.
 - The Controller Test's controller view keeps a minimum width of 780u (520px); on phone-sized viewports it scrolls sideways.
 - The smallest text is about 9.3 CSS px at 1280x720 and below.
 - The guided capture has one preset (DualSense layout) and tags every capture with the `dualsense` family.

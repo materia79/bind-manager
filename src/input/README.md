@@ -166,7 +166,7 @@ It exports:
 
 - `GAMEPAD_PROFILES`, `GAMEPAD_FAMILIES` (display order, generic last), `GAMEPAD_FAMILY_NAMES`, `getGamepadFamilyName(family)`
 - `GAMEPAD_LABEL_VARIANTS` and `getGamepadLabelVariant(family, vendorId, productId)`: the Xbox Elite variant labels `GP_B17`..`GP_B20` Paddle 1..4 for `045e-02e3`, `045e-0b00`, `045e-0b05`, `045e-0b22`
-- `GAMEPAD_UNVERIFIED_LABELS` and `isGamepadLabelUnverified(code, family)`: entries not verified on hardware (Xbox `GP_B17`, Steam `GP_B17`..`GP_B23`, Stadia `GP_B17`/`GP_B18`)
+- `GAMEPAD_UNVERIFIED_LABELS` and `isGamepadLabelUnverified(code, family, variant = null)`: entries not verified on hardware (Xbox `GP_B17`, Steam `GP_B17`..`GP_B23`, Stadia `GP_B17`/`GP_B18`, and under the `xbox-elite` variant the paddles `GP_B17`..`GP_B20`). With a variant, a code the variant labels is judged by the variant's list.
 - `parseGamepadId(id)` → `{ vendorId, productId, key, name }` for Chrome (`… (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)`) and Firefox (`054c-0ce6-…`, also with leading zeros dropped) ids
 - `GAMEPAD_DEVICE_FAMILIES`: the `vendor-product` → family table
 - `detectGamepadProfile(gamepadId)`: with a vendor/product pair only the table decides (an unknown pair is `generic`); without one, name patterns apply (`XInput` → `xbox`, "Xbox 360", "DualSense", "DualShock", a bare "Wireless Controller" → `dualshock4`, "Pro Controller", "Steam Deck", "Stadia", …)

@@ -14,6 +14,7 @@ Open work on captures, the generator and hardware verification. Items are checke
 - [x] Record `gamepad.mapping` in the capture JSON (`runMeta.targetController.mapping`); Input Remap and the Controller Test note a standard-mapped pad and the tool's validation refuses its capture; the generator refuses `mapping: 'standard'`, warns on an old 17/18-button, 4-axis capture without the field, and refuses a layout change of an existing profile without `--replace-layout`.
 
 - [x] Removed the dead `normalizePayloadForProcessing`, `getPayloadOverrideMapping` and `toDetectedFromMappingEntry` from `src/ui/tools/capture-payload.js` (no callers) and the stale "tester edit-mode exports" comment in the generator.
+- [x] The Xbox Elite paddle labels (`GP_B17`..`GP_B20` of the `xbox-elite` variant) are listed in `GAMEPAD_UNVERIFIED_LABELS`; `isGamepadLabelUnverified(code, family, variant)` checks them.
 
 ## No longer applicable
 
@@ -31,5 +32,4 @@ Open work on captures, the generator and hardware verification. Items are checke
 - [ ] Optional `--strict` flag for the generator to fail on repeated physical-input collisions for critical controls.
 - [ ] Generator tests for dedupe, merge, stale-file removal and the all-or-nothing write.
 - [ ] Hardware verification with a real DualSense (Firefox raw layout and Chrome standard mapping): face buttons, D-pad and diagonals, PS, triggers, manual profile override.
-- [ ] Add the Xbox Elite paddle labels (`GP_B17`..`GP_B20` of `GAMEPAD_LABEL_VARIANTS['xbox-elite']`) to the unverified list: they come from research, not from hardware.
 - [ ] Verify the labels in `GAMEPAD_UNVERIFIED_LABELS` (`../gamepad-profiles.js`) on hardware: Xbox `GP_B17` (Share outside Chrome on Windows), Steam `GP_B17`..`GP_B23` (back-button order, the 2026 Steam Controller), Stadia `GP_B17`/`GP_B18` (Assistant and Capture may be swapped).

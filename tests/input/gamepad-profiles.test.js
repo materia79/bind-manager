@@ -122,7 +122,8 @@ describe('unverified label entries', () => {
     expect(isGamepadLabelUnverified('GP_B18', 'stadia')).toBe(true);
     expect(isGamepadLabelUnverified('GP_B0', 'xbox')).toBe(false);
     expect(isGamepadLabelUnverified('GP_B17', 'dualsense')).toBe(false);
-    expect(Object.keys(GAMEPAD_UNVERIFIED_LABELS).sort()).toEqual(['stadia', 'steam', 'xbox']);
+    // L4: the Elite paddles are listed under their label variant.
+    expect(Object.keys(GAMEPAD_UNVERIFIED_LABELS).sort()).toEqual(['stadia', 'steam', 'xbox', 'xbox-elite']);
   });
 });
 

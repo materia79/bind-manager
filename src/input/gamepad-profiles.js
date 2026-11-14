@@ -164,20 +164,31 @@ export function getGamepadLabelVariant(family, vendorId, productId) {
  * - steam GP_B17..GP_B23: the order of the back buttons (20-23) and the
  *   layout of the 2026 Steam Controller (28de:1302-1305).
  * - stadia GP_B17 / GP_B18: Assistant and Capture may be swapped.
+ * - xbox-elite (label variant) GP_B17..GP_B20: Paddle 1..4 come from research.
+ * Keys are families, and label variants (GAMEPAD_LABEL_VARIANTS) for the
+ * labels a variant replaces.
  */
 export const GAMEPAD_UNVERIFIED_LABELS = Object.freeze({
   xbox: Object.freeze([GP_B17]),
   steam: Object.freeze([GP_B17, GP_B18, GP_B19, GP_B20, GP_B21, GP_B22, GP_B23]),
   stadia: Object.freeze([GP_B17, GP_B18]),
+  'xbox-elite': Object.freeze([GP_B17, GP_B18, GP_B19, GP_B20]),
 });
 
 /**
- * True when the label of `code` in `family` is not verified on hardware.
+ * True when the label of `code` is not verified on hardware. With a label
+ * variant (e.g. 'xbox-elite'), a code the variant labels is judged by the
+ * variant's list, any other code by the family's.
  * @param {string} code
  * @param {string} family
+ * @param {string | null} [variant=null] - label variant key, as the resolver reports it
  * @returns {boolean}
  */
-export function isGamepadLabelUnverified(code, family) {
+export function isGamepadLabelUnverified(code, family, variant = null) {
+  const variantDef = variant ? GAMEPAD_LABEL_VARIANTS[variant] : null;
+  if (variantDef && variantDef.family === family && variantDef.labels[code]) {
+    return GAMEPAD_UNVERIFIED_LABELS[variant]?.includes(code) ?? false;
+  }
   return GAMEPAD_UNVERIFIED_LABELS[family]?.includes(code) ?? false;
 }
 

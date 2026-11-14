@@ -19,15 +19,17 @@ Open work on captures, the generator and hardware verification. Items are checke
 
 ## Open
 
+<!-- STATUS AT THIS VERSION: being fixed; tick or remove when it is. -->
 - [ ] Record `gamepad.mapping` in the capture JSON and warn (in Input Remap and in the generator) when a capture comes from a pad with `mapping: 'standard'`. Today such a capture produces a profile that never applies, and as the newest capture of an existing device it replaces that profile's `sourceButtons`/`sourceAxes`, so the raw profile stops applying.
 - [ ] Warn when a generated profile has no `sourceButtons`/`sourceAxes` (a capture without `targetController`): it can never apply.
 - [ ] A touchpad step (`GP_B17`) in the DualSense preset, and a re-capture of `054c-0ce6`: the shipped raw profile has no touchpad mapping (raw button 13 is unmapped).
 - [ ] More capture presets (Xbox, Switch Pro, …) and a family taken from the preset or the detected family instead of the hard-coded `dualsense`; steps for `GP_B18`..`GP_B23` where a pad has them.
-- [ ] Make Input Remap's validation match the generator's: a step without a detected input passes the tool's check but fails the generator (`<code>: detected mapping is missing`); the tool's own id parser accepts only 4-digit Firefox ids, unlike `parseGamepadId`.
+- [ ] Make Input Remap's validation match the generator's: a step without a detected input passes the tool's check but fails the generator (`<code>: detected mapping is missing`); the tool's own id parser (`parseControllerId` in `src/ui/tools/capture-payload.js`) reads Chrome ids and Firefox ids with 4-digit vendor/product, but not the zero-stripped Firefox form (`54c-ce6-…`) that `parseGamepadId` accepts, so such a pad gets "Controller id does not expose a vendor/product pair".
 - [ ] A path from the Controller Test's Download JSON (an edited profile definition) to a shipped profile, or a clear statement in the tool that it is not one.
 - [ ] Merging a re-capture into an existing profile never drops codes the new capture lacks; decide whether it should.
 - [ ] Optional `--strict` flag for the generator to fail on repeated physical-input collisions for critical controls.
 - [ ] Generator tests for dedupe, merge, stale-file removal and the all-or-nothing write.
 - [ ] Hardware verification with a real DualSense (Firefox raw layout and Chrome standard mapping): face buttons, D-pad and diagonals, PS, triggers, manual profile override.
+- [ ] Add the Xbox Elite paddle labels (`GP_B17`..`GP_B20` of `GAMEPAD_LABEL_VARIANTS['xbox-elite']`) to the unverified list: they come from research, not from hardware.
 - [ ] Verify the labels in `GAMEPAD_UNVERIFIED_LABELS` (`../gamepad-profiles.js`) on hardware: Xbox `GP_B17` (Share outside Chrome on Windows), Steam `GP_B17`..`GP_B23` (back-button order, the 2026 Steam Controller), Stadia `GP_B17`/`GP_B18` (Assistant and Capture may be swapped).
-- [ ] Dead code in `src/ui/tools/capture-payload.js`: `normalizePayloadForProcessing`, `getPayloadOverrideMapping`, `toDetectedFromMappingEntry` have no callers; the comment in `scripts/process-controller-defs.js` about "tester edit-mode exports" refers to that old format.
+- [ ] Dead code in `src/ui/tools/capture-payload.js`: `normalizePayloadForProcessing` has no callers, and `getPayloadOverrideMapping` and `toDetectedFromMappingEntry` are called only from inside it; the comment in `scripts/process-controller-defs.js` about "tester edit-mode exports" refers to that old format.

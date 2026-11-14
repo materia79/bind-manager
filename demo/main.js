@@ -14,11 +14,13 @@
  *  - The built-in tools (Input Remap, Controller Test), opened from the
  *    bindings modal's footer or from the HUD buttons
  *  - The browser shortcut guard (focus, pointer lock, fullscreen, leave guard)
+ *  - A fake controller (demo/fake-controller.js) for visitors without a pad
  *
  * Bindings are persisted in localStorage under namespace "bind-manager-demo".
  */
 
 import { createBindManager } from '../src/index.js';
+import { createFakeController } from './fake-controller.js';
 
 // ── 1. Create the manager ────────────────────────────────────────────────────
 
@@ -309,6 +311,16 @@ leaveGuardBtn.addEventListener('click', () => {
 
 updateGuardStatus();
 
+// ── 6c. Fake controller (simulated gamepad, off by default) ─────────────────
+
+createFakeController({
+  select: document.getElementById('fake-select'),
+  pad: document.getElementById('fake-pad'),
+  status: document.getElementById('fake-status'),
+  labelFor: (code) => manager.getGamepadLabel(code),
+  log,
+});
+
 // ── 7. Logging utility ───────────────────────────────────────────────────────
 
 const MAX_LOG_ENTRIES = 40;
@@ -332,3 +344,4 @@ function log(message, type = 'info') {
 
 log('Bind Manager demo ready', 'info');
 log('Press F5 to toggle the key bindings modal', 'info');
+log('No gamepad? Pick a fake controller on the right', 'info');

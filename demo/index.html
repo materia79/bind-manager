@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bind Manager — Demo</title>
+  <link rel="icon" href="data:," />
   <style>
     /*
      * Page chrome scales like the library UI: --demo-u is 1px at 1920x1080 and
@@ -173,6 +174,59 @@
       padding: calc(4 * var(--demo-u)) calc(10 * var(--demo-u));
     }
 
+    /* ── Simulated controller ── */
+    #fake-controller {
+      width: calc(330 * var(--demo-u));
+      padding: calc(10 * var(--demo-u)) calc(12 * var(--demo-u));
+      display: grid;
+      gap: calc(6 * var(--demo-u));
+      box-shadow: inset 0 0 0 1px rgba(255, 196, 64, 0.35);
+    }
+    #fake-controller .hud-panel-title { color: #ffc440; margin: 0; }
+    .fake-badge {
+      display: inline-block;
+      margin-left: calc(6 * var(--demo-u));
+      padding: 0 calc(6 * var(--demo-u));
+      border-radius: calc(4 * var(--demo-u));
+      background: rgba(255, 196, 64, 0.18);
+      color: #ffd480;
+      letter-spacing: 0.04em;
+    }
+    #fake-select {
+      width: 100%;
+      font: inherit;
+      font-size: var(--demo-fs-m);
+      color: #e0e0f0;
+      background: #16162a;
+      border: 0;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+      border-radius: calc(6 * var(--demo-u));
+      padding: calc(5 * var(--demo-u)) calc(8 * var(--demo-u));
+    }
+    #fake-status, .hud-note {
+      font-size: var(--demo-fs-s);
+      color: #98a6d8;
+    }
+    .fake-pad {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(max(56px, calc(68 * var(--demo-u))), 1fr));
+      gap: calc(4 * var(--demo-u));
+    }
+    .fake-pad .hud-btn {
+      padding: calc(6 * var(--demo-u)) calc(4 * var(--demo-u));
+      font-size: var(--demo-fs-s);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      touch-action: none;
+      user-select: none;
+    }
+    .fake-pad .hud-btn.is-down {
+      background: rgba(255, 196, 64, 0.45);
+      box-shadow: inset 0 0 0 1px #ffc440;
+      color: #fff6dc;
+    }
+
     /* ── Centre title ── */
     #center-text {
       position: fixed;
@@ -217,6 +271,7 @@
       #controls { order: -1; align-items: stretch; max-height: none; overflow: visible; }
       .hud-buttons { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
       .hud-buttons .hud-btn { padding: 6px 10px; }
+      #fake-controller { width: auto; }
       #log { width: auto; max-height: 22vh; }
       #center-text { top: auto; bottom: 30vh; transform: translateX(-50%); }
     }
@@ -242,6 +297,25 @@
         <button class="hud-btn" id="leave-guard-btn" type="button">🚪 Arm Leave Guard</button>
       </div>
       <div id="guard-status" class="guard-status">Guard: idle</div>
+
+      <section id="fake-controller" class="hud-panel" aria-labelledby="fake-title">
+        <h2 class="hud-panel-title" id="fake-title">Fake controller <span class="fake-badge">simulated</span></h2>
+        <select id="fake-select" aria-label="Simulated controller family"></select>
+        <div id="fake-status">No simulated pad</div>
+        <div id="fake-pad" class="fake-pad" hidden>
+          <button class="hud-btn" type="button" data-fake-input="b0">GP_B0</button>
+          <button class="hud-btn" type="button" data-fake-input="b1">GP_B1</button>
+          <button class="hud-btn" type="button" data-fake-input="b2">GP_B2</button>
+          <button class="hud-btn" type="button" data-fake-input="b3">GP_B3</button>
+          <button class="hud-btn" type="button" data-fake-input="b6">GP_B6</button>
+          <button class="hud-btn" type="button" data-fake-input="b9">GP_B9</button>
+          <button class="hud-btn" type="button" data-fake-input="b12">GP_B12</button>
+          <button class="hud-btn" type="button" data-fake-input="b17">GP_B17</button>
+          <button class="hud-btn" type="button" data-fake-input="ls-up">GP_A1N</button>
+          <button class="hud-btn" type="button" data-fake-input="ls-left">GP_A0N</button>
+        </div>
+        <p class="hud-note">A pretend gamepad for trying the controller features without one. Hold a button to press it. Real pads are hidden while it is on.</p>
+      </section>
     </div>
   </div>
 

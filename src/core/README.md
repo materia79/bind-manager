@@ -24,7 +24,7 @@ If you want to understand how the library works end to end, this folder is the b
 The core layer is made of three pieces:
 
 1. `action-registry.js`
-	 Stores immutable action definitions.
+	 Stores action definitions (plain objects; they are not frozen, but treat them as read-only).
 2. `binding-store.js`
 	 Stores the current bindings for those actions and emits change events.
 3. `bind-manager.js`
@@ -70,7 +70,8 @@ Important behavior:
 
 - Registration order is preserved because actions are stored in a `Map`.
 - Duplicate IDs throw immediately.
-- Missing or invalid fields are normalized to sensible defaults.
+- A missing id, a duplicate id, or a `slots` / `gamepadSlots` value that is not a positive integer throws (`undefined` / `null` mean the default).
+- Default bindings beyond the slot count are dropped with a console warning; other missing fields get defaults.
 - Actions are treated as definitions, not state. The registry does not track what the current binding is.
 
 Conceptually, the registry answers the question:
@@ -263,7 +264,7 @@ When a user chooses to rebind an input in the modal:
 
 Cancellation rules are deliberate:
 
-- Escape cancels keyboard capture
+- Escape cancels either capture, keyboard or gamepad
 - the UI cancel button cancels either capture type
 - starting a new gamepad capture cancels the previous one with `null`
 - disconnecting a controller during capture also cancels the capture
@@ -463,7 +464,11 @@ These tools are not part of the minimal binding loop, but they are part of the c
 
 #### `styles.js`
 
-Injects the shared stylesheet once, into `<head>`, when the first UI controller mounts. Every length is a multiple of `--bm-u`, every text size a font token; see "Sizing and Theming" in the root README.
+Injects the shared stylesheet once, into `<head>`, when the first UI controller mounts. Every length is a multiple of `--bm-u`, every text size a font token; see "Sizing and Theming" in the root README. The built-in tools inject a second stylesheet when they mount.
+
+<!-- STATUS AT THIS VERSION: being changed; replace this note when it is. -->
+Status at this version: the built-in tools' text follows only a `--bm-u` set on `:root` and ignores `--bm-font-*` and an ancestor's `--bm-u` (their lengths do follow an ancestor's `--bm-u`).
+<!-- END STATUS -->
 
 This matters because the core-created UI controllers assume the styles have been injected before rendering.
 
@@ -552,7 +557,7 @@ If an action sets `playerIndex`, only that controller index will trigger it. If 
 
 ### Modal suppression prevents accidental gameplay input
 
-When the binding modal opens, gameplay dispatch is suppressed. Currently pressed keys are released; on gamepads every pressed code gets `released` and every moved axis one final analog 0, and inputs still held when the modal closes stay silent until released and pressed anew. Mouse buttons are released when the window loses focus.
+When the binding modal opens, gameplay dispatch is suppressed. Currently pressed keys are released; on gamepads every pressed code gets `released` and every moved axis one final analog 0, and inputs still held when the modal closes stay silent until released and pressed anew. Held mouse buttons are released too (`released` events), when the modal opens and when the window loses focus.
 
 ### Capture behaves differently from gameplay dispatch
 

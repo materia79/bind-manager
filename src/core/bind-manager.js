@@ -15,6 +15,15 @@ import { isGamepadCode } from '../input/gamepad-codes.js';
 /** Sentinel: leave the current slot value untouched during import. */
 const KEEP_SLOT = Symbol('keep-slot');
 
+// Bounds for what a replace-mode import may store for actions not registered:
+// their slot counts are unknown, so without caps a payload could fill the storage.
+/** Slots kept per device of a stored entry; longer arrays are cut. */
+const MAX_SAVED_SLOTS = 16;
+/** Longest action id that is stored. */
+const MAX_SAVED_ID_LENGTH = 128;
+/** Unregistered ids stored per import. */
+const MAX_UNREGISTERED_IDS = 512;
+
 /**
  * Creates and returns a Bind Manager instance.
  *
@@ -103,9 +112,31 @@ export function createBindManager(options = {}) {
   guard.start();
 
   // Persist to storage once per committed change (resetAll() is a single commit).
-  // Saved entries of actions not registered yet are carried through.
+  // Saved entries of actions not registered yet are carried through. A failed
+  // save (quota, storage unavailable) never stops later saves: every commit
+  // tries again; the failure is warned once and readable via getStorageStatus().
+  const storageStatus = { ok: true, failedSaves: 0, lastError: null };
+  let warnedSaveFailure = false;
   const unsubPersist = store.onCommit(() => {
-    storageAdapter.save(store.getAllForStorage());
+    let ok;
+    let error = null;
+    try {
+      ok = storageAdapter.save(store.getAllForStorage()) !== false;
+    } catch (err) {
+      ok = false;
+      error = err;
+    }
+    if (ok) {
+      storageStatus.ok = true;
+      return;
+    }
+    storageStatus.ok = false;
+    storageStatus.failedSaves += 1;
+    storageStatus.lastError = error ?? storageAdapter.lastSaveError ?? null;
+    if (!warnedSaveFailure) {
+      warnedSaveFailure = true;
+      console.warn('[BindManager] Saving bindings failed; later changes will be saved again. See manager.getStorageStatus().', storageStatus.lastError);
+    }
   });
 
   // Debug toggle: F5 opens/closes the modal (prevents browser refresh in debug mode)
@@ -351,6 +382,7 @@ export function createBindManager(options = {}) {
         appliedSlots: 0,
         skippedUnknownActions: [],
         storedUnregisteredActions: [],
+        droppedUnregisteredActions: [],
         invalidEntries: [],
         conflictCount: 0,
       };
@@ -449,10 +481,25 @@ export function createBindManager(options = {}) {
       // unregistered actions match the payload: valid entries are stored (and
       // apply when the action registers), saved ids missing from the payload
       // are dropped, and an unrecognisable entry keeps the saved one.
+      // Bounded: ids up to MAX_SAVED_ID_LENGTH characters, at most
+      // MAX_UNREGISTERED_IDS entries, MAX_SAVED_SLOTS slots per device; what is
+      // cut or dropped is reported (invalidEntries, droppedUnregisteredActions).
       const stored = new Set();
+      const dropped = new Set();
       if (mode === 'replace') {
         const entries = new Map();
+        let overLimit = 0;
         for (const actionId of unknownActionIds) {
+          if (actionId.length > MAX_SAVED_ID_LENGTH) {
+            dropped.add(actionId);
+            report.invalidEntries.push(`Action id "${_reportId(actionId)}" is longer than ${MAX_SAVED_ID_LENGTH} characters and was not stored`);
+            continue;
+          }
+          if (entries.size >= MAX_UNREGISTERED_IDS) {
+            dropped.add(actionId);
+            overLimit += 1;
+            continue;
+          }
           const saved = store.getSavedEntry(actionId);
           const entry = _normaliseBindingEntry(bindingsObj[actionId], payloadVersion, actionId, report.invalidEntries);
           if (!entry) {
@@ -462,10 +509,16 @@ export function createBindManager(options = {}) {
           entries.set(actionId, _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, report.invalidEntries));
           stored.add(actionId);
         }
+        if (overLimit > 0) {
+          report.invalidEntries.push(`${overLimit} unregistered action ids beyond the first ${MAX_UNREGISTERED_IDS} were not stored`);
+        }
         store.replaceUnregisteredSaved(entries);
       }
       for (const actionId of unknownActionIds) {
-        (stored.has(actionId) ? report.storedUnregisteredActions : report.skippedUnknownActions).push(actionId);
+        const list = stored.has(actionId) ? report.storedUnregisteredActions
+          : dropped.has(actionId) ? report.droppedUnregisteredActions
+            : report.skippedUnknownActions;
+        list.push(_reportId(actionId));
       }
 
       return report;
@@ -507,6 +560,16 @@ export function createBindManager(options = {}) {
      * Call resetAll() first to also return the live bindings to defaults.
      * @returns {boolean} false when the storage adapter has no clear()
      */
+    /**
+     * Result of the most recent save. ok is false while the last save failed
+     * (quota exceeded, storage unavailable, or a custom adapter's save() threw
+     * or returned false); every later change is saved again regardless.
+     * @returns {{ ok: boolean, failedSaves: number, lastError: unknown }}
+     */
+    getStorageStatus() {
+      return { ...storageStatus };
+    },
+
     clearStorage() {
       if (typeof storageAdapter.clear !== 'function') return false;
       storageAdapter.clear();
@@ -829,6 +892,10 @@ function _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, invalidEntr
 
   const device = (name, source, missing, savedSlots, isValid) => {
     if (source) {
+      if (source.length > MAX_SAVED_SLOTS) {
+        invalidEntries.push(`Action "${actionId}" ${name} has ${source.length} slots; only the first ${MAX_SAVED_SLOTS} are stored`);
+        source = source.slice(0, MAX_SAVED_SLOTS);
+      }
       return Array.from(source, (raw, slot) => {
         if (raw === null || raw === undefined) return null;
         if (typeof raw === 'string') {
@@ -841,17 +908,22 @@ function _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, invalidEntr
       });
     }
     if (missing) return [];
-    return savedSlots ? [...savedSlots] : undefined;
+    return savedSlots ? savedSlots.slice(0, MAX_SAVED_SLOTS) : undefined;
   };
 
   const result = {};
   const keyboard = device('keyboard', entry.keyboard, entry.keyboardMissing, savedKb, isKnownCode);
   const gamepad = payloadVersion >= 2
     ? device('gamepad', entry.gamepad, entry.gamepadMissing, savedGp, isGamepadCode)
-    : (savedGp ? [...savedGp] : undefined);
+    : (savedGp ? savedGp.slice(0, MAX_SAVED_SLOTS) : undefined);
   if (keyboard) result.keyboard = keyboard;
   if (gamepad) result.gamepad = gamepad;
   return result;
+}
+
+/** An action id as listed in an import report: cut to MAX_SAVED_ID_LENGTH characters plus an ellipsis. */
+function _reportId(actionId) {
+  return actionId.length > MAX_SAVED_ID_LENGTH ? `${actionId.slice(0, MAX_SAVED_ID_LENGTH)}…` : actionId;
 }
 
 /** Own-property check (ids like "constructor" must not match Object.prototype members). */
@@ -925,6 +997,9 @@ function _hasOwn(obj, key) {
  * @property {string[]} skippedUnknownActions     - ids not registered whose payload entry was ignored
  * @property {string[]} storedUnregisteredActions - replace mode: ids not registered whose entry was
  *           stored and applies when the action registers
+ * @property {string[]} droppedUnregisteredActions - replace mode: ids not registered that were not
+ *           stored because of a cap (id longer than 128 characters, cut in this list; or beyond the
+ *           first 512 stored ids of the import)
  * @property {string[]} invalidEntries
  * @property {number} conflictCount
  */

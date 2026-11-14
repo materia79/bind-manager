@@ -1,12 +1,13 @@
 import {
   findControllerProfileByGamepadId,
-  findControllerProfilesByFamily,
   getControllerProfile,
   getControllerProfiles,
 } from './controller_definitions/index.js';
 import {
   detectGamepadProfile,
+  GAMEPAD_FAMILIES,
   GAMEPAD_PROFILES,
+  getGamepadFamilyName,
   getGamepadLabel,
   getGamepadLabelVariant,
   parseGamepadId,
@@ -75,25 +76,75 @@ export function getControllerFamily(profile, gamepadId = null) {
   );
 }
 
-function withDeviceInfo(resolved, gamepadId) {
+/**
+ * True when an exact profile may be applied to a connected pad: the browser
+ * did not remap it (`mapping !== 'standard'`) and the raw button/axis counts
+ * equal the profile's captured `sourceButtons` / `sourceAxes`. A pad whose
+ * layout is unknown (only an id string is available) never qualifies.
+ * @param {any} profile - generated controller definition
+ * @param {{ mapping?: string, buttons?: ArrayLike<unknown>, axes?: ArrayLike<unknown> } | null | undefined} gamepad
+ * @returns {boolean}
+ */
+export function isControllerProfileApplicable(profile, gamepad) {
+  if (!profile || typeof profile !== 'object') return false;
+  if (!gamepad || typeof gamepad !== 'object') return false;
+  if (gamepad.mapping === 'standard') return false;
+  if (!Number.isInteger(profile.sourceButtons) || !Number.isInteger(profile.sourceAxes)) return false;
+  return gamepad.buttons?.length === profile.sourceButtons
+    && gamepad.axes?.length === profile.sourceAxes;
+}
+
+/**
+ * Accept a Gamepad (or gamepad-like object) or a bare id string.
+ * @returns {{ gamepadId: string | null, gamepad: any | null }}
+ */
+function toGamepadInput(gamepadOrId, options = {}) {
+  if (gamepadOrId && typeof gamepadOrId === 'object') {
+    return {
+      gamepadId: typeof gamepadOrId.id === 'string' ? gamepadOrId.id : null,
+      gamepad: gamepadOrId,
+    };
+  }
+  return {
+    gamepadId: typeof gamepadOrId === 'string' ? gamepadOrId : null,
+    gamepad: options.gamepad && typeof options.gamepad === 'object' ? options.gamepad : null,
+  };
+}
+
+/**
+ * Resolve how a controller is interpreted, in this order: manual exact
+ * profile, manual family, exact profile, detected family, generic.
+ *
+ * Exact profiles (manual or automatic) apply only when
+ * isControllerProfileApplicable() holds for the pad. A manual exact override
+ * that does not apply resolves as if absent and is reported in
+ * `ignoredOverride` (it is not deleted).
+ *
+ * @param {Gamepad | { id: string, mapping?: string, buttons?: ArrayLike<unknown>, axes?: ArrayLike<unknown> } | string | null} gamepadOrId
+ *   Pass the Gamepad itself (or `options.gamepad`) so exact profiles can be
+ *   checked; with a bare id string exact profiles never apply.
+ * @param {{ override?: any, gamepad?: any }} [options]
+ * @returns {ResolvedGamepadProfile}
+ */
+export function resolveGamepadProfile(gamepadOrId, options = {}) {
+  const { gamepadId, gamepad } = toGamepadInput(gamepadOrId, options);
   const { vendorId, productId } = parseGamepadId(gamepadId);
+  const resolved = resolveBase(gamepadId, gamepad, normaliseGamepadProfileOverride(options.override ?? null));
   return {
     ...resolved,
+    displayName: resolved.definition?.sourceName || getGamepadFamilyName(resolved.family),
     vendorId,
     productId,
     labelVariant: getGamepadLabelVariant(resolved.family, vendorId, productId),
   };
 }
 
-export function resolveGamepadProfile(gamepadId, options = {}) {
-  return withDeviceInfo(resolveGamepadProfileBase(gamepadId, options), gamepadId);
-}
+function resolveBase(gamepadId, gamepad, override) {
+  let ignoredOverride = null;
 
-function resolveGamepadProfileBase(gamepadId, options) {
-  const override = normaliseGamepadProfileOverride(options.override ?? null);
   if (override?.type === 'profile') {
     const definition = getControllerProfile(override.key);
-    if (definition) {
+    if (definition && isControllerProfileApplicable(definition, gamepad)) {
       const family = getControllerFamily(definition, gamepadId);
       return {
         source: 'manual',
@@ -102,9 +153,11 @@ function resolveGamepadProfileBase(gamepadId, options) {
         profileKey: definition.key ?? null,
         definition,
         override,
-        gamepadId: typeof gamepadId === 'string' ? gamepadId : null,
+        ignoredOverride,
+        gamepadId,
       };
     }
+    ignoredOverride = override;
   }
 
   if (override?.type === 'family') {
@@ -115,13 +168,14 @@ function resolveGamepadProfileBase(gamepadId, options) {
       profileKey: null,
       definition: null,
       override,
-      gamepadId: typeof gamepadId === 'string' ? gamepadId : null,
+      ignoredOverride,
+      gamepadId,
     };
   }
 
-  if (typeof gamepadId === 'string' && gamepadId.trim()) {
+  if (gamepadId && gamepadId.trim()) {
     const definition = findControllerProfileByGamepadId(gamepadId);
-    if (definition) {
+    if (definition && isControllerProfileApplicable(definition, gamepad)) {
       const family = getControllerFamily(definition, gamepadId);
       return {
         source: 'exact',
@@ -130,6 +184,7 @@ function resolveGamepadProfileBase(gamepadId, options) {
         profileKey: definition.key ?? null,
         definition,
         override: null,
+        ignoredOverride,
         gamepadId,
       };
     }
@@ -143,6 +198,7 @@ function resolveGamepadProfileBase(gamepadId, options) {
         profileKey: null,
         definition: null,
         override: null,
+        ignoredOverride,
         gamepadId,
       };
     }
@@ -155,18 +211,23 @@ function resolveGamepadProfileBase(gamepadId, options) {
     profileKey: null,
     definition: null,
     override: null,
-    gamepadId: typeof gamepadId === 'string' ? gamepadId : null,
+    ignoredOverride,
+    gamepadId,
   };
 }
 
-export function getAvailableGamepadProfileOptions(gamepadId) {
+/**
+ * Profile override options for a connected pad. Exact profiles are offered
+ * only when isControllerProfileApplicable() holds for the pad, so pass the
+ * Gamepad itself; with a bare id string no exact profile is offered.
+ * @param {Gamepad | string | null} gamepadOrId
+ */
+export function getAvailableGamepadProfileOptions(gamepadOrId) {
+  const { gamepadId, gamepad } = toGamepadInput(gamepadOrId);
   const allProfiles = Object.values(getControllerProfiles());
-  const autoResolved = resolveGamepadProfile(gamepadId);
-  const detectedFamily = autoResolved.family !== 'generic' ? autoResolved.family : null;
-  const familyProfiles = detectedFamily
-    ? findControllerProfilesByFamily(detectedFamily)
-    : [];
-  const exactProfiles = (familyProfiles.length > 0 ? familyProfiles : allProfiles)
+  const autoResolved = resolveGamepadProfile(gamepad ?? gamepadId);
+  const exactProfiles = allProfiles
+    .filter((profile) => isControllerProfileApplicable(profile, gamepad))
     .map((profile) => ({
       type: 'profile',
       key: profile.key,
@@ -175,7 +236,7 @@ export function getAvailableGamepadProfileOptions(gamepadId) {
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  const familySet = new Set(['generic', ...Object.keys(GAMEPAD_PROFILES)]);
+  const familySet = new Set(GAMEPAD_FAMILIES);
   for (const profile of allProfiles) {
     const family = getControllerFamily(profile, gamepadId);
     if (family) familySet.add(family);
@@ -183,11 +244,10 @@ export function getAvailableGamepadProfileOptions(gamepadId) {
 
   const families = [...familySet]
     .filter((family) => family !== 'generic')
-    .sort((a, b) => a.localeCompare(b))
     .map((family) => ({
       type: 'family',
       family,
-      label: family,
+      label: getGamepadFamilyName(family),
     }));
 
   return {
@@ -209,3 +269,19 @@ export function getResolvedGamepadLabel(code, resolvedProfile) {
   const fallbackFamily = GAMEPAD_PROFILES[family] ? family : 'generic';
   return getGamepadLabel(code, fallbackFamily, resolvedProfile?.labelVariant ?? null);
 }
+
+/**
+ * @typedef {object} ResolvedGamepadProfile
+ * @property {'manual' | 'exact' | 'family' | 'generic' | 'memory-edit'} source
+ * @property {string} family            - label family key, e.g. 'dualsense'
+ * @property {string} profileHint
+ * @property {string | null} profileKey - exact profile key when one applies
+ * @property {any | null} definition    - exact profile definition when one applies
+ * @property {any | null} override      - the manual override in effect
+ * @property {any | null} ignoredOverride - stored manual exact override that does not apply to this pad
+ * @property {string | null} gamepadId
+ * @property {string} displayName       - profile sourceName, else family name ('DualSense', 'Xbox', …)
+ * @property {string | null} vendorId
+ * @property {string | null} productId
+ * @property {string | null} labelVariant - e.g. 'xbox-elite'
+ */

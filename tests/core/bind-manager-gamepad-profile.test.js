@@ -15,8 +15,10 @@ describe('BindManager gamepad profile overrides', () => {
           id: '054c-0ce6-DualSense Wireless Controller',
           index: 0,
           connected: true,
-          buttons: [],
-          axes: [],
+          // Firefox <= 152.0.1 raw layout over Bluetooth: the exact profile applies.
+          mapping: '',
+          buttons: Array.from({ length: 14 }, () => ({ pressed: false, value: 0 })),
+          axes: new Array(12).fill(0),
         },
       ],
     });

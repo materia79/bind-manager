@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGamepadId } from '../src/input/gamepad-profiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -536,24 +537,13 @@ function parseControllerId(controllerId) {
     };
   }
 
-  const trimmed = controllerId.trim();
-  const prefixMatch = trimmed.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-(.+)$/);
-  if (prefixMatch) {
-    return {
-      vendorId: prefixMatch[1].toLowerCase(),
-      productId: prefixMatch[2].toLowerCase(),
-      name: prefixMatch[3].trim(),
-    };
-  }
-
-  // Browser strings can vary. Try to recover VID/PID from "Vendor: 054c Product: 0ce6" forms.
-  const vendorMatch = trimmed.match(/vendor\D*([0-9a-fA-F]{4})/i);
-  const productMatch = trimmed.match(/product\D*([0-9a-fA-F]{4})/i);
-
+  // Same parser as the runtime: Firefox "054c-0ce6-Name" and Chrome
+  // "Name (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)" forms.
+  const parsed = parseGamepadId(controllerId);
   return {
-    vendorId: vendorMatch ? vendorMatch[1].toLowerCase() : null,
-    productId: productMatch ? productMatch[1].toLowerCase() : null,
-    name: trimmed,
+    vendorId: parsed.vendorId,
+    productId: parsed.productId,
+    name: parsed.name || controllerId.trim(),
   };
 }
 
@@ -574,6 +564,7 @@ function renderIndex(definitions, fileNames) {
     ` * Source captures: ${fileNames.length ? fileNames.join(', ') : '(none)'}`,
     ' */',
     '',
+    "import { parseGamepadId } from '../gamepad-profiles.js';",
     ...importLines,
     '',
     'export const controllerProfiles = {',
@@ -609,34 +600,25 @@ function renderIndex(definitions, fileNames) {
     '}',
     '',
     '/**',
-    ' * Resolve the most specific profile by (vendorId, productId).',
-    ' * Falls back to first profile with matching vendorId if exact product is unknown.',
+    ' * Return the profile for exactly this (vendorId, productId), or null.',
+    ' * There is no vendor-only fallback: another product of the same vendor',
+    ' * has its own raw layout.',
     ' */',
     'export function findControllerProfile(vendorId, productId) {',
     '  const v = typeof vendorId === "string" ? vendorId.toLowerCase() : null;',
     '  const p = typeof productId === "string" ? productId.toLowerCase() : null;',
-    '  if (!v) return null;',
-    '',
-    '  const exactKey = p ? `${v}-${p}` : null;',
-    '  if (exactKey && controllerProfiles[exactKey]) return controllerProfiles[exactKey];',
-    '',
-    '  let vendorFallback = null;',
-    '  for (const profile of Object.values(controllerProfiles)) {',
-    '    if (!profile || profile.vendorId !== v) continue;',
-    '    if (!vendorFallback) vendorFallback = profile;',
-    '    if (p && profile.productId === p) return profile;',
-    '  }',
-    '  return vendorFallback;',
+    '  if (!v || !p) return null;',
+    '  return controllerProfiles[`${v}-${p}`] ?? null;',
     '}',
     '',
     '/**',
-    ' * Parse VID/PID from a browser gamepad id string and return a matching profile if present.',
+    ' * Parse VID/PID from a browser gamepad id (Chrome or Firefox form) and return',
+    ' * the profile for exactly that device, or null. Whether the profile applies to',
+    ' * the connected pad is decided by the resolver (mapping and button/axis counts).',
     ' */',
     'export function findControllerProfileByGamepadId(gamepadId) {',
-    '  if (!gamepadId || typeof gamepadId !== "string") return null;',
-    '  const m = gamepadId.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-/);',
-    '  if (!m) return null;',
-    '  return findControllerProfile(m[1], m[2]);',
+    '  const { vendorId, productId } = parseGamepadId(gamepadId);',
+    '  return findControllerProfile(vendorId, productId);',
     '}',
     '',
   ].join('\n');

@@ -258,7 +258,7 @@ export class GamepadRuntime {
   getAvailableProfileOptions(gamepadIndex = 0) {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return getAvailableGamepadProfileOptions(null);
     const gp = [...navigator.getGamepads()].find(g => g && g.index === gamepadIndex);
-    return getAvailableGamepadProfileOptions(gp?.id ?? null);
+    return getAvailableGamepadProfileOptions(gp ?? null);
   }
 
   /**
@@ -290,7 +290,7 @@ export class GamepadRuntime {
     for (const legacyKey of getGamepadIdentityKeys(gp.id).slice(1)) this._profileOverrides.delete(legacyKey);
     this._profileOverrides.set(identityKey, normalised);
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._emitProfileChange(gp.index, gp.id);
+    this._emitProfileChange(gp);
     return true;
   }
 
@@ -307,7 +307,7 @@ export class GamepadRuntime {
     let deleted = false;
     for (const key of getGamepadIdentityKeys(gp.id)) deleted = this._profileOverrides.delete(key) || deleted;
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._emitProfileChange(gp.index, gp.id);
+    this._emitProfileChange(gp);
     return deleted;
   }
 
@@ -358,7 +358,7 @@ export class GamepadRuntime {
     editable.capturedAt = new Date().toISOString();
     this._profileDefinitionOverrides.set(identityKey, editable);
     this._resolvedProfileByGamepadIndex.delete(gp.index);
-    this._emitProfileChange(gp.index, gp.id);
+    this._emitProfileChange(gp);
     return true;
   }
 
@@ -390,7 +390,7 @@ export class GamepadRuntime {
   _handleConnect(e) {
     this._resolvedProfileByGamepadIndex.set(
       e.gamepad.index,
-      resolveGamepadProfile(e.gamepad.id, { override: this._getOverrideForGamepadId(e.gamepad.id) }),
+      resolveGamepadProfile(e.gamepad, { override: this._getOverrideForGamepadId(e.gamepad.id) }),
     );
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bm-gamepad-connected', { detail: e.gamepad }));
@@ -543,6 +543,9 @@ export class GamepadRuntime {
   /**
    * Build a canonical logical state (GP_B0..GP_B23 + GP_A0..GP_A3) from raw
    * physical gamepad hardware state, using a vendor/product mapping when known.
+   * The resolver only hands out an exact definition when it applies to this
+   * pad (non-standard mapping, matching button/axis counts), or a definition
+   * the user edited in memory.
    * @param {Gamepad} gamepad
    * @returns {{ buttons: boolean[], axes: number[] }}
    * @private
@@ -601,7 +604,7 @@ export class GamepadRuntime {
     if (this._resolvedProfileByGamepadIndex.has(gamepad.index)) {
       return this._resolvedProfileByGamepadIndex.get(gamepad.index);
     }
-    const resolvedProfile = resolveGamepadProfile(gamepad.id, {
+    const resolvedProfile = resolveGamepadProfile(gamepad, {
       override: this._getOverrideForGamepadId(gamepad.id),
     });
     const identityKey = getGamepadIdentityKey(gamepad.id);
@@ -628,13 +631,15 @@ export class GamepadRuntime {
     return null;
   }
 
-  _emitProfileChange(gamepadIndex, gamepadId) {
+  _emitProfileChange(gamepad) {
+    const gamepadIndex = gamepad.index;
+    const gamepadId = gamepad.id;
     const payload = Object.fromEntries(this._profileOverrides);
     this._onProfileOverridesChange?.(payload);
     if (typeof window !== 'undefined') {
       const identityKey = getGamepadIdentityKey(gamepadId);
       const editedDefinition = identityKey ? this._profileDefinitionOverrides.get(identityKey) : null;
-      const resolved = resolveGamepadProfile(gamepadId, {
+      const resolved = resolveGamepadProfile(gamepad, {
         override: this._getOverrideForGamepadId(gamepadId),
       });
       const resolvedProfile = editedDefinition

@@ -455,6 +455,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
     __mockControllerProfile = {
       key: '054c-0ce6',
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       family: 'dualsense',
@@ -483,6 +485,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
     __mockControllerProfile = {
       key: '054c-0ce6',
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       family: 'dualsense',
@@ -512,6 +516,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('dispatches logical GP_B0 when mapped physical button index is pressed', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -533,6 +539,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('treats mapped axis direction as logical button for digital dispatch', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -554,6 +562,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('maps logical axis GP_A0N/GP_A0P from configured physical axis and supports analog events', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -578,6 +588,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('distinguishes D-pad directions when mapped as hat values on one axis', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -627,6 +639,8 @@ describe('GamepadRuntime — controller definition mapping', () => {
   it('capture returns the intended hat-mapped D-pad code instead of always GP_B12', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       profileHint: 'dualsense',
       mapping: {
@@ -735,6 +749,8 @@ describe('GamepadRuntime — mapped profile hot path', () => {
   it('does not serialise or clone the profile on every polled frame', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       family: 'dualsense',
       mapping: { GP_B0: { kind: 'button', index: 1 } },
@@ -758,6 +774,8 @@ describe('GamepadRuntime — mapped profile hot path', () => {
   it('recompiles after the mapping is edited', () => {
     __mockControllerProfile = {
       vendorId: '054c',
+      sourceButtons: 20,
+      sourceAxes: 12,
       productId: '0ce6',
       family: 'dualsense',
       mapping: { GP_B0: { kind: 'button', index: 1 } },

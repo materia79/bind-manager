@@ -53,6 +53,14 @@ const CSS = `
   --bm-hints-border:   rgba(255, 255, 255, 0.08);
   --bm-hint-key-bg:    rgba(255, 255, 255, 0.12);
   --bm-hint-key-border:rgba(255, 255, 255, 0.22);
+
+  --bm-u-min: 0.6667px;
+  --bm-u-max: 2px;
+  --bm-u: clamp(var(--bm-u-min), min(100vw / 1920, 100vh / 1080), var(--bm-u-max));
+  --bm-fs-xs: max(9px, calc(14 * var(--bm-u)));
+  --bm-fs-s: max(10px, calc(15 * var(--bm-u)));
+  --bm-fs-m: calc(17 * var(--bm-u));
+  --bm-fs-l: calc(21 * var(--bm-u));
 }
 
 /* ---- Overlay ---- */

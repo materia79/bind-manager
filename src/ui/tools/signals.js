@@ -1,7 +1,11 @@
 /**
  * Pure gamepad signal helpers: strongest-signal detection, active logical codes,
  * mapping magnitudes and the raw input table. No manager access, no module state.
+ * Mapping entries (hat decoding, magnitudes) are evaluated by the runtime's own
+ * helpers, so the tester shows what the game receives.
  */
+import { GP_BUTTON_COUNT, GP_AXIS_COUNT } from '../../input/gamepad-codes.js';
+import { isHatEntryActive, readMappingEntryMagnitude } from '../../input/gamepad-runtime.js';
 
 export function getStrongestSignal(gamepad, baseline) {
   let strongest = null;
@@ -41,9 +45,7 @@ export function resolveStrongestSignalToLogicalCode(signal, gamepad, baseline, m
     if (entry.kind === 'button' && signal.kind === 'button' && entry.index === signal.index) candidates.push(code);
     if (entry.kind === 'axis' && signal.kind === 'axis' && entry.index === signal.index && entry.direction === signal.direction) candidates.push(code);
     if (entry.kind === 'hat' && signal.kind === 'axis' && entry.index === signal.index) {
-      const tolerance = typeof entry.tolerance === 'number' ? Math.abs(entry.tolerance) : 0.2;
-      const raw = gamepad.axes?.[entry.index] || 0;
-      if (Math.abs(raw - entry.value) <= tolerance) candidates.push(code);
+      if (isHatEntryActive(gamepad.axes?.[entry.index], entry, mapping)) candidates.push(code);
     }
   }
   if (candidates.length > 0) {
@@ -57,13 +59,13 @@ export function getActiveCodes(gamepad, baseline) {
   const activeCodes = [];
   const buttonThreshold = 0.35;
   const axisThreshold = 0.42;
-  for (let i = 0; i <= 16; i++) {
+  for (let i = 0; i < GP_BUTTON_COUNT; i++) {
     const raw = gamepad.buttons?.[i]?.value || 0;
     const pressed = gamepad.buttons?.[i]?.pressed === true;
     const delta = raw - (baseline.buttons[i] || 0);
     if (pressed || delta > buttonThreshold) activeCodes.push(`GP_B${i}`);
   }
-  for (let i = 0; i <= 3; i++) {
+  for (let i = 0; i < GP_AXIS_COUNT; i++) {
     const shifted = shiftedAxis(gamepad, baseline, i);
     if (shifted < -axisThreshold) activeCodes.push(`GP_A${i}N`);
     if (shifted > axisThreshold) activeCodes.push(`GP_A${i}P`);
@@ -92,9 +94,7 @@ export function getActiveLogicalCodes(gamepad, baseline, mapping) {
       continue;
     }
     if (entry.kind === 'hat') {
-      const raw = gamepad.axes?.[entry.index] || 0;
-      const tolerance = typeof entry.tolerance === 'number' ? Math.abs(entry.tolerance) : 0.2;
-      if (Math.abs(raw - entry.value) <= tolerance) active.add(code);
+      if (isHatEntryActive(gamepad.axes?.[entry.index], entry, mapping)) active.add(code);
     }
   }
   const l2A = (gamepad.buttons?.[6]?.value ?? 0) - (baseline?.buttons?.[6] ?? 0);
@@ -178,22 +178,21 @@ export function formatActiveCodes(codes, labelFor) {
   return codes.length ? codes.map((code) => `${code}=${labelFor(code)}`).join(', ') : '(none)';
 }
 
-export function readMappingMagnitude(gamepad, baseline, entry) {
+/**
+ * Magnitude of one mapping entry relative to the calibration baseline, read by
+ * the runtime's readMappingEntryMagnitude. Hat entries read the raw axis (a
+ * resting hat sits outside the grid, so a baseline shift would break it).
+ */
+export function readMappingMagnitude(gamepad, baseline, entry, mapping = null) {
   if (!entry || typeof entry !== 'object') return 0;
+  if (entry.kind === 'hat') return readMappingEntryMagnitude(gamepad, entry, mapping);
   if (entry.kind === 'button') {
-    const raw = gamepad.buttons?.[entry.index]?.value || 0;
     const base = baseline.buttons?.[entry.index] || 0;
-    return Math.max(0, raw - base);
+    const raw = gamepad.buttons?.[entry.index]?.value || 0;
+    return readMappingEntryMagnitude({ buttons: { [entry.index]: { value: raw - base } } }, entry);
   }
   if (entry.kind === 'axis') {
-    const shifted = shiftedAxis(gamepad, baseline, entry.index);
-    if (entry.direction === 'negative') return Math.max(0, -shifted);
-    return Math.max(0, shifted);
-  }
-  if (entry.kind === 'hat') {
-    const raw = gamepad.axes?.[entry.index] || 0;
-    const tolerance = typeof entry.tolerance === 'number' ? Math.abs(entry.tolerance) : 0.2;
-    return Math.abs(raw - entry.value) <= tolerance ? 1 : 0;
+    return readMappingEntryMagnitude({ axes: { [entry.index]: shiftedAxis(gamepad, baseline, entry.index) } }, entry);
   }
   return 0;
 }
@@ -206,14 +205,14 @@ export function getLogicalAxisValueFromMapping(gamepad, baseline, mapping, axisI
   if (!nEntry && !pEntry) {
     return shiftedAxis(gamepad, baseline, fallbackRawAxisIndex);
   }
-  const neg = nEntry ? readMappingMagnitude(gamepad, baseline, nEntry) : 0;
-  const pos = pEntry ? readMappingMagnitude(gamepad, baseline, pEntry) : 0;
+  const neg = nEntry ? readMappingMagnitude(gamepad, baseline, nEntry, mapping) : 0;
+  const pos = pEntry ? readMappingMagnitude(gamepad, baseline, pEntry, mapping) : 0;
   return Math.max(-1, Math.min(1, pos - neg));
 }
 
 export function getTriggerFillValue(gamepad, baseline, mapping, analogCode, fallbackButtonIndex) {
   const mappedEntry = mapping?.[analogCode];
-  if (mappedEntry) return clamp01(readMappingMagnitude(gamepad, baseline, mappedEntry));
+  if (mappedEntry) return clamp01(readMappingMagnitude(gamepad, baseline, mappedEntry, mapping));
   return clamp01(readButtonDelta(gamepad, baseline, fallbackButtonIndex));
 }
 

@@ -159,7 +159,8 @@ export function createInputDebugger(ctx) {
     setCountdown('');
     state.currentStepIndex = 0;
     ensureCaptureScaffold(getCapturePreset(state.selectedPreset));
-    syncFromSharedPayload();
+    // The JSON follows the current pad and run state (it was last rendered at mount).
+    renderOutput();
     startLiveMonitor();
     refreshProfileUi();
     updateButtonState();
@@ -224,6 +225,7 @@ export function createInputDebugger(ctx) {
     refreshProfileControls(profileControls, gp.index);
     state.isRunning = false;
     setCountdown('');
+    renderOutput();
     updateCurrentStepUi();
     setStatus('Baseline captured. Use Back/Redo/Capture/Next to walk through steps at your own pace.');
     updateButtonState();

@@ -559,7 +559,7 @@ Enable them with `builtInTools: true` (or `{ inputRemap: true, controllerTest: t
 
 ### Controller Test
 
-Opened by the footer button **Controller Test** (its dialog title reads "Controller Tester"). A fixed-size panel with a header (title, the device's own name with the raw id in its tooltip, a profile chip such as "Family · DualSense", "Exact · DualSense", "Manual · Stadia", "Generic" or "Edited", the profile select with "Auto detect", **Debug**, **Profile editor**, **Close**), a live SVG view of the controller in the family's layout, and one status line.
+Opened by the footer button **Controller Test** (its dialog title reads the same). A fixed-size panel with a header (title, the device's own name with the raw id in its tooltip, a profile chip such as "Family · DualSense", "Exact · DualSense", "Manual · Stadia", "Generic" or "Edited", the profile select with "Auto detect", **Debug**, **Profile editor**, **Close**), a live SVG view of the controller in the family's layout, and one status line.
 
 - The view lights a control exactly when the game gets `pressed` for it (it reads `getGamepadLogicalState()` and the runtime's thresholds); movement below the threshold shows as a faint partial fill. Sticks show a dot, triggers a 0.00–1.00 bar; extra buttons (`GP_B17`..) show only when the pad has them, Elite paddles in a row of small keys.
 - **Debug** opens the last strongest signal (kind, index, direction, delta, raw, code, and the logical code it resolves to with its label), the active codes (`Active: GP_B0=Cross, …`) and a raw table of every button and axis.

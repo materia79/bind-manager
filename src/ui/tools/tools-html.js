@@ -60,9 +60,9 @@ export function getBuiltInToolsHtml() {
     </div>
 
     <div class="bm-tester-modal" aria-hidden="true">
-      <div class="bm-tool-panel bm-tester-panel" role="dialog" aria-modal="true" aria-label="Controller Tester" tabindex="-1">
+      <div class="bm-tool-panel bm-tester-panel" role="dialog" aria-modal="true" aria-label="Controller Test" tabindex="-1">
         <div class="bm-tool-head bm-tester-head">
-          <h2 class="bm-tool-title">Controller Tester</h2>${profileHeader('tester')}
+          <h2 class="bm-tool-title">Controller Test</h2>${profileHeader('tester')}
           <button class="bm-tool-btn bm-tool-toggle bm-tester-debug-btn" aria-pressed="false">Debug</button>
           <button class="bm-tool-btn bm-tool-toggle bm-tester-editor-btn" aria-pressed="false">Profile editor</button>
           <button class="bm-tool-btn bm-tool-close bm-tester-close-btn" title="Close (Esc)">Close</button>

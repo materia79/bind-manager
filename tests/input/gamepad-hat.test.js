@@ -35,8 +35,9 @@ describe('decodeHatValue', () => {
 });
 
 describe('isHatEntryActive', () => {
-  const up = { value: -1, tolerance: 0.2 };
-  const right = { value: -0.428571, tolerance: 0.2 };
+  // Grid entries (the generator's layout, see isHatGridLayout).
+  const up = { value: -1, tolerance: 0.2, grid: true };
+  const right = { value: -0.428571, tolerance: 0.2, grid: true };
 
   it('a cardinal entry is active on its position and both neighbouring diagonals', () => {
     expect(isHatEntryActive(-1, up)).toBe(true);
@@ -49,7 +50,7 @@ describe('isHatEntryActive', () => {
   });
 
   it('a diagonal entry is active only on its own position', () => {
-    const upRight = { value: -1 + step };
+    const upRight = { value: -1 + step, grid: true };
     expect(isHatEntryActive(-1 + step, upRight)).toBe(true);
     expect(isHatEntryActive(-1, upRight)).toBe(false);
   });
@@ -71,8 +72,8 @@ describe('readMappingEntryMagnitude', () => {
     expect(readMappingEntryMagnitude(pad, { kind: 'axis', index: 0, direction: 'negative' })).toBeCloseTo(0.6);
     expect(readMappingEntryMagnitude(pad, { kind: 'axis', index: 0, direction: 'positive' })).toBe(0);
     expect(readMappingEntryMagnitude(pad, { kind: 'axis', index: 1 })).toBeCloseTo(0.4);
-    expect(readMappingEntryMagnitude(pad, { kind: 'hat', index: 9, value: -1 })).toBe(1);
-    expect(readMappingEntryMagnitude(pad, { kind: 'hat', index: 9, value: 0.142857 })).toBe(0);
+    expect(readMappingEntryMagnitude(pad, { kind: 'hat', index: 9, value: -1, grid: true })).toBe(1);
+    expect(readMappingEntryMagnitude(pad, { kind: 'hat', index: 9, value: 0.142857, grid: true })).toBe(0);
     expect(readMappingEntryMagnitude(pad, null)).toBe(0);
     expect(readMappingEntryMagnitude(pad, { kind: 'button', index: 7 })).toBe(0);
   });

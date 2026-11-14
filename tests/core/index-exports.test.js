@@ -24,6 +24,7 @@ describe('package entry exports the gamepad codes and helpers', () => {
     expect(typeof pkg.isControllerProfileApplicable).toBe('function');
     expect(pkg.decodeHatValue(-1).up).toBe(true);
     expect(typeof pkg.isHatEntryActive).toBe('function');
+    expect(typeof pkg.isHatGridLayout).toBe('function');
     expect(pkg.readMappingEntryMagnitude({ buttons: [{ value: 1 }] }, { kind: 'button', index: 0 })).toBe(1);
   });
 });

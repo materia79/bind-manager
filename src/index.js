@@ -48,5 +48,6 @@ export {
 export {
 	decodeHatValue,
 	isHatEntryActive,
+	isHatGridLayout,
 	readMappingEntryMagnitude,
 } from './input/gamepad-runtime.js';

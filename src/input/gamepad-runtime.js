@@ -29,22 +29,27 @@ import {
 // up at -1 (up, up-right, right, down-right, down, down-left, left, up-left);
 // neutral is outside the range (9/7 in Firefox on Windows).
 const HAT_STEP = 2 / 7;
+/** A raw value further than this from every grid position is neutral. */
+const HAT_GRID_TOLERANCE = HAT_STEP / 4;
+/** An entry value this close to a grid position counts as on the grid. */
+const HAT_GRID_EPSILON = 1e-3;
 const HAT_SECTOR_DIRECTIONS = [
   ['up'], ['up', 'right'], ['right'], ['down', 'right'],
   ['down'], ['down', 'left'], ['left'], ['up', 'left'],
 ];
 
-/** @returns {number} sector 0-7, or -1 for neutral / not a hat value */
-function hatSector(raw) {
+/** @returns {number} sector 0-7 when raw is within `tolerance` of a grid position, else -1 */
+function hatSector(raw, tolerance = HAT_GRID_TOLERANCE) {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return -1;
   const sector = Math.round((raw + 1) / HAT_STEP);
   if (sector < 0 || sector > 7) return -1;
-  return Math.abs(raw - (-1 + sector * HAT_STEP)) <= HAT_STEP / 2 + 1e-6 ? sector : -1;
+  return Math.abs(raw - (-1 + sector * HAT_STEP)) <= tolerance ? sector : -1;
 }
 
 /**
  * Decode a hat-switch axis value into D-pad directions. A diagonal sets both
- * of its directions; neutral (or any value off the eight positions) sets none.
+ * of its directions; neutral, or any value not within a quarter step of one
+ * of the eight positions, sets none.
  * @param {number} raw - the raw axis value
  * @returns {{ up: boolean, right: boolean, down: boolean, left: boolean }}
  */
@@ -58,26 +63,59 @@ export function decodeHatValue(raw) {
   };
 }
 
+const hatGridCache = new WeakMap();
+
 /**
- * True when a `kind: 'hat'` mapping entry is active for a raw axis value.
- * An entry whose `value` is a cardinal position (up/right/down/left) is also
- * active on both neighbouring diagonals; an entry on a diagonal position is
- * active only there. A `value` off the eight positions falls back to
- * `|raw - value| <= tolerance` (default 0.2).
- * @param {number} raw - the raw axis value at `entry.index`
- * @param {{ value: number, tolerance?: number }} entry
+ * True when the hat entries of `mapping` on `axisIndex` are the generator's
+ * layout: exactly four, each on a different cardinal position of the 2/7 grid.
+ * @param {Record<string, any> | null | undefined} mapping
+ * @param {number} axisIndex
  * @returns {boolean}
  */
-export function isHatEntryActive(raw, entry) {
+export function isHatGridLayout(mapping, axisIndex) {
+  if (!mapping || typeof mapping !== 'object') return false;
+  let perAxis = hatGridCache.get(mapping);
+  if (!perAxis) {
+    perAxis = new Map();
+    hatGridCache.set(mapping, perAxis);
+  }
+  if (perAxis.has(axisIndex)) return perAxis.get(axisIndex);
+  const sectors = new Set();
+  let count = 0;
+  for (const entry of Object.values(mapping)) {
+    if (!entry || entry.kind !== 'hat' || entry.index !== axisIndex) continue;
+    count += 1;
+    const sector = hatSector(entry.value, HAT_GRID_EPSILON);
+    if (sector >= 0 && sector % 2 === 0) sectors.add(sector);
+  }
+  const grid = count === 4 && sectors.size === 4;
+  perAxis.set(axisIndex, grid);
+  return grid;
+}
+
+/**
+ * True when a `kind: 'hat'` mapping entry is active for a raw axis value.
+ *
+ * On a grid layout (see isHatGridLayout; pass the entry's `mapping`, or an
+ * entry flagged `grid: true`) a cardinal entry is also active on both
+ * neighbouring diagonals, and a raw value off the eight positions is neutral.
+ * Otherwise the entry is active when `|raw - value| <= tolerance` (default 0.2).
+ * @param {number} raw - the raw axis value at `entry.index`
+ * @param {{ index?: number, value: number, tolerance?: number, grid?: boolean }} entry
+ * @param {Record<string, any> | null} [mapping=null] - the profile mapping the entry belongs to
+ * @returns {boolean}
+ */
+export function isHatEntryActive(raw, entry, mapping = null) {
   if (!entry || typeof entry.value !== 'number' || !Number.isFinite(entry.value)) return false;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return false;
-  const target = hatSector(entry.value);
-  if (target < 0) {
+  const grid = entry.grid === true || isHatGridLayout(mapping, entry.index);
+  if (!grid) {
     const tolerance = typeof entry.tolerance === 'number' && entry.tolerance > 0 ? entry.tolerance : 0.2;
     return Math.abs(raw - entry.value) <= tolerance;
   }
+  const target = hatSector(entry.value, HAT_GRID_EPSILON);
   const current = hatSector(raw);
-  if (current < 0) return false;
+  if (target < 0 || current < 0) return false;
   if (target % 2 === 1) return current === target;
   return HAT_SECTOR_DIRECTIONS[current].includes(HAT_SECTOR_DIRECTIONS[target][0]);
 }
@@ -88,12 +126,13 @@ export function isHatEntryActive(raw, entry) {
  * 1 / 0 for a hat entry (see isHatEntryActive).
  * @param {{ buttons?: ArrayLike<{ pressed?: boolean, value?: number }>, axes?: ArrayLike<number> }} gamepad
  * @param {{ kind: 'button' | 'axis' | 'hat', index: number, direction?: 'negative' | 'positive', value?: number, tolerance?: number } | null} entry
+ * @param {Record<string, any> | null} [mapping=null] - the profile mapping, for hat entries
  * @returns {number}
  */
-export function readMappingEntryMagnitude(gamepad, entry) {
+export function readMappingEntryMagnitude(gamepad, entry, mapping = null) {
   if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.index)) return 0;
   if (entry.kind === 'hat') {
-    return isHatEntryActive(gamepad?.axes?.[entry.index], entry) ? 1 : 0;
+    return isHatEntryActive(gamepad?.axes?.[entry.index], entry, mapping) ? 1 : 0;
   }
   if (entry.kind === 'button') {
     const btn = gamepad?.buttons?.[entry.index];
@@ -898,6 +937,11 @@ export class GamepadRuntime {
       if (entryP) compiled.axesPos[a] = entryP;
     }
 
+    // Grid decoding (diagonals, neutral band) only for the generator's hat layout.
+    for (const entry of [...compiled.buttons, ...compiled.axesNeg, ...compiled.axesPos]) {
+      if (entry?.kind === 'hat') entry.grid = isHatGridLayout(profile.mapping, entry.index);
+    }
+
     this._compiledProfileCache.set(profile, compiled);
     return compiled;
   }
@@ -1053,6 +1097,7 @@ export class GamepadRuntime {
  * @property {'negative' | 'positive'} direction
  * @property {number} [value]
  * @property {number} [tolerance]
+ * @property {boolean} [grid] - hat entry of a grid layout (see isHatGridLayout)
  */
 
 /**

@@ -318,7 +318,8 @@ export class GamepadRuntime {
   }
 
   /**
-   * Get the detected profile name ('xbox' | 'dualsense' | 'generic') for a gamepad.
+   * Get the resolved family key ('xbox', 'xbox360', 'dualshock4', 'dualsense',
+   * 'switch-pro', 'steam', 'stadia' or 'generic') for a gamepad.
    * @param {number} [gamepadIndex=0]
    * @returns {string}
    */
@@ -329,7 +330,7 @@ export class GamepadRuntime {
   /**
    * Get the resolved profile state for a connected gamepad.
    * @param {number} [gamepadIndex=0]
-   * @returns {{ source: string, family: string, profileHint: string, profileKey: string | null, definition: any | null, gamepadId: string | null }}
+   * @returns {import('./gamepad-profile-resolver.js').ResolvedGamepadProfile}
    */
   getResolvedProfile(gamepadIndex = 0) {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return resolveGamepadProfile(null);

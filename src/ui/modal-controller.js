@@ -640,11 +640,26 @@ export class ModalController {
     const body = modal?.querySelector('.bm-modal-body');
     const probe = modal?.querySelector('.bm-u-probe');
     if (!body || !probe) return;
-    const u = probe.getBoundingClientRect().width / 1000;
-    // Hidden or no layout engine (jsdom): keep the class chosen at render time
-    if (!(u > 0) || body.clientWidth === 0) return;
-    const layout = _layoutFor(body.clientWidth / u, this._slotCounts.kb, this._slotCounts.gp);
-    for (const name of LAYOUTS) modal.classList.toggle(`bm-layout-${name}`, name === layout);
+    const apply = (layout) => {
+      for (const name of LAYOUTS) modal.classList.toggle(`bm-layout-${name}`, name === layout);
+    };
+    // A content-sized modal (--bm-modal-width: auto, fit-content, ...) changes width with the
+    // layout, so measure again after each change until it is stable, all before the next paint
+    const tried = [];
+    for (let i = 0; i < LAYOUTS.length; i++) {
+      const u = probe.getBoundingClientRect().width / 1000;
+      // Hidden or no layout engine (jsdom): keep the class chosen at render time
+      if (!(u > 0) || body.clientWidth === 0) return;
+      const layout = _layoutFor(body.clientWidth / u, this._slotCounts.kb, this._slotCounts.gp);
+      if (modal.classList.contains(`bm-layout-${layout}`)) return;
+      if (tried.includes(layout)) {
+        // Oscillating between layouts: settle on the most compact one tried
+        apply(LAYOUTS[Math.max(...tried.map((name) => LAYOUTS.indexOf(name)))]);
+        return;
+      }
+      tried.push(layout);
+      apply(layout);
+    }
   }
 
   _setCaptureUiState(capturing, activeButton) {

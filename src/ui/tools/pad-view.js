@@ -8,6 +8,7 @@ import {
   padLabelText,
   shouldShowPadNode,
   isOptionalPadCode,
+  extraRowOffsets,
 } from './pad-layout.js';
 
 const TEXT_ATTRS = 'dominant-baseline="central"';
@@ -64,13 +65,13 @@ function triggerMarkup(el) {
     + '</g>';
 }
 
-/** Inner markup of the pad <svg> for one stick layout. */
-export function renderPadSvgContent(stickLayout) {
+/** Inner markup of the pad <svg> for one stick layout (options: see buildPadLayout). */
+export function renderPadSvgContent(stickLayout, options = {}) {
   const parts = [
     `<path class="bm-pad-outline" d="${PAD_OUTLINE_PATH}"/>`,
     `<text class="bm-pad-message" x="${PAD_VIEWBOX.width / 2}" y="330" font-size="30" text-anchor="middle" ${TEXT_ATTRS}>Connect a controller and press any button</text>`,
   ];
-  for (const el of buildPadLayout(stickLayout)) {
+  for (const el of buildPadLayout(stickLayout, options)) {
     if (el.kind === 'stick') parts.push(stickMarkup(el));
     else if (el.kind === 'trigger') parts.push(triggerMarkup(el));
     else if (el.kind === 'face') parts.push(`${openNode(el.code, el.kind)}${shapeMarkup(el.shape)}<path class="bm-pad-glyph" transform="translate(${el.shape.cx} ${el.shape.cy})"/>${labelMarkup(el.label)}</g>`);
@@ -92,20 +93,27 @@ export function padSvgOpenTag(className) {
  */
 export function createPadView(svg, writer) {
   let stickLayout = null;
+  let layoutKey = null;
   let nodes = [];
   let byCode = new Map();
   let sticks = {};
   let triggers = {};
 
-  function setLayout(next) {
-    if (next === stickLayout) return false;
+  /**
+   * @param {'symmetric' | 'offset'} next
+   * @param {{ b17InRow?: boolean }} [options] - GP_B17 in the extra-key row (Elite paddles)
+   */
+  function setLayout(next, options = {}) {
+    const key = `${next}|${options.b17InRow ? 'row' : 'face'}`;
+    if (key === layoutKey) return false;
+    layoutKey = key;
     stickLayout = next;
-    svg.innerHTML = renderPadSvgContent(next);
+    svg.innerHTML = renderPadSvgContent(next, options);
     nodes = [];
     byCode = new Map();
     sticks = {};
     triggers = {};
-    const layout = buildPadLayout(next);
+    const layout = buildPadLayout(next, options);
     const layoutByCode = new Map();
     for (const el of layout) {
       layoutByCode.set(el.code, el);
@@ -146,11 +154,19 @@ export function createPadView(svg, writer) {
       writer.attr(node.g, 'aria-label', full);
       const shown = shouldShowPadNode(node.code, full) && (!hasCode || !isOptionalPadCode(node.code) || hasCode(node.code));
       writer.attr(node.g, 'display', shown ? null : 'none');
+      node.shown = shown;
       if (!node.label || !node.el) continue;
       const text = padLabelText(node.el, full, family);
       const glyph = node.glyph ? FACE_GLYPHS[text] : undefined;
       if (node.glyph) writer.attr(node.glyph, 'd', glyph ?? null);
       writer.text(node.label, glyph ? '' : text);
+    }
+    // The shown extra keys sit centred under the pad.
+    const extras = nodes.filter((n) => n.el?.kind === 'extra');
+    const dx = extraRowOffsets(extras.filter((n) => n.shown).map((n) => n.el));
+    for (const n of extras) {
+      const d = dx.get(n.code) ?? 0;
+      writer.attr(n.g, 'transform', d ? `translate(${d} 0)` : null);
     }
   }
 

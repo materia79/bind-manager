@@ -95,8 +95,8 @@ describe('label shortening', () => {
 
   it('shortens generic and per-family long names', () => {
     expect(shortenPadLabel('GP_B4', 'Btn 4', 'generic')).toBe('B4');
-    expect(shortenPadLabel('GP_B17', 'Quick Access', 'steam')).toBe('···');
-    expect(shortenPadLabel('GP_B18', 'Left pad click', 'steam')).toBe('L Pad');
+    expect(shortenPadLabel('GP_B17', 'Quick Access', 'steam')).toBe('QAM');
+    expect(shortenPadLabel('GP_B18', 'Left Pad', 'steam')).toBe('L Pad');
     expect(shortenPadLabel('GP_B8', 'Minus', 'switch-pro')).toBe('−');
     expect(shortenPadLabel('GP_B9', 'Options', 'dualsense')).toBe('Options');
     expect(shortenPadLabel('GP_B9', '', 'generic')).toBe('GP_B9');

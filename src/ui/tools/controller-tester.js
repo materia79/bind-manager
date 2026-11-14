@@ -17,6 +17,7 @@ import { createDomWriter } from './dom-writer.js';
 import { createPadView } from './pad-view.js';
 import { getStickLayoutForFamily } from './pad-layout.js';
 import { profileSignature } from './profile-options.js';
+import { GAMEPAD_LABEL_VARIANTS } from '../../input/gamepad-profiles.js';
 import { restoreFocusAfterClose, pushDialog, keepFocusInPanel } from './focus.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
@@ -40,6 +41,8 @@ export function createControllerTester(ctx) {
     modal: q('.bm-tester-modal'),
     panel: q('.bm-tester-panel'),
     controller: q('.bm-tester-pad'),
+    padWrap: q('.bm-tester-pad-wrap'),
+    side: q('.bm-tester-side'),
     body: q('.bm-tester-body'),
     device: q('.bm-tester-device'),
     profileChip: q('.bm-tester-profile-chip'),
@@ -161,6 +164,9 @@ export function createControllerTester(ctx) {
     },
   });
   addWindowListener('bm-gamepad-profile-changed', refreshProfileUi);
+  addWindowListener('resize', () => { if (state.isOpen) updateScrollCues({ centrePad: true }); });
+  els.side.addEventListener('scroll', () => updateScrollCues(), { passive: true });
+  els.padWrap.addEventListener('scroll', () => updateScrollCues(), { passive: true });
   addWindowListener('bm-gamepad-connected', refreshProfileUi);
   addWindowListener('bm-gamepad-disconnected', refreshProfileUi);
   els.modal.addEventListener('click', (ev) => {
@@ -190,6 +196,7 @@ export function createControllerTester(ctx) {
     updateEditUiState();
     startPolling();
     els.panel.focus();
+    updateScrollCues({ centrePad: true });
   }
 
   function close() {
@@ -224,6 +231,26 @@ export function createControllerTester(ctx) {
     els.panel.classList.toggle('bm-side-open', debugOpen || editorOpen);
     if (state.isOpen) updateFrame();
     if (opened) revealInBody(opened);
+    updateScrollCues();
+  }
+
+  /**
+   * Scroll cues: a scroll container cut at an edge fades out there (side column
+   * with both panels open, the pad below the floor). With centrePad, a pad that
+   * scrolls sideways starts scrolled to its centre. Runs on open, panel toggles,
+   * scroll and resize, never per frame.
+   */
+  function updateScrollCues({ centrePad = false } = {}) {
+    const wrap = els.padWrap;
+    if (centrePad && wrap.scrollWidth > wrap.clientWidth + 1) wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) / 2;
+    setCue(wrap, wrap.scrollLeft, wrap.scrollWidth, wrap.clientWidth);
+    setCue(els.side, els.side.scrollTop, els.side.scrollHeight, els.side.clientHeight);
+  }
+
+  function setCue(el, pos, size, view) {
+    const scrolls = size > view + 1;
+    writer.cls(el, 'bm-fade-start', scrolls && pos > 1);
+    writer.cls(el, 'bm-fade-end', scrolls && pos + view < size - 1);
   }
 
   /** In the one-column layout, scroll a just-opened section into view inside the body (the panel stays put). */
@@ -513,7 +540,9 @@ export function createControllerTester(ctx) {
   function applyControllerLabels(gamepadIndex = 0) {
     const resolved = manager.getResolvedGamepadProfile(gamepadIndex);
     const family = resolved?.family ?? 'generic';
-    if (pad.setLayout(getStickLayoutForFamily(family))) updateEditUiState();
+    // A label variant that names GP_B17 and up as paddles (Elite) draws them all in the extra-key row.
+    const b17InRow = !!GAMEPAD_LABEL_VARIANTS[resolved?.labelVariant]?.labels?.GP_B17;
+    if (pad.setLayout(getStickLayoutForFamily(family), { b17InRow })) updateEditUiState();
     // Labels come through the manager, so the resolver's label variant (Elite
     // paddles) applies; optional keys show only when the pad has them.
     pad.setLabels((code) => manager.getGamepadLabel(code, gamepadIndex), family, padHasCode(getGamepadByIndex(gamepadIndex), resolved));

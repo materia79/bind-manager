@@ -266,19 +266,41 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tester-side > section[hidden] { display: none; }
 /* Both open: the side column scrolls as a whole and every section keeps its natural height. */
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { overflow-y: auto; scrollbar-gutter: stable; }
-/* Its scrollbar is sized and coloured like the bindings modal body's, in u, so the column scales. */
+/* Its scrollbar is sized like the bindings modal body's, in u, so the column scales; the thumb is light
+   enough to see on the dark panel whenever the column overflows. */
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar { width: ${u(10)}; }
-.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar-track { background: transparent; }
-.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar-thumb { background: var(--bm-btn-border); border-radius: ${u(5)}; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); border-radius: ${u(5)}; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar-thumb { background: rgba(150, 190, 220, 0.55); border-radius: ${u(5)}; }
 @supports not selector(::-webkit-scrollbar) {
-  .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { scrollbar-width: thin; scrollbar-color: var(--bm-btn-border) transparent; }
+  .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { scrollbar-width: thin; scrollbar-color: rgba(150, 190, 220, 0.55) rgba(255, 255, 255, 0.05); }
 }
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side > section { flex: none; overflow: visible; }
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-raw { flex: none; height: ${u(208)}; }
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-bindings-section,
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-bindings-list { flex: none; }
 
+/* A scroll container cut at an edge fades out there (classes set by the tester from its scroll position). */
+.bm-scroll-cue.bm-fade-start,
+.bm-scroll-cue.bm-fade-end {
+  --bm-fade-a: ${u(0)};
+  --bm-fade-b: ${u(0)};
+  -webkit-mask-image: linear-gradient(var(--bm-fade-dir), transparent 0, #000 var(--bm-fade-a), #000 calc(100% - var(--bm-fade-b)), transparent 100%);
+  mask-image: linear-gradient(var(--bm-fade-dir), transparent 0, #000 var(--bm-fade-a), #000 calc(100% - var(--bm-fade-b)), transparent 100%);
+}
+.bm-scroll-cue { --bm-fade-dir: to bottom; }
+.bm-scroll-cue.bm-scroll-x { --bm-fade-dir: to right; }
+.bm-scroll-cue.bm-fade-start { --bm-fade-a: ${u(40)}; }
+.bm-scroll-cue.bm-fade-end { --bm-fade-b: ${u(40)}; }
+.bm-scroll-cue.bm-fade-start.bm-fade-end { --bm-fade-a: ${u(40)}; --bm-fade-b: ${u(40)}; }
+
+/* Active codes wrap to at most two lines, then end with an ellipsis. */
 .bm-tester-active-codes {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
   padding: 0 ${u(10)};
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   border-radius: ${u(6)};

@@ -139,16 +139,32 @@ function centreEl(code, kind, shape, size = LABEL_S, pad = 10) {
   return { code, kind, shape, label: centredLabel(shape, size, pad) };
 }
 
-function extrasRow() {
-  const w = 120;
-  const gap = 20;
-  const total = EXTRA_CODES.length * w + (EXTRA_CODES.length - 1) * gap;
-  const x0 = (PAD_VIEWBOX.width - total) / 2;
-  return EXTRA_CODES.map((code, i) => centreEl(code, 'extra', rect(x0 + i * (w + gap), 608, w, 36, 8), LABEL_S, 8));
+const EXTRA_W = 120;
+const EXTRA_GAP = 20;
+
+/** x of the i-th of n keys in the extra-key row, the row centred under the pad. */
+function extraX(i, n) {
+  const total = n * EXTRA_W + (n - 1) * EXTRA_GAP;
+  return (PAD_VIEWBOX.width - total) / 2 + i * (EXTRA_W + EXTRA_GAP);
+}
+
+function extrasRow(codes = EXTRA_CODES) {
+  return codes.map((code, i) => centreEl(code, 'extra', rect(extraX(i, codes.length), 608, EXTRA_W, 36, 8), LABEL_S, 8));
+}
+
+/**
+ * Horizontal shift per shown extra key so the shown keys, in order, sit
+ * centred under the pad (a single key in the middle, not at the left).
+ * @param {Array<{ code: string, shape: { x: number } }>} shownExtras - extra-row elements that are drawn
+ * @returns {Map<string, number>} code -> dx in viewBox units
+ */
+export function extraRowOffsets(shownExtras) {
+  const n = shownExtras.length;
+  return new Map(shownExtras.map((el, i) => [el.code, extraX(i, n) - el.shape.x]));
 }
 
 const LAYOUTS = {
-  offset: () => [
+  offset: ({ b17InRow }) => [
     ...shoulders(),
     stick('left', 250, 238),
     ...dpad(372, 400),
@@ -157,20 +173,20 @@ const LAYOUTS = {
     centreEl('GP_B8', 'center', pill(428, 210, 104, 34)),
     centreEl('GP_B9', 'center', pill(572, 210, 104, 34)),
     centreEl('GP_B16', 'home', pill(500, 140, 96, 40)),
-    centreEl('GP_B17', 'center', pill(500, 285, 128, 34)),
-    ...extrasRow(),
+    ...(b17InRow ? [] : [centreEl('GP_B17', 'center', pill(500, 285, 128, 34))]),
+    ...extrasRow(b17InRow ? ['GP_B17', ...EXTRA_CODES] : EXTRA_CODES),
   ],
-  symmetric: () => [
+  symmetric: ({ b17InRow }) => [
     ...shoulders(),
     ...dpad(250, 238),
     ...faceButtons(750, 238),
     stick('left', 380, 410),
     stick('right', 620, 410),
-    centreEl('GP_B17', 'touchpad', rect(400, 120, 200, 96, 14)),
+    ...(b17InRow ? [] : [centreEl('GP_B17', 'touchpad', rect(400, 120, 200, 96, 14))]),
     centreEl('GP_B8', 'center', pill(338, 140, 104, 32)),
     centreEl('GP_B9', 'center', pill(662, 140, 104, 32)),
     centreEl('GP_B16', 'home', pill(500, 280, 96, 40)),
-    ...extrasRow(),
+    ...extrasRow(b17InRow ? ['GP_B17', ...EXTRA_CODES] : EXTRA_CODES),
   ],
 };
 
@@ -178,10 +194,13 @@ const LAYOUTS = {
  * Element descriptors of a stick layout. Every element has `code`, `kind`, a
  * `shape` (circle or rect in viewBox units) and a `label` slot; sticks also carry
  * their direction codes and the trigger bars their analog code and value slot.
+ * With 17InRow, GP_B17 is drawn in the extra-key row instead of on the face
+ * (label variants whose GP_B17 is a paddle, like the Xbox Elite).
  * @param {'symmetric' | 'offset'} stickLayout
+ * @param {{ b17InRow?: boolean }} [options]
  */
-export function buildPadLayout(stickLayout) {
-  return (LAYOUTS[stickLayout] ?? LAYOUTS.offset)();
+export function buildPadLayout(stickLayout, options = {}) {
+  return (LAYOUTS[stickLayout] ?? LAYOUTS.offset)({ b17InRow: !!options.b17InRow });
 }
 
 // ---- Labels ----------------------------------------------------------------
@@ -193,7 +212,7 @@ const FAMILY_SHORT_LABELS = {
   dualshock4: { Cross: '✕', Circle: '○', Square: '□', Triangle: '△' },
   dualsense: { Cross: '✕', Circle: '○', Square: '□', Triangle: '△' },
   'switch-pro': { Minus: '−', Plus: '+' },
-  steam: { 'Quick Access': '···', 'Left pad click': 'L Pad', 'Right pad click': 'R Pad' },
+  steam: { 'Quick Access': 'QAM', 'Left Pad': 'L Pad', 'Right Pad': 'R Pad' },
 };
 
 /**
@@ -283,15 +302,18 @@ export function boxContains(outer, inner) {
  * @param {string} family
  * @param {(code: string) => string} labelFor
  */
-export function computePadBoxes(stickLayout, family, labelFor) {
-  const out = [];
-  for (const el of buildPadLayout(stickLayout)) {
-    const label = labelFor(el.code);
-    if (!shouldShowPadNode(el.code, label)) continue;
-    const text = padLabelText(el, label, family);
-    const entry = { code: el.code, kind: el.kind, text, shape: shapeBox(el.shape), label: text ? textBox(el.label, text) : null, value: null };
+export function computePadBoxes(stickLayout, family, labelFor, options = {}) {
+  const shown = buildPadLayout(stickLayout, options).filter((el) => {
+    if (!shouldShowPadNode(el.code, labelFor(el.code))) return false;
+    return !options.hasCode || !isOptionalPadCode(el.code) || options.hasCode(el.code);
+  });
+  const dx = extraRowOffsets(shown.filter((el) => el.kind === 'extra'));
+  const shift = (box, d) => (box && d ? { ...box, x: box.x + d } : box);
+  return shown.map((el) => {
+    const text = padLabelText(el, labelFor(el.code), family);
+    const d = dx.get(el.code) ?? 0;
+    const entry = { code: el.code, kind: el.kind, text, shape: shift(shapeBox(el.shape), d), label: shift(text ? textBox(el.label, text) : null, d), value: null };
     if (el.value) entry.value = textBox(el.value, '0.00');
-    out.push(entry);
-  }
-  return out;
+    return entry;
+  });
 }

@@ -67,14 +67,14 @@ export function getBuiltInToolsHtml() {
         </div>
         <div class="bm-tester-body">
           <div class="bm-tester-main">
-            <div class="bm-tester-pad-wrap">${padSvgOpenTag('bm-tester-pad')}</svg></div>
+            <div class="bm-tester-pad-wrap bm-scroll-cue bm-scroll-x">${padSvgOpenTag('bm-tester-pad')}</svg></div>
             <div class="bm-tool-line bm-tester-status" aria-live="polite">Connect a gamepad and press controls to test input mapping.</div>
           </div>
-          <div class="bm-tester-side">
+          <div class="bm-tester-side bm-scroll-cue">
             <section class="bm-tool-section bm-tester-debug" hidden>
               <h3 class="bm-tool-section-title">Last signal</h3>
               ${signalGrid('bm-tester-signal', [...SIGNAL_FIELDS, 'resolved'])}
-              <div class="bm-tool-line bm-tester-active-codes">Active: (none)</div>
+              <div class="bm-tool-lines2 bm-tester-active-codes">Active: (none)</div>
               <h3 class="bm-tool-section-title">Raw input</h3>
               <div class="bm-tester-raw"><div class="bm-tester-raw-buttons"></div><div class="bm-tester-raw-axes"></div></div>
             </section>

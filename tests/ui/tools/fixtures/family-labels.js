@@ -31,8 +31,8 @@ export const FAMILY_LABELS = {
   'switch-pro': family(['B', 'A', 'Y', 'X'], ['L', 'R', 'ZL', 'ZR'], ['Minus', 'Plus'], 'Home', { GP_B17: 'Capture' }),
   steam: family(['A', 'B', 'X', 'Y'], ['L1', 'R1', 'L2', 'R2'], ['View', 'Menu'], 'Steam', {
     GP_B17: 'Quick Access',
-    GP_B18: 'Left pad click',
-    GP_B19: 'Right pad click',
+    GP_B18: 'Left Pad',
+    GP_B19: 'Right Pad',
     GP_B20: 'L4',
     GP_B21: 'L5',
     GP_B22: 'R4',

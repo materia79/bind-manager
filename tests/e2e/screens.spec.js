@@ -198,7 +198,7 @@ test.describe('screens: pad per label family', () => {
           <div style="height:40px">${name}</div>
           <div style="flex:1;position:relative">${padSvgOpenTag('bm-tester-pad')}</svg></div></div>`;
         const pad = createPadView(host.querySelector('svg'), createDomWriter());
-        pad.setLayout(getStickLayoutForFamily(family));
+        pad.setLayout(getStickLayoutForFamily(family), { b17InRow: !!variant });
         const hasCode = family === 'generic' ? (code) => Number(code.slice(4)) < 17 : null;
         pad.setLabels((code) => profiles.getGamepadLabel(code, family, variant), family, hasCode);
       };

@@ -209,7 +209,8 @@ export function createBindManager(options = {}) {
     getBindings() { return store.getAll(); },
 
     /**
-     * Get the detected profile ('xbox' | 'dualsense' | 'generic') for a connected gamepad.
+     * Get the resolved family ('xbox' | 'xbox360' | 'dualshock4' | 'dualsense' |
+     * 'switch-pro' | 'steam' | 'stadia' | 'generic') for a connected gamepad.
      * @param {number} [gamepadIndex=0]
      * @returns {string}
      */
@@ -229,10 +230,10 @@ export function createBindManager(options = {}) {
     /**
      * Resolve a human-readable label for a gamepad code using the active profile.
      * @param {string | null} code
-     * @param {number} [gamepadIndex=0]
+     * @param {number | null} [gamepadIndex=null] - null = the first connected gamepad
      * @returns {string}
      */
-    getGamepadLabel(code, gamepadIndex = 0) {
+    getGamepadLabel(code, gamepadIndex = null) {
       return gamepadRuntime.getLabelForCode(code, gamepadIndex);
     },
 

@@ -42,6 +42,17 @@ export const CAPTURE_PRESETS = {
 };
 
 export const DEFAULT_CAPTURE_PRESET = 'dualsense';
+
+/**
+ * Why a capture of a pad the browser reports with mapping 'standard' is not an
+ * exact profile: shown as the validation error and as a note in the tools.
+ */
+export const STANDARD_LAYOUT_NOTE = 'This browser already reports this controller in the standard layout, so no exact profile is needed: the family labels apply. An exact profile is only for a browser that reports a raw layout.';
+
+/** True when a capture or a Gamepad reports the browser's standard mapping. */
+export function isStandardMapping(mapping) {
+  return mapping === 'standard';
+}
 export const DPAD_CODES = ['GP_B12', 'GP_B13', 'GP_B14', 'GP_B15'];
 
 
@@ -120,6 +131,10 @@ export function validateCapturePayload(payload) {
     errors.push('Missing targetController.id.');
     return { errors, warnings };
   }
+  // The browser already maps this pad to the standard layout: an exact profile
+  // from it would apply to no pad (they apply only to raw layouts). Old captures
+  // without the field are not judged here.
+  if (isStandardMapping(target.mapping)) errors.push(STANDARD_LAYOUT_NOTE);
   const idInfo = parseControllerId(target.id);
   if (!idInfo.vendorId || !idInfo.productId) errors.push('Controller id does not expose a vendor/product pair.');
   const captures = Array.isArray(payload?.captures) ? payload.captures : [];

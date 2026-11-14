@@ -19,6 +19,7 @@ import { getStickLayoutForFamily } from './pad-layout.js';
 import { profileSignature } from './profile-options.js';
 import { GAMEPAD_LABEL_VARIANTS } from '../../input/gamepad-profiles.js';
 import { readMappingEntryMagnitude } from '../../input/gamepad-runtime.js';
+import { STANDARD_LAYOUT_NOTE, isStandardMapping } from './capture-payload.js';
 import { restoreFocusAfterClose, pushDialog, keepFocusInPanel } from './focus.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
@@ -65,6 +66,7 @@ export function createControllerTester(ctx) {
     captureUpdateBtn: q('.bm-tester-capture-update-btn'),
     downloadUpdatedBtn: q('.bm-tester-download-updated-btn'),
     resetEditsBtn: q('.bm-tester-reset-edits-btn'),
+    layoutNote: q('.bm-tester-layout-note'),
     editTarget: q('.bm-tester-edit-target'),
     editStatus: q('.bm-tester-edit-status'),
     bindingsSection: q('.bm-tester-bindings-section'),
@@ -451,6 +453,10 @@ export function createControllerTester(ctx) {
       refreshProfileControls(profileControls, gp.index);
       applyControllerLabels(gp.index);
       els.resetEditsBtn.disabled = !hasEdits();
+      // Download JSON exports the in-memory edits; a standard-mapped pad needs no exact profile.
+      const standard = isStandardMapping(gp.mapping);
+      els.layoutNote.hidden = !standard;
+      writer.text(els.layoutNote, standard ? STANDARD_LAYOUT_NOTE : '');
     }
     pad.setEmpty(false);
 

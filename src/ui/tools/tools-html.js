@@ -26,6 +26,7 @@ export function getBuiltInToolsHtml() {
           <h2 class="bm-tool-title">Input Remap</h2>${profileHeader('debug')}
           <button class="bm-tool-btn bm-tool-close bm-debug-close-btn" title="Close (Esc)">Close</button>
         </div>
+        <div class="bm-tool-lines2 bm-tool-layout-note bm-debug-layout-note" role="note" hidden></div>
         <div class="bm-debug-body">
           <section class="bm-tool-section bm-debug-guide">
             <h3 class="bm-tool-section-title">Guided capture</h3>
@@ -88,6 +89,7 @@ export function getBuiltInToolsHtml() {
                 <button class="bm-tool-btn bm-tester-download-updated-btn" disabled>Download JSON</button>
                 <button class="bm-tool-btn bm-tester-reset-edits-btn" disabled title="Discard every in-memory mapping edit of this controller">Reset edits</button>
               </div>
+              <div class="bm-tool-lines3 bm-tool-layout-note bm-tester-layout-note" role="note" hidden></div>
               <div class="bm-tester-trigger-edit" data-disabled="true">
                 <span>Trigger targets</span>
                 <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B6">L2</button>

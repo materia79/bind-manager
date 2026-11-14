@@ -11,6 +11,8 @@ import {
   validateCapturePayload,
   formatValidationSummary,
   suggestCaptureFileName,
+  STANDARD_LAYOUT_NOTE,
+  isStandardMapping,
 } from './capture-payload.js';
 
 /**
@@ -43,6 +45,7 @@ export function createInputDebugger(ctx) {
     copyBtn: q('.bm-debug-copy-btn'),
     downloadBtn: q('.bm-debug-download-btn'),
     closeBtn: q('.bm-debug-close-btn'),
+    layoutNote: q('.bm-debug-layout-note'),
   };
 
   const state = {
@@ -161,6 +164,7 @@ export function createInputDebugger(ctx) {
     ensureCaptureScaffold(getCapturePreset(state.selectedPreset));
     // The JSON follows the current pad and run state (it was last rendered at mount).
     renderOutput();
+    updateLayoutNote(getGamepadByIndex(state.activeGamepadIndex) || pickGamepad());
     startLiveMonitor();
     refreshProfileUi();
     updateButtonState();
@@ -344,7 +348,9 @@ export function createInputDebugger(ctx) {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       runMeta: {
-        targetController: gp ? { index: gp.index, id: gp.id, buttons: gp.buttons.length, axes: gp.axes.length } : null,
+        // mapping: the layout the browser reports ('standard' or ''), so the generator
+        // can tell a raw layout from a remapped one.
+        targetController: gp ? { index: gp.index, id: gp.id, mapping: typeof gp.mapping === 'string' ? gp.mapping : '', buttons: gp.buttons.length, axes: gp.axes.length } : null,
         baseline: state.baseline,
         totalSteps: preset.steps.length,
         completedSteps: state.captures.filter((entry) => !!entry?.detected).length,
@@ -375,6 +381,17 @@ export function createInputDebugger(ctx) {
   function setProgress(text) { els.progress.textContent = text; }
   function setCountdown(text) { els.countdown.textContent = text; }
 
+  /**
+   * Up front, before a 27-step run: a pad the browser already reports in the
+   * standard layout needs no exact profile (the capture would be refused).
+   */
+  function updateLayoutNote(gp) {
+    const standard = isStandardMapping(gp?.mapping);
+    els.layoutNote.hidden = !standard;
+    writer.text(els.layoutNote, standard ? STANDARD_LAYOUT_NOTE : '');
+    writer.attr(els.layoutNote, 'title', standard ? STANDARD_LAYOUT_NOTE : null);
+  }
+
   function updateLiveView() {
     const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
     const index = gp?.index ?? state.activeGamepadIndex;
@@ -382,6 +399,7 @@ export function createInputDebugger(ctx) {
     if (signature !== state.lastProfileSignature) {
       state.lastProfileSignature = signature;
       refreshProfileControls(profileControls, index);
+      updateLayoutNote(gp);
     }
     if (!gp || !state.baseline) {
       writer.text(els.liveState, '(idle)');

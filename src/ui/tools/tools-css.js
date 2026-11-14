@@ -129,6 +129,9 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tool-chip[data-source="manual"],
 .bm-tool-chip[data-source="memory-edit"] { border-color: rgba(255, 196, 100, 0.65); background: rgba(255, 196, 100, 0.12); color: #ffe2b0; }
 /* A saved exact profile that does not fit the pad: a short note beside the select */
+/* A pad the browser reports in the standard layout needs no exact profile: a note in the tools */
+.bm-tool-layout-note { color: #ffc177; font-size: var(--bm-fs-xs); }
+.bm-debug-layout-note { margin: ${u(BODY_PAD)} ${u(BODY_PAD)} 0; }
 .bm-tool-profile-note:not([hidden]) {
   flex: 0 1 ${u(220)};
   min-width: 0;

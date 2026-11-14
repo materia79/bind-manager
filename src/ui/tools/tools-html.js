@@ -9,10 +9,11 @@ function signalGrid(className, fields) {
 }
 
 function profileHeader(prefix) {
+  const p = _esc(prefix);
   return `
-          <div class="bm-tool-device bm-${prefix}-device">No controller</div>
-          <span class="bm-tool-chip bm-${prefix}-profile-chip" data-source="none" title="Profile source">—</span>
-          <select class="bm-tool-select bm-${prefix}-profile-select" aria-label="Controller profile"></select>`;
+          <div class="bm-tool-device bm-${p}-device">No controller</div>
+          <span class="bm-tool-chip bm-${p}-profile-chip" data-source="none" title="Profile source">—</span>
+          <select class="bm-tool-select bm-${p}-profile-select" aria-label="Controller profile"></select>`;
 }
 
 /** Static markup of the built-in tools, mounted once by createBuiltInToolsController. */

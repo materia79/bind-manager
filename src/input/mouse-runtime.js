@@ -18,6 +18,11 @@
  *   preventDefault fires on mousedown/mouseup (Firefox) and auxclick
  *   (Chrome), only when the button resolves to a bound action. The primary
  *   button is exempt so focus/selection semantics stay intact.
+ * - During gameplay the context menu is cancelled while the right button
+ *   (bare, or as a combo with the held modifiers) is bound, so the menu cannot
+ *   swallow its mouseup
+ * - Window blur and the page becoming hidden release every held button
+ *   (mouseups are lost then) and reset the wheel notch counter
  */
 import { buildComboCode } from './key-names.js';
 import { WheelNotchCounter } from './wheel-notches.js';
@@ -53,7 +58,10 @@ export class MouseRuntime {
     this._onMouseUp = this._onMouseUp.bind(this);
     this._onWheel = this._onWheel.bind(this);
     this._onContextMenu = this._onContextMenu.bind(this);
+    this._onGameplayContextMenu = this._onGameplayContextMenu.bind(this);
     this._onAuxClick = this._onAuxClick.bind(this);
+    this._onBlur = this._onBlur.bind(this);
+    this._onVisibilityChange = this._onVisibilityChange.bind(this);
   }
 
   start() {
@@ -62,6 +70,9 @@ export class MouseRuntime {
     window.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
     window.addEventListener('auxclick', this._onAuxClick);
+    window.addEventListener('contextmenu', this._onGameplayContextMenu);
+    window.addEventListener('blur', this._onBlur);
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
     // Window-level wheel listeners default to passive in Chromium, which would
     // make preventDefault during capture a no-op.
     window.addEventListener('wheel', this._onWheel, { passive: false });
@@ -80,6 +91,9 @@ export class MouseRuntime {
     window.removeEventListener('mouseup', this._onMouseUp);
     window.removeEventListener('auxclick', this._onAuxClick);
     window.removeEventListener('wheel', this._onWheel);
+    window.removeEventListener('contextmenu', this._onGameplayContextMenu);
+    window.removeEventListener('blur', this._onBlur);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
   }
 
   setGameplaySuppressed(suppressed) {
@@ -286,6 +300,40 @@ export class MouseRuntime {
   _onContextMenu(event) {
     // Suppress context menu during capture so right-click can be bound
     event.preventDefault();
+  }
+
+  /**
+   * During gameplay a bound right button must not open the context menu: on
+   * Linux/macOS it opens on mousedown and swallows the mouseup, leaving
+   * MouseButton2 stuck. Capture has its own listener (_onContextMenu).
+   * @private
+   */
+  _onGameplayContextMenu(event) {
+    if (this._suppressGameplay) return;
+    const modifiers = this._keyboardRuntime.getHeldModifiers();
+    const dispatchCode = this._resolveDispatchCode(this._buttonCode(2), modifiers);
+    if (this._isBoundNonPrimary(2, dispatchCode)) event.preventDefault();
+  }
+
+  /**
+   * Focus loss (alt-tab, a context menu, another window) swallows mouseups:
+   * release everything so no button stays active.
+   * @private
+   */
+  _onBlur() {
+    this._releaseAll();
+    this._wheelNotches.reset();
+    // Releases still owed by a cancelled capture are lost too; a stale entry
+    // would swallow the release of the next gameplay press.
+    if (this._swallowRelease.size > 0) {
+      this._swallowRelease.clear();
+      if (!this._captureCallback) this._detachContextMenu(false);
+    }
+  }
+
+  /** @private */
+  _onVisibilityChange() {
+    if (document.visibilityState === 'hidden') this._onBlur();
   }
 
   /**

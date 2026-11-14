@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MouseRuntime } from '../../src/input/mouse-runtime.js';
 import { KeyboardRuntime } from '../../src/input/keyboard-runtime.js';
 import { ActionRegistry } from '../../src/core/action-registry.js';
@@ -418,6 +418,9 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     // the context menu that follows the right-button release is still suppressed
     expect(contextMenu().defaultPrevented).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    // The capture listener is gone; gameplay (suppressed here, as while the
+    // modal is open) would cancel it for the bound right button on its own.
+    mouseRuntime.setGameplaySuppressed(true);
     expect(contextMenu().defaultPrevented).toBe(false);
 
     kbRuntime.stop();
@@ -464,6 +467,26 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     kbRuntime.stop();
   });
 
+  it('a blur after a cancelled capture does not swallow a later gameplay release', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    const events = [];
+    mouseRuntime.onAction('aim', (e) => events.push(e.type));
+
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseRuntime.cancelCapture();
+    window.dispatchEvent(new Event('blur')); // the release happens outside the window
+
+    mousedown(2);
+    mouseup(2);
+    expect(events).toEqual(['pressed', 'released']);
+    expect(mouseRuntime.isPressed('MouseButton2')).toBe(false);
+    expect(contextMenu().defaultPrevented).toBe(true); // still bound in gameplay
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
   it('stop() releases buttons that are still held', () => {
     const { registry, store, kbRuntime, mouseRuntime } = setup();
     registerAction(registry, store, 'fire', ['MouseButton0']);
@@ -476,5 +499,125 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     expect(events).toEqual(['pressed', 'released']);
     expect(mouseRuntime.isPressed('MouseButton0')).toBe(false);
     kbRuntime.stop();
+  });
+});
+
+describe('MouseRuntime focus loss and the gameplay context menu', () => {
+  let restoreVisibility = null;
+  let running = [];
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    restoreVisibility?.();
+    restoreVisibility = null;
+    // stop() is idempotent: a failing test must not leak window listeners
+    for (const { kbRuntime, mouseRuntime } of running) { mouseRuntime.stop(); kbRuntime.stop(); }
+    running = [];
+  });
+
+  function tracked() {
+    const ctx = setup();
+    running.push(ctx);
+    return ctx;
+  }
+
+  function setVisibility(state) {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+    restoreVisibility = () => { delete document.visibilityState; };
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  function contextMenu() {
+    const event = new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it('window blur releases held buttons with released events', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+    registerAction(registry, store, 'aim', ['ShiftLeft+MouseButton2']);
+    const events = [];
+    mouseRuntime.onAnyAction((e) => events.push(`${e.actionId}:${e.type}`));
+
+    mousedown(0);
+    keydown('ShiftLeft');
+    mousedown(2);
+    keyup('ShiftLeft');
+    window.dispatchEvent(new Event('blur'));
+
+    expect(events).toEqual(['fire:pressed', 'aim:pressed', 'fire:released', 'aim:released']);
+    expect(mouseRuntime.isPressed('MouseButton0')).toBe(false);
+    expect(mouseRuntime.isPressed('ShiftLeft+MouseButton2')).toBe(false);
+    // The lost mouseup arriving late dispatches nothing more
+    mouseup(0);
+    expect(events).toHaveLength(4);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('the page becoming hidden releases held buttons; becoming visible does not', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    const events = [];
+    mouseRuntime.onAction('aim', (e) => events.push(e.type));
+
+    mousedown(2);
+    setVisibility('visible');
+    expect(events).toEqual(['pressed']);
+    setVisibility('hidden');
+    expect(events).toEqual(['pressed', 'released']);
+    expect(mouseRuntime.isPressed('MouseButton2')).toBe(false);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('blur resets a partially accumulated wheel notch', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'next', ['MouseWheelDown']);
+    const pressed = [];
+    mouseRuntime.onAction('next', (e) => { if (e.type === 'pressed') pressed.push(e); });
+
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, bubbles: true }));
+    window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, bubbles: true }));
+    expect(pressed).toHaveLength(0);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('cancels the context menu during gameplay when the right button is bound', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    expect(contextMenu()).toBe(false);
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    expect(contextMenu()).toBe(true);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+    expect(contextMenu()).toBe(false);
+  });
+
+  it('cancels the context menu for a right-button combo only while its modifier is held', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'aim', ['ShiftLeft+MouseButton2']);
+    expect(contextMenu()).toBe(false);
+    keydown('ShiftLeft');
+    expect(contextMenu()).toBe(true);
+    keyup('ShiftLeft');
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('does not cancel the context menu while gameplay is suppressed', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    mouseRuntime.setGameplaySuppressed(true);
+    expect(contextMenu()).toBe(false);
+    mouseRuntime.setGameplaySuppressed(false);
+    expect(contextMenu()).toBe(true);
+    kbRuntime.stop();
+    mouseRuntime.stop();
   });
 });

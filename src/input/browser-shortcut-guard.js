@@ -8,6 +8,8 @@
  *   game target, focus inside the target, or the host saying so via setGameOwnsInput().
  * - Listeners run on window in the capture phase so a game's stopPropagation cannot
  *   bypass them; they never stop propagation themselves, gameplay dispatch is untouched.
+ * - The wheel listener is non-passive and is only installed while the guard is
+ *   enabled, so a disabled guard never delays page scrolling.
  * - Shortcut patterns use bind-manager code syntax with generic modifiers:
  *   `Mod+KeyR` (Ctrl or Meta), `Ctrl+Tab`, `Shift+MouseWheel`, `F5`, `Alt`.
  *   A pattern matches when its key is pressed with AT LEAST its modifiers, so `F5`
@@ -155,6 +157,7 @@ export class BrowserShortcutGuard {
     /** Bumped on unlock so a lock request that resolves late is released again. */
     this._keyboardLockGeneration = 0;
     this._active = false;
+    this._wheelAttached = false;
 
     this._onKey = this._onKey.bind(this);
     this._onMouseButton = this._onMouseButton.bind(this);
@@ -174,7 +177,7 @@ export class BrowserShortcutGuard {
     window.addEventListener('mousedown', this._onMouseButton, capture);
     window.addEventListener('mouseup', this._onMouseButton, capture);
     window.addEventListener('auxclick', this._onMouseButton, capture);
-    window.addEventListener('wheel', this._onWheel, { capture: true, passive: false });
+    this._syncWheelListener();
     window.addEventListener('contextmenu', this._onContextMenu, capture);
     window.addEventListener('focusin', this._onEngagementHint, capture);
     document.addEventListener('pointerlockchange', this._onEngagementHint);
@@ -191,7 +194,7 @@ export class BrowserShortcutGuard {
     window.removeEventListener('mousedown', this._onMouseButton, capture);
     window.removeEventListener('mouseup', this._onMouseButton, capture);
     window.removeEventListener('auxclick', this._onMouseButton, capture);
-    window.removeEventListener('wheel', this._onWheel, capture);
+    this._syncWheelListener();
     window.removeEventListener('contextmenu', this._onContextMenu, capture);
     window.removeEventListener('focusin', this._onEngagementHint, capture);
     document.removeEventListener('pointerlockchange', this._onEngagementHint);
@@ -208,6 +211,7 @@ export class BrowserShortcutGuard {
   /** @param {boolean} enabled */
   setEnabled(enabled) {
     this._enabled = !!enabled;
+    this._syncWheelListener();
     if (!this._enabled) this._unlockKeyboard();
   }
 
@@ -331,6 +335,19 @@ export class BrowserShortcutGuard {
 
   // ── Private ───────────────────────────────────────────────────────────────
 
+  /**
+   * The non-passive wheel listener exists only while started AND enabled: on
+   * window it makes the browser wait for JS before every page scroll.
+   * @private
+   */
+  _syncWheelListener() {
+    const want = this._active && this._enabled;
+    if (want === this._wheelAttached) return;
+    this._wheelAttached = want;
+    if (want) window.addEventListener('wheel', this._onWheel, { capture: true, passive: false });
+    else window.removeEventListener('wheel', this._onWheel, { capture: true });
+  }
+
   /** @private */
   _compile() {
     const compile = (list) => list.map(parseShortcutPattern).filter(Boolean);
@@ -358,9 +375,7 @@ export class BrowserShortcutGuard {
    */
   _shouldHandle(event) {
     if (!this.isEngaged()) return false;
-    const el = event.target;
-    if (_isEditable(el)) return false;
-    if (el && typeof el.closest === 'function' && el.closest(BM_UI_SELECTOR)) return false;
+    if (isExemptInputTarget(event.target)) return false;
     this._maybeArmLeaveGuard();
     return true;
   }
@@ -495,6 +510,17 @@ export class BrowserShortcutGuard {
 function _toArray(value) {
   if (value == null) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * True for event targets that keep their browser defaults even while the game
+ * owns input: text fields and anything inside the bind-manager UI. Shared with
+ * MouseRuntime's gameplay context-menu handling (not part of the public API).
+ * @param {EventTarget | null} el
+ */
+export function isExemptInputTarget(el) {
+  if (_isEditable(el)) return true;
+  return !!(el && typeof el.closest === 'function' && el.closest(BM_UI_SELECTOR));
 }
 
 /** Text fields keep every browser default (typing, editing shortcuts, context menu). */

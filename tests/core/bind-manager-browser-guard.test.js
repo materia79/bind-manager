@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createBindManager } from '../../src/core/bind-manager.js';
 import { DEFAULT_BLOCKED_SHORTCUTS } from '../../src/index.js';
 
@@ -93,6 +93,45 @@ describe('createBindManager browserGuard option', () => {
     expect(manager.browserGuard.isLeaveGuardArmed()).toBe(false);
     expect(key('F5')).toBe(false);
     manager = null;
+  });
+
+  it('installs non-passive window wheel listeners only for a wheel binding or an enabled guard', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const captureOf = (o) => (typeof o === 'boolean' ? o : !!o?.capture);
+    // Replays the wheel add/remove calls (a repeated add is a no-op, like the DOM)
+    const wheelListeners = () => {
+      const calls = [
+        ...add.mock.calls.map((args, i) => ({ isAdd: true, args, order: add.mock.invocationCallOrder[i] })),
+        ...remove.mock.calls.map((args, i) => ({ isAdd: false, args, order: remove.mock.invocationCallOrder[i] })),
+      ].filter(({ args }) => args[0] === 'wheel').sort((a, b) => a.order - b.order);
+      const live = [];
+      for (const { isAdd, args: [, fn, opts] } of calls) {
+        const i = live.findIndex((l) => l.fn === fn && l.capture === captureOf(opts));
+        if (isAdd && i === -1) live.push({ fn, capture: captureOf(opts), passive: !(opts && opts.passive === false) });
+        else if (!isAdd && i !== -1) live.splice(i, 1);
+      }
+      return live;
+    };
+    const nonPassive = () => wheelListeners().filter((l) => !l.passive).length;
+    try {
+      manager = createBindManager({ namespace: 'guard-passive' });
+      manager.registerAction({ id: 'jump', defaultBindings: ['Space'] });
+      expect(wheelListeners()).toHaveLength(1);
+      expect(nonPassive()).toBe(0);
+
+      manager.registerAction({ id: 'next', defaultBindings: ['MouseWheelDown'] });
+      expect(nonPassive()).toBe(1);
+      manager.clearBinding('next', 0);
+      expect(nonPassive()).toBe(0);
+
+      manager.browserGuard.setEnabled(true);
+      expect(nonPassive()).toBe(1);
+      manager.browserGuard.setEnabled(false);
+      expect(nonPassive()).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('wheelPixelThreshold is forwarded to wheel notch detection', () => {

@@ -179,6 +179,85 @@ describe('BindManager export/import', () => {
   });
 });
 
+describe('importBindings replace mode and gamepad slots', () => {
+  beforeEach(() => {
+    testCounter += 1;
+    document.body.innerHTML = '';
+  });
+
+  function create() {
+    const manager = createBindManager({ namespace: `import-replace-gp-${testCounter}` });
+    manager.registerAction({ id: 'forward', slots: 2, defaultBindings: ['KeyW', 'ArrowUp'], defaultGamepadBindings: ['GP_B12'] });
+    manager.registerAction({ id: 'jump', slots: 1, defaultBindings: ['Space'], defaultGamepadBindings: ['GP_B0'] });
+    return manager;
+  }
+
+  it('clears keyboard and gamepad slots of an action missing from a v2 payload', () => {
+    const manager = create();
+    const report = manager.importBindings(
+      { version: 2, bindings: { jump: { keyboard: ['KeyJ'], gamepad: ['GP_B1'] } } },
+      { mode: 'replace' },
+    );
+    expect(manager.getBinding('forward')).toEqual([null, null]);
+    expect(manager.getBinding('forward', 'gamepad')).toEqual([null]);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual(['GP_B1']);
+    expect(report.appliedSlots).toBe(5);
+    manager.destroy();
+  });
+
+  it('clears the slots of a device field missing from a v2 entry, keeps an invalid one', () => {
+    const manager = create();
+    const report = manager.importBindings(
+      {
+        version: 2,
+        bindings: {
+          forward: { keyboard: ['KeyI', null] },
+          jump: { gamepad: ['GP_B1'], keyboard: 'KeyJ' },
+        },
+      },
+      { mode: 'replace' },
+    );
+    expect(manager.getBinding('forward')).toEqual(['KeyI', null]);
+    expect(manager.getBinding('forward', 'gamepad')).toEqual([null]);
+    // A present but non-array field is reported and left untouched
+    expect(report.invalidEntries).toEqual(['Action "jump" keyboard must be an array']);
+    expect(manager.getBinding('jump')).toEqual(['Space']);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual(['GP_B1']);
+    manager.destroy();
+  });
+
+  it('clears the keyboard slots of a v2 entry without a keyboard field', () => {
+    const manager = create();
+    manager.importBindings({ version: 2, bindings: { forward: { gamepad: ['GP_B3'] } } }, { mode: 'replace' });
+    expect(manager.getBinding('forward')).toEqual([null, null]);
+    expect(manager.getBinding('forward', 'gamepad')).toEqual(['GP_B3']);
+    manager.destroy();
+  });
+
+  it('keeps gamepad bindings untouched for v1 payloads and legacy array entries', () => {
+    const manager = create();
+    manager.importBindings({ version: 1, bindings: { jump: ['KeyJ'] } }, { mode: 'replace' });
+    expect(manager.getBinding('forward')).toEqual([null, null]);
+    expect(manager.getBinding('forward', 'gamepad')).toEqual(['GP_B12']);
+    expect(manager.getBinding('jump')).toEqual(['KeyJ']);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual(['GP_B0']);
+
+    manager.importBindings({ version: 2, bindings: { forward: ['KeyI'], jump: ['KeyK'] } }, { mode: 'replace' });
+    expect(manager.getBinding('forward', 'gamepad')).toEqual(['GP_B12']);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual(['GP_B0']);
+    manager.destroy();
+  });
+
+  it('merge mode still leaves missing actions and device fields alone', () => {
+    const manager = create();
+    manager.importBindings({ version: 2, bindings: { jump: { keyboard: ['KeyJ'] } } });
+    expect(manager.getBinding('forward')).toEqual(['KeyW', 'ArrowUp']);
+    expect(manager.getBinding('forward', 'gamepad')).toEqual(['GP_B12']);
+    expect(manager.getBinding('jump', 'gamepad')).toEqual(['GP_B0']);
+    manager.destroy();
+  });
+});
+
 describe('resetAll persistence', () => {
   it('writes storage once, not once per action', () => {
     document.body.innerHTML = '';

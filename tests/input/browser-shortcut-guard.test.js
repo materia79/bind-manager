@@ -502,3 +502,58 @@ describe('BrowserShortcutGuard leave-site guard', () => {
     expect(unload()).toBe(false);
   });
 });
+
+/** Live window registrations of `type`, replayed from spied add/removeEventListener calls. */
+function trackWindowListeners() {
+  const add = vi.spyOn(window, 'addEventListener');
+  const remove = vi.spyOn(window, 'removeEventListener');
+  const captureOf = (opts) => (typeof opts === 'boolean' ? opts : !!opts?.capture);
+  return (type) => {
+    const calls = [
+      ...add.mock.calls.map((args, i) => ({ isAdd: true, args, order: add.mock.invocationCallOrder[i] })),
+      ...remove.mock.calls.map((args, i) => ({ isAdd: false, args, order: remove.mock.invocationCallOrder[i] })),
+    ].filter(({ args }) => args[0] === type).sort((a, b) => a.order - b.order);
+    const live = [];
+    for (const { isAdd, args: [, fn, opts] } of calls) {
+      const i = live.findIndex((l) => l.fn === fn && l.capture === captureOf(opts));
+      if (isAdd && i === -1) live.push({ fn, capture: captureOf(opts), passive: !(opts && opts.passive === false) });
+      else if (!isAdd && i !== -1) live.splice(i, 1);
+    }
+    return live;
+  };
+}
+
+describe('BrowserShortcutGuard wheel listener', () => {
+  it('adds no wheel listener while disabled and follows setEnabled()', () => {
+    const live = trackWindowListeners();
+    const { guard } = setup({ enabled: false });
+    expect(live('wheel')).toEqual([]);
+
+    guard.setEnabled(true);
+    expect(live('wheel')).toEqual([{ fn: guard._onWheel, capture: true, passive: false }]);
+    expect(wheel()).toBe(true);
+
+    guard.setEnabled(true); // idempotent
+    expect(live('wheel')).toHaveLength(1);
+
+    guard.setEnabled(false);
+    expect(live('wheel')).toEqual([]);
+    expect(wheel()).toBe(false);
+
+    guard.setEnabled(true);
+    guard.stop();
+    expect(live('wheel')).toEqual([]);
+  });
+
+  it('enabling before start() installs the listener on start(), not earlier', () => {
+    const live = trackWindowListeners();
+    const registry = new ActionRegistry();
+    const store = new BindingStore(registry);
+    const guard = new BrowserShortcutGuard(store, null, { enabled: false, when: 'always' });
+    guard.setEnabled(true);
+    expect(live('wheel')).toEqual([]);
+    guard.start();
+    cleanups.push(() => guard.stop());
+    expect(live('wheel')).toEqual([{ fn: guard._onWheel, capture: true, passive: false }]);
+  });
+});

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MouseRuntime } from '../../src/input/mouse-runtime.js';
 import { KeyboardRuntime } from '../../src/input/keyboard-runtime.js';
 import { ActionRegistry } from '../../src/core/action-registry.js';
@@ -418,6 +418,9 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     // the context menu that follows the right-button release is still suppressed
     expect(contextMenu().defaultPrevented).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    // The capture listener is gone; gameplay (suppressed here, as while the
+    // modal is open) would cancel it for the bound right button on its own.
+    mouseRuntime.setGameplaySuppressed(true);
     expect(contextMenu().defaultPrevented).toBe(false);
 
     kbRuntime.stop();
@@ -464,6 +467,29 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     kbRuntime.stop();
   });
 
+  it('a blur after a cancelled capture does not swallow a later gameplay release', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    const events = [];
+    mouseRuntime.onAction('aim', (e) => events.push(e.type));
+
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseRuntime.cancelCapture();
+    window.dispatchEvent(new Event('blur')); // the release happens outside the window
+
+    mousedown(2);
+    mouseup(2);
+    expect(events).toEqual(['pressed', 'released']);
+    expect(mouseRuntime.isPressed('MouseButton2')).toBe(false);
+    // still bound in gameplay: a right click's context menu is cancelled
+    const rightClickMenu = new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true });
+    window.dispatchEvent(rightClickMenu);
+    expect(rightClickMenu.defaultPrevented).toBe(true);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
   it('stop() releases buttons that are still held', () => {
     const { registry, store, kbRuntime, mouseRuntime } = setup();
     registerAction(registry, store, 'fire', ['MouseButton0']);
@@ -476,5 +502,281 @@ describe('MouseRuntime pressed state across capture and suppression', () => {
     expect(events).toEqual(['pressed', 'released']);
     expect(mouseRuntime.isPressed('MouseButton0')).toBe(false);
     kbRuntime.stop();
+  });
+});
+
+describe('MouseRuntime focus loss and the gameplay context menu', () => {
+  let restoreVisibility = null;
+  let running = [];
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    restoreVisibility?.();
+    restoreVisibility = null;
+    // stop() is idempotent: a failing test must not leak window listeners
+    for (const { kbRuntime, mouseRuntime } of running) { mouseRuntime.stop(); kbRuntime.stop(); }
+    running = [];
+  });
+
+  function tracked() {
+    const ctx = setup();
+    running.push(ctx);
+    return ctx;
+  }
+
+  function setVisibility(state) {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+    restoreVisibility = () => { delete document.visibilityState; };
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  function contextMenu() {
+    const event = new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it('window blur releases held buttons with released events', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+    registerAction(registry, store, 'aim', ['ShiftLeft+MouseButton2']);
+    const events = [];
+    mouseRuntime.onAnyAction((e) => events.push(`${e.actionId}:${e.type}`));
+
+    mousedown(0);
+    keydown('ShiftLeft');
+    mousedown(2);
+    keyup('ShiftLeft');
+    window.dispatchEvent(new Event('blur'));
+
+    expect(events).toEqual(['fire:pressed', 'aim:pressed', 'fire:released', 'aim:released']);
+    expect(mouseRuntime.isPressed('MouseButton0')).toBe(false);
+    expect(mouseRuntime.isPressed('ShiftLeft+MouseButton2')).toBe(false);
+    // The lost mouseup arriving late dispatches nothing more
+    mouseup(0);
+    expect(events).toHaveLength(4);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('the page becoming hidden releases held buttons; becoming visible does not', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    const events = [];
+    mouseRuntime.onAction('aim', (e) => events.push(e.type));
+
+    mousedown(2);
+    setVisibility('visible');
+    expect(events).toEqual(['pressed']);
+    setVisibility('hidden');
+    expect(events).toEqual(['pressed', 'released']);
+    expect(mouseRuntime.isPressed('MouseButton2')).toBe(false);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('blur resets a partially accumulated wheel notch', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'next', ['MouseWheelDown']);
+    const pressed = [];
+    mouseRuntime.onAction('next', (e) => { if (e.type === 'pressed') pressed.push(e); });
+
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, bubbles: true }));
+    window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, bubbles: true }));
+    expect(pressed).toHaveLength(0);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  it('cancels the context menu during gameplay when the right button is bound', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    expect(contextMenu()).toBe(false);
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    expect(contextMenu()).toBe(true);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+    expect(contextMenu()).toBe(false);
+  });
+
+  it('cancels the context menu for a right-button combo only while its modifier is held', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'aim', ['ShiftLeft+MouseButton2']);
+    expect(contextMenu()).toBe(false);
+    keydown('ShiftLeft');
+    expect(contextMenu()).toBe(true);
+    keyup('ShiftLeft');
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+
+  function contextMenuAt(target, init = {}) {
+    const event = new MouseEvent('contextmenu', { button: 2, bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it('cancels a right click on the game surface but not in text fields or the bind-manager UI', () => {
+    const { registry, store } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    document.body.innerHTML = `
+      <canvas id="game"></canvas>
+      <textarea id="chat"></textarea>
+      <input id="name" type="text">
+      <input id="toggle" type="checkbox">
+      <div id="notes" contenteditable="true"><span id="inner">x</span></div>
+      <div class="bm-overlay"><button id="bm-btn">Jump</button></div>`;
+    const $ = (id) => document.getElementById(id);
+    // jsdom does not implement isContentEditable (browsers report it for
+    // descendants of a contenteditable element; the e2e spec covers that)
+    Object.defineProperty($('inner'), 'isContentEditable', { value: true });
+
+    expect(contextMenuAt($('game'))).toBe(true);
+    expect(contextMenuAt(document.body)).toBe(true);
+    expect(contextMenuAt($('toggle'))).toBe(true); // not a text field
+    expect(contextMenuAt($('chat'))).toBe(false);
+    expect(contextMenuAt($('name'))).toBe(false);
+    expect(contextMenuAt($('inner'))).toBe(false);
+    expect(contextMenuAt($('bm-btn'))).toBe(false);
+  });
+
+  it('leaves keyboard-opened context menus alone (Shift+F10 / ContextMenu key: button -1)', () => {
+    const { registry, store } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    document.body.innerHTML = '<canvas id="game"></canvas>';
+    const game = document.getElementById('game');
+    expect(contextMenuAt(game, { button: -1 })).toBe(false);
+    // macOS Ctrl+click may report button 0: not a right click, left alone
+    expect(contextMenuAt(game, { button: 0 })).toBe(false);
+    expect(contextMenuAt(game)).toBe(true);
+  });
+
+  it('does not cancel the context menu while gameplay is suppressed', () => {
+    const { registry, store, kbRuntime, mouseRuntime } = tracked();
+    registerAction(registry, store, 'aim', ['MouseButton2']);
+    mouseRuntime.setGameplaySuppressed(true);
+    expect(contextMenu()).toBe(false);
+    mouseRuntime.setGameplaySuppressed(false);
+    expect(contextMenu()).toBe(true);
+    kbRuntime.stop();
+    mouseRuntime.stop();
+  });
+});
+
+/**
+ * Replays the spied window add/removeEventListener calls for `type` (a repeated
+ * add of the same listener + capture flag is a no-op, like the DOM) and returns
+ * the registrations still live.
+ */
+function trackWindowListeners() {
+  const add = vi.spyOn(window, 'addEventListener');
+  const remove = vi.spyOn(window, 'removeEventListener');
+  const captureOf = (opts) => (typeof opts === 'boolean' ? opts : !!opts?.capture);
+  return (type) => {
+    const calls = [
+      ...add.mock.calls.map((args, i) => ({ isAdd: true, args, order: add.mock.invocationCallOrder[i] })),
+      ...remove.mock.calls.map((args, i) => ({ isAdd: false, args, order: remove.mock.invocationCallOrder[i] })),
+    ].filter(({ args }) => args[0] === type).sort((a, b) => a.order - b.order);
+    const live = [];
+    for (const { isAdd, args: [, fn, opts] } of calls) {
+      const i = live.findIndex((l) => l.fn === fn && l.capture === captureOf(opts));
+      if (isAdd && i === -1) live.push({ fn, capture: captureOf(opts), passive: !(opts && opts.passive === false) });
+      else if (!isAdd && i !== -1) live.splice(i, 1);
+    }
+    return live;
+  };
+}
+
+describe('MouseRuntime wheel listener passivity', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function wheelListener(live, mouseRuntime) {
+    const own = live('wheel').filter((l) => l.fn === mouseRuntime._onWheel);
+    expect(own.length).toBeLessThanOrEqual(1);
+    if (own.length === 0) return 'none';
+    return own[0].passive ? 'passive' : 'non-passive';
+  }
+
+  it('is passive by default and non-passive only while a wheel code is bound during gameplay', () => {
+    const live = trackWindowListeners();
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+    mouseRuntime.refreshBindings();
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    // Registration emits no change event: the manager calls refreshBindings()
+    registerAction(registry, store, 'next', ['MouseWheelDown']);
+    mouseRuntime.refreshBindings();
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+
+    // A host handler can still cancel the scroll through originalEvent; the runtime itself does not
+    const seen = [];
+    mouseRuntime.onAction('next', (e) => { if (e.type === 'pressed') seen.push(e); });
+    const event = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(seen).toHaveLength(1);
+    expect(event.defaultPrevented).toBe(false);
+    mouseRuntime.onAction('next', (e) => e.originalEvent.preventDefault());
+    const cancelled = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    window.dispatchEvent(cancelled);
+    expect(cancelled.defaultPrevented).toBe(true);
+
+    mouseRuntime.setGameplaySuppressed(true);
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+    mouseRuntime.setGameplaySuppressed(false);
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+
+    // Followed through store change events
+    store.clear('next', 0);
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+    store.set('fire', 1, 'ShiftLeft+MouseWheelUp');
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+    store.reset('fire');
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.stop();
+    kbRuntime.stop();
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+    store.set('next', 0, 'MouseWheelUp'); // no longer followed once stopped
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+  });
+
+  it('is non-passive while a capture runs and passive again after cancel or commit', () => {
+    const live = trackWindowListeners();
+    const { kbRuntime, mouseRuntime } = setup();
+
+    mouseRuntime.startCapture(() => {});
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+    mouseRuntime.cancelCapture();
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.startCapture(() => {});
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseup(2);
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.startCapture(() => {});
+    mouseRuntime.stop();
+    kbRuntime.stop();
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+  });
+
+  it('adds no wheel listener for a capture on a runtime that was never started', () => {
+    const live = trackWindowListeners();
+    const registry = new ActionRegistry();
+    const store = new BindingStore(registry);
+    const mouseRuntime = new MouseRuntime(store, new KeyboardRuntime(store));
+    mouseRuntime.startCapture(() => {});
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+    mouseRuntime.stop();
   });
 });

@@ -16,8 +16,11 @@ import {
 import { createDomWriter } from './dom-writer.js';
 import { createPadView } from './pad-view.js';
 import { getStickLayoutForFamily } from './pad-layout.js';
+import { profileSignature } from './profile-options.js';
 
 const DEFAULT_HINT = 'Press any button, trigger, d-pad direction or stick.';
+/** Edit-mode auto capture counts hold frames at this pace, independent of the display rate. */
+const EDIT_SAMPLE_MS = 100;
 
 /**
  * Controller Tester tool: live controller view with one status line, a Debug
@@ -69,7 +72,8 @@ export function createControllerTester(ctx) {
   const HIGH_DELTA_THRESHOLD = 0.85;
   const state = {
     isOpen: false,
-    pollTimer: null,
+    frameId: null,
+    lastEditSample: 0,
     activeGamepadIndex: null,
     baseline: null,
     calibrating: false,
@@ -300,16 +304,23 @@ export function createControllerTester(ctx) {
     }
   }
 
+  /** Poll once per animation frame while open; every DOM write is change-only. */
   function startPolling() {
     stopPolling();
+    const loop = () => {
+      state.frameId = null;
+      if (!state.isOpen) return;
+      updateFrame();
+      if (state.isOpen) state.frameId = requestAnimationFrame(loop);
+    };
     updateFrame();
-    state.pollTimer = setInterval(updateFrame, 100);
+    state.frameId = requestAnimationFrame(loop);
   }
 
   function stopPolling() {
-    if (state.pollTimer) {
-      clearInterval(state.pollTimer);
-      state.pollTimer = null;
+    if (state.frameId != null) {
+      cancelAnimationFrame(state.frameId);
+      state.frameId = null;
     }
   }
 
@@ -332,14 +343,9 @@ export function createControllerTester(ctx) {
 
     state.activeGamepadIndex = gp.index;
     const resolvedProfile = manager.getResolvedGamepadProfile(gp.index);
-    const profileSignature = JSON.stringify({
-      source: resolvedProfile.source,
-      family: resolvedProfile.family,
-      profileKey: resolvedProfile.profileKey,
-      override: resolvedProfile.override,
-    });
-    if (profileSignature !== state.lastProfileSignature) {
-      state.lastProfileSignature = profileSignature;
+    const signature = `${gp.index}:${profileSignature(resolvedProfile)}`;
+    if (signature !== state.lastProfileSignature) {
+      state.lastProfileSignature = signature;
       refreshProfileControls(profileControls, gp.index);
       applyControllerLabels(gp.index);
     }
@@ -358,7 +364,9 @@ export function createControllerTester(ctx) {
       updateLastSignal(strongest, resolveStrongestSignalToLogicalCode(strongest, gp, baseline, mapping), gp.index);
     }
 
-    if (state.editMode && state.selectedCode && !state.captureUpdateInProgress) {
+    const now = performance.now();
+    if (state.editMode && state.selectedCode && !state.captureUpdateInProgress && now - state.lastEditSample >= EDIT_SAMPLE_MS) {
+      state.lastEditSample = now;
       if (!strongest) {
         state.editAutoCapture = { key: null, signal: null, frames: 0 };
         if (state.editCooldown) {

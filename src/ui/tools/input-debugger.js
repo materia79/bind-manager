@@ -370,14 +370,21 @@ export function createInputDebugger(ctx) {
     liveGrid.set(formatSignalFields(strongest));
   }
 
+  /** Live box polls once per animation frame while open; writes are change-only. */
   function startLiveMonitor() {
     stopLiveMonitor();
-    state.liveTimer = setInterval(updateLiveView, 120);
+    const loop = () => {
+      state.liveTimer = null;
+      if (!state.isOpen) return;
+      updateLiveView();
+      if (state.isOpen) state.liveTimer = requestAnimationFrame(loop);
+    };
+    state.liveTimer = requestAnimationFrame(loop);
   }
 
   function stopLiveMonitor() {
-    if (state.liveTimer) {
-      clearInterval(state.liveTimer);
+    if (state.liveTimer != null) {
+      cancelAnimationFrame(state.liveTimer);
       state.liveTimer = null;
     }
   }

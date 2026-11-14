@@ -111,7 +111,7 @@ The runtime compiles `GP_B0`..`GP_B23` and `GP_A0N`..`GP_A3P`. The analog trigge
 
 This workflow was run end to end with a simulated raw DualSense (a test fake pad reporting `mapping: ''`; the demo's Fake controller cannot be used for this, its pads are all standard-mapped): a full 27-step capture, the generator, and the applicability check of the result.
 
-1. Use a browser that reports the controller **without** remapping it (`mapping` is not `'standard'`). Open the Controller Test and look at the raw table in its Debug panel: a pad the browser remapped has exactly the standard layout and its id contains `STANDARD GAMEPAD` in Chrome. For captures from a remapped pad, see the status note below.
+1. Use a browser that reports the controller's **raw** layout (`mapping` is not `'standard'`; older Firefox versions do for the DualSense). When the browser already reports the standard layout (most pads in Chrome; the id contains `STANDARD GAMEPAD`), Input Remap shows a note as soon as it opens: no exact profile is needed there, the family labels apply. A capture made anyway ends with that note as its validation error, and the generator refuses it.
 2. Open **Input Remap** (bindings modal footer, or `manager.openInputRemap()`), keep the preset "DualSense / PlayStation Layout", release every control and press **Start Debug** (2 s baseline).
 3. For each of the 27 steps, hold the named input and press **Capture** (5 s window, the strongest stable input wins), then **Next**. **Back** and **Redo** fix a step.
 4. Check the validation line. "D-Pad mappings are not distinct enough yet for reliable processing." is expected for a hat D-pad (all four directions on one axis); the generator turns that case into hat entries.
@@ -119,9 +119,10 @@ This workflow was run end to end with a simulated raw DualSense (a test fake pad
 6. Run `npm run process_controller_defs` and check its warnings. The run writes `profiles/<vendor>-<product>.js` and `index.js`.
 7. Reload the page with the controller connected. The profile chip reads "Exact · …" when the profile applies; verify the controls in the Controller Test.
 
-<!-- STATUS AT THIS VERSION: this note describes a gap that is being fixed; replace it when it is. -->
-**Status at this version: remapped pads produce dead profiles.** The capture does not record `gamepad.mapping`, and neither the tool nor the generator checks it. A capture from a pad with `mapping: 'standard'` (most pads in Chrome) gives a profile whose `sourceButtons`/`sourceAxes` come from the remapped pad; it never applies, automatically or by manual override. If that capture is the newest for an existing device key, it also replaces that profile's counts, so the raw profile stops applying. Verified: the standard-mapped capture produced `sourceButtons: 18, sourceAxes: 4` and applied to neither the standard nor the raw pad; the raw capture produced `sourceButtons: 14, sourceAxes: 10` with hat entries and applied to the raw pad.
-<!-- END STATUS -->
+**Remapped pads.** The capture records the layout the browser reported (`runMeta.targetController.mapping`, `'standard'` or `''`). A pad with `mapping: 'standard'` cannot get a working exact profile (exact profiles apply only to raw layouts), so:
+
+- Input Remap shows a note when it opens with such a pad, and its validation line for such a capture is an error saying that this browser already reports the controller in the standard layout and no exact profile is needed (Download and Copy still work, for debugging; the "place it in captures/" instruction is not shown). The Controller Test's Profile editor shows the same note next to its Download JSON.
+- The generator refuses a capture with `mapping: 'standard'` (error, nothing written), warns about an older capture without the field that has exactly 17 or 18 buttons and 4 axes, and refuses a capture that would change the raw layout of an existing profile of the same device unless it runs with `--replace-layout`.
 
 What else to know before relying on it:
 

@@ -11,6 +11,7 @@ Open work on captures, the generator and hardware verification. Items are checke
 - [x] Hat D-pad diagonals decoded on the 2/7 grid (`isHatGridLayout`, `isHatEntryActive` in `../gamepad-runtime.js`).
 - [x] A raw -> logical -> label trace per active control: the Controller Test's Debug panel (last signal with the resolved code and label, active codes, raw table).
 - [x] Document the capture workflow: [README.md](README.md#adding-a-controller-profile).
+- [x] Record `gamepad.mapping` in the capture JSON (`runMeta.targetController.mapping`); Input Remap and the Controller Test note a standard-mapped pad and the tool's validation refuses its capture; the generator refuses `mapping: 'standard'`, warns on an old 17/18-button, 4-axis capture without the field, and refuses a layout change of an existing profile without `--replace-layout`.
 
 ## No longer applicable
 
@@ -19,8 +20,6 @@ Open work on captures, the generator and hardware verification. Items are checke
 
 ## Open
 
-<!-- STATUS AT THIS VERSION: being fixed; tick or remove when it is. -->
-- [ ] Record `gamepad.mapping` in the capture JSON and warn (in Input Remap and in the generator) when a capture comes from a pad with `mapping: 'standard'`. Today such a capture produces a profile that never applies, and as the newest capture of an existing device it replaces that profile's `sourceButtons`/`sourceAxes`, so the raw profile stops applying.
 - [ ] Warn when a generated profile has no `sourceButtons`/`sourceAxes` (a capture without `targetController`): it can never apply.
 - [ ] A touchpad step (`GP_B17`) in the DualSense preset, and a re-capture of `054c-0ce6`: the shipped raw profile has no touchpad mapping (raw button 13 is unmapped).
 - [ ] More capture presets (Xbox, Switch Pro, …) and a family taken from the preset or the detected family instead of the hard-coded `dualsense`; steps for `GP_B18`..`GP_B23` where a pad has them.

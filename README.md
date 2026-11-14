@@ -567,7 +567,7 @@ Opened by the footer button **Controller Test** (its dialog title reads "Control
 
 ### Input Remap
 
-A guided capture of a controller into the capture JSON that `npm run process_controller_defs` turns into an exact profile. Pick the preset (only "DualSense / PlayStation Layout" exists: 27 steps for `GP_B0`..`GP_B16`, the analog triggers `GP_B6A`/`GP_B7A` (capture-only codes; they cannot be bound) and the eight stick directions), press **Start Debug** and release everything for the 2 s baseline, then walk the steps with **Back**, **Redo**, **Capture** (each capture window is 5 s; the strongest stable input wins) and **Next**. The panel shows the live strongest signal, a validation line and the JSON (`schemaVersion`, `runMeta.targetController { index, id, buttons, axes }`, `runMeta.baseline`, `sequence`, `captures`, `byExpected`, `controllerDefinition`), with **Copy JSON** and **Download JSON** (file name `<vendor>-<product>_dualsense.json`).
+A guided capture of a controller into the capture JSON that `npm run process_controller_defs` turns into an exact profile. Pick the preset (only "DualSense / PlayStation Layout" exists: 27 steps for `GP_B0`..`GP_B16`, the analog triggers `GP_B6A`/`GP_B7A` (capture-only codes; they cannot be bound) and the eight stick directions), press **Start Debug** and release everything for the 2 s baseline, then walk the steps with **Back**, **Redo**, **Capture** (each capture window is 5 s; the strongest stable input wins) and **Next**. The panel shows the live strongest signal, a validation line and the JSON (`schemaVersion`, `runMeta.targetController { index, id, mapping, buttons, axes }`, `runMeta.baseline`, `sequence`, `captures`, `byExpected`, `controllerDefinition`), with **Copy JSON** and **Download JSON** (file name `<vendor>-<product>_dualsense.json`). `mapping` is the layout the browser reports (`'standard'` or `''`). For a pad the browser already reports in the standard layout, a note under the profile line says so when the tool opens, and the validation line is an error instead of "ready to export": no exact profile is needed there, the family labels apply (Copy and Download still work, for debugging).
 
 The full workflow, and what it needs from the pad, is in [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md#adding-a-controller-profile).
 
@@ -714,10 +714,9 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - The smallest text is about 9.3 CSS px at 1280x720 and below.
 - The guided capture has one preset (DualSense layout) and tags every capture with the `dualsense` family.
 
-<!-- STATUS AT THIS VERSION: the two items below are being changed; replace this block when they are. -->
+<!-- STATUS AT THIS VERSION: the item below is being changed; replace this block when it is. -->
 **Being changed (status at this version):**
 
-- **Captures from remapped pads.** A capture taken from a pad the browser reports with `mapping: 'standard'` (most pads in Chrome) produces a profile that never applies, and nothing warns about it; see [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md#adding-a-controller-profile).
 - **Text size of the built-in tools.** Their lengths follow a `--bm-u` set on an ancestor, but their text follows only a `--bm-u` set on `:root`, and `--bm-font-*` does not reach them.
 <!-- END STATUS -->
 
@@ -730,7 +729,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 
 ## Controller Profiles
 
-Exact profile generation and runtime matching are described in [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md), the generator in [scripts/README.md](scripts/README.md#2-process-controller-defsjs). In short: capture the controller with the built-in Input Remap tool, put the downloaded JSON into `src/input/controller_definitions/captures/`, run
+Exact profile generation and runtime matching are described in [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md), the generator in [scripts/README.md](scripts/README.md#2-process-controller-defsjs). An exact profile is only for a browser that reports the controller's **raw** layout (`gamepad.mapping` is not `'standard'`); where the browser already reports the standard layout (most pads in Chrome), no profile is needed, the family labels apply, and Input Remap says so when it opens. In short: in a browser that reports the raw layout, capture the controller with the built-in Input Remap tool, put the downloaded JSON into `src/input/controller_definitions/captures/`, run
 
 ```bash
 npm run process_controller_defs

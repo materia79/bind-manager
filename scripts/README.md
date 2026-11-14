@@ -185,9 +185,11 @@ It validates, among other things:
 - Sequence/capture expected-code mismatch (warning; processor uses `captures` entries)
 - After conversion, the generated mapping entries are checked again (button, axis, hat shapes)
 
-<!-- STATUS AT THIS VERSION: this paragraph describes a gap that is being fixed; replace it when it is. -->
-**Status at this version: remapped pads are not detected.** The generator does not check whether the capture came from a pad the browser remapped (`mapping: 'standard'`); the capture does not record the mapping. A profile generated from such a capture never applies, because the runtime applies exact profiles only to pads with `mapping !== 'standard'` and the captured raw counts, and as the newest capture of an existing device it replaces that profile's counts. See [src/input/controller_definitions/README.md](../src/input/controller_definitions/README.md#when-an-exact-profile-applies).
-<!-- END STATUS -->
+**The browser's layout.** Input Remap records the layout the browser reported in `runMeta.targetController.mapping` (`'standard'` or `''`). The runtime applies exact profiles only to pads with `mapping !== 'standard'` and the captured raw counts (see [src/input/controller_definitions/README.md](../src/input/controller_definitions/README.md#when-an-exact-profile-applies)), so:
+
+- A capture with `mapping: 'standard'` is an error for that file: the browser already reports the controller in the standard layout, no exact profile is needed (the family labels apply). Nothing is written and the script exits non-zero.
+- A capture without the field (older captures) whose counts are exactly 17 or 18 buttons and 4 axes gets a warning that it looks standard-mapped.
+- A capture that would change `sourceButtons` / `sourceAxes` of an existing generated profile with the same key is an error, unless the run is started with `--replace-layout` (`npm run process_controller_defs -- --replace-layout`; the importable `processControllerDefs()` takes `replaceLayout: true`). Without this, a capture from another browser would silently replace a working raw profile.
 
 The script separates:
 

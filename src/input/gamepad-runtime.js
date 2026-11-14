@@ -341,11 +341,23 @@ export class GamepadRuntime {
   /**
    * Resolve a display label for a GP_* code based on the active gamepad profile.
    * @param {string | null} code
-   * @param {number} [gamepadIndex=0]
+   * @param {number | null} [gamepadIndex=null] - null = the first connected gamepad
    * @returns {string}
    */
-  getLabelForCode(code, gamepadIndex = 0) {
-    return getResolvedGamepadLabel(code, this.getResolvedProfile(gamepadIndex));
+  getLabelForCode(code, gamepadIndex = null) {
+    const index = gamepadIndex ?? this._firstConnectedGamepadIndex();
+    if (index == null) return getResolvedGamepadLabel(code, resolveGamepadProfile(null));
+    return getResolvedGamepadLabel(code, this.getResolvedProfile(index));
+  }
+
+  /**
+   * @returns {number | null} index of the first connected gamepad, or null
+   * @private
+   */
+  _firstConnectedGamepadIndex() {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
+    const first = [...navigator.getGamepads()].find((g) => g && g.connected !== false);
+    return first ? first.index : null;
   }
 
   /**

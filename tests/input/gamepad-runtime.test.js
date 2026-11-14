@@ -1027,3 +1027,24 @@ describe('GamepadRuntime — A7: final analog zero', () => {
     expect(analog.map((v) => Math.abs(v) < 1e-9 ? 0 : v)).toEqual([-0.3, 0]);
   });
 });
+
+describe('GamepadRuntime — A12: labels default to the first connected pad', () => {
+  it('uses pad 1 when pad 0 is unplugged', () => {
+    const xbox = { ...makeGamepad('045e-0b13-Xbox Wireless Controller', 1), mapping: 'standard' };
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [null, xbox, null, null],
+    });
+    const { runtime } = setup();
+    expect(runtime.getLabelForCode('GP_B0')).toBe('A');
+    expect(runtime.getLabelForCode('GP_B8')).toBe('View');
+    // An explicit index still means that pad.
+    expect(runtime.getLabelForCode('GP_B0', 0)).toBe('Btn 0');
+    expect(runtime.getLabelForCode('GP_B0', 1)).toBe('A');
+  });
+
+  it('falls back to generic labels with no pad connected', () => {
+    const { runtime } = setup();
+    expect(runtime.getLabelForCode('GP_B0')).toBe('Btn 0');
+  });
+});

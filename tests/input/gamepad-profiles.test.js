@@ -121,3 +121,13 @@ describe('getGamepadLabel', () => {
     expect(getGamepadLabel(GP_A3P, 'generic')).toBe('Axis 3+');
   });
 });
+
+describe('extra button codes', () => {
+  it('GP_B17..GP_B23 are valid gamepad codes', async () => {
+    const { isGamepadCode, GP_CODES, GP_BUTTON_COUNT } = await import('../../src/input/gamepad-codes.js');
+    for (let i = 17; i <= 23; i++) expect(isGamepadCode(`GP_B${i}`)).toBe(true);
+    expect(isGamepadCode('GP_B24')).toBe(false);
+    expect(GP_BUTTON_COUNT).toBe(24);
+    expect(GP_CODES).toHaveLength(32);
+  });
+});

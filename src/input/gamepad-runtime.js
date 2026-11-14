@@ -14,7 +14,7 @@
  *   'bm-gamepad-connected'    { detail: Gamepad }
  *   'bm-gamepad-disconnected' { detail: Gamepad }
  */
-import { isGamepadCode } from './gamepad-codes.js';
+import { GP_AXIS_COUNT, GP_BUTTON_COUNT, isGamepadCode } from './gamepad-codes.js';
 import {
   getAvailableGamepadProfileOptions,
   getGamepadIdentityKey,
@@ -22,9 +22,6 @@ import {
   normaliseGamepadProfileOverride,
   resolveGamepadProfile,
 } from './gamepad-profile-resolver.js';
-
-const GP_BUTTON_COUNT = 17;
-const GP_AXIS_COUNT   = 4;
 
 function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -541,7 +538,7 @@ export class GamepadRuntime {
   }
 
   /**
-   * Build a canonical logical state (GP_B0..GP_B16 + GP_A0..GP_A3) from raw
+   * Build a canonical logical state (GP_B0..GP_B23 + GP_A0..GP_A3) from raw
    * physical gamepad hardware state, using a vendor/product mapping when known.
    * @param {Gamepad} gamepad
    * @returns {{ buttons: boolean[], axes: number[] }}

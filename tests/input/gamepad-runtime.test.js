@@ -54,6 +54,21 @@ function makeMappedGamepad(id = '054c-0ce6-DualSense Wireless Controller', index
   };
 }
 
+function makeWideGamepad(id = 'Wide Pad (STANDARD GAMEPAD)', index = 0, pressed = []) {
+  return {
+    id,
+    index,
+    connected: true,
+    mapping: 'standard',
+    buttons: Array.from({ length: 24 }, (_, i) => ({
+      pressed: pressed.includes(i),
+      value: pressed.includes(i) ? 1 : 0,
+    })),
+    axes: [0, 0, 0, 0],
+    vibrationActuator: null,
+  };
+}
+
 // ── Test setup ───────────────────────────────────────────────────────────────
 
 function setup(options = {}) {
@@ -740,5 +755,51 @@ describe('GamepadRuntime — mapped profile hot path', () => {
     expect(events).toEqual([]);
     runtime._processGamepad(makeMappedGamepad(PAD_ID, 0, { 5: true }));  // new index
     expect(events).toEqual(['pressed']);
+  });
+});
+
+describe('GamepadRuntime — extra buttons GP_B17..GP_B23', () => {
+  const EXTRA = ['GP_B17', 'GP_B18', 'GP_B19', 'GP_B20', 'GP_B21', 'GP_B22', 'GP_B23'];
+
+  it('dispatches pressed / held / released for every extra button', () => {
+    const { registry, store, runtime } = setup();
+    for (const code of EXTRA) {
+      registry.register({ id: `extra-${code}`, label: code, slots: 1, gamepadSlots: 1 });
+      store.initAction(registry.get(`extra-${code}`));
+      store.set(`extra-${code}`, 0, code, 'gamepad');
+    }
+    const events = [];
+    runtime.onAnyAction((e) => events.push(`${e.code}:${e.type}`));
+
+    for (let i = 17; i <= 23; i++) {
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, [i]));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, [i]));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+    }
+    for (const code of EXTRA) {
+      expect(events).toContain(`${code}:pressed`);
+      expect(events).toContain(`${code}:held`);
+      expect(events).toContain(`${code}:released`);
+    }
+    expect(runtime.isPressed('GP_B23')).toBe(false);
+  });
+
+  it('captures every extra button', () => {
+    const { runtime } = setup();
+    const captured = [];
+    for (let i = 17; i <= 23; i++) {
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+      runtime.startCapture((code) => captured.push(code));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, [i]));
+      runtime._processGamepad(makeWideGamepad(undefined, 0, []));
+    }
+    expect(captured).toEqual(EXTRA);
+  });
+
+  it('a pad with 17 buttons never fires the extra codes', () => {
+    const { runtime } = setup();
+    runtime._processGamepad(makeGamepad('GP', 0, { 16: true }));
+    for (const code of EXTRA) expect(runtime.isPressed(code)).toBe(false);
   });
 });

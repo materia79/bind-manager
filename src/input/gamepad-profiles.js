@@ -7,6 +7,7 @@
 import {
   GP_B0, GP_B1, GP_B2, GP_B3, GP_B4, GP_B5, GP_B6, GP_B7,
   GP_B8, GP_B9, GP_B10, GP_B11, GP_B12, GP_B13, GP_B14, GP_B15, GP_B16,
+  GP_B17, GP_B18, GP_B19, GP_B20, GP_B21, GP_B22, GP_B23,
   GP_A0N, GP_A0P, GP_A1N, GP_A1P, GP_A2N, GP_A2P, GP_A3N, GP_A3P,
 } from './gamepad-codes.js';
 
@@ -104,6 +105,13 @@ export const GAMEPAD_PROFILES = {
     [GP_B14]: 'Btn 14',
     [GP_B15]: 'Btn 15',
     [GP_B16]: 'Btn 16',
+    [GP_B17]: 'Btn 17',
+    [GP_B18]: 'Btn 18',
+    [GP_B19]: 'Btn 19',
+    [GP_B20]: 'Btn 20',
+    [GP_B21]: 'Btn 21',
+    [GP_B22]: 'Btn 22',
+    [GP_B23]: 'Btn 23',
     [GP_A0N]: 'Axis 0-',
     [GP_A0P]: 'Axis 0+',
     [GP_A1N]: 'Axis 1-',

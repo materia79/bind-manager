@@ -5,7 +5,8 @@ import SOURCE from '../../src/ui/styles.js?raw';
 // UI scales with the viewport. Only 1px hairlines and the scale-unit token
 // lines in :root may use px.
 
-const CSS = SOURCE.match(/const CSS = `([\s\S]*?)`;/)?.[1] ?? '';
+// Line-ending independent: a Windows checkout (core.autocrlf) has CRLF in styles.js
+const CSS = (SOURCE.match(/const CSS = `([\s\S]*?)`;/)?.[1] ?? '').replace(/\r\n?/g, '\n');
 
 const TOKEN_LINE = /^\s*--bm-(u-min|u-max|u|fs-xs|fs-s|fs-m|fs-l)\s*:/;
 
@@ -23,7 +24,7 @@ const ROOT_TOKEN_LINES = [
 function checkedLines() {
   const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
   return withoutComments
-    .split('\n')
+    .split(/\r?\n/)
     .map((text, i) => [i + 1, text])
     .filter(([, text]) => !TOKEN_LINE.test(text));
 }
@@ -36,16 +37,16 @@ describe('styles.js units', () => {
 
   it('keeps the seven scale-unit token lines in :root byte-identical', () => {
     const root = CSS.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const rootTokens = root.split('\n').filter((line) => TOKEN_LINE.test(line));
+    const rootTokens = root.split(/\r?\n/).filter((line) => TOKEN_LINE.test(line));
     expect(rootTokens).toEqual(ROOT_TOKEN_LINES);
   });
 
   it('re-declares only the font tokens on the library roots, identical to :root', () => {
     // Re-declared on .bm-overlay, .bm-capture-overlay and .bm-hints so that --bm-u set on any ancestor resizes text too
-    const roots = CSS.match(/\n\.bm-overlay,\n\.bm-capture-overlay,\n\.bm-hints \{([\s\S]*?)\}/)?.[1] ?? '';
-    const rootTokens = roots.split('\n').filter((line) => TOKEN_LINE.test(line));
+    const roots = CSS.match(/\r?\n\.bm-overlay,\r?\n\.bm-capture-overlay,\r?\n\.bm-hints \{([\s\S]*?)\}/)?.[1] ?? '';
+    const rootTokens = roots.split(/\r?\n/).filter((line) => TOKEN_LINE.test(line));
     expect(rootTokens).toEqual(ROOT_TOKEN_LINES.slice(3));
-    const allTokenLines = CSS.split('\n').filter((line) => TOKEN_LINE.test(line));
+    const allTokenLines = CSS.split(/\r?\n/).filter((line) => TOKEN_LINE.test(line));
     expect(allTokenLines).toHaveLength(7 + 4);
   });
 

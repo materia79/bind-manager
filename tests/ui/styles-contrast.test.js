@@ -4,7 +4,8 @@ import SOURCE from '../../src/ui/styles.js?raw';
 // WCAG 2 contrast of the default text colours against the default backgrounds
 // they are drawn on. Small text needs at least 4.5:1.
 
-const CSS = SOURCE.match(/const CSS = `([\s\S]*?)`;/)?.[1] ?? '';
+// Line-ending independent: a Windows checkout (core.autocrlf) has CRLF in styles.js
+const CSS = (SOURCE.match(/const CSS = `([\s\S]*?)`;/)?.[1] ?? '').replace(/\r\n?/g, '\n');
 const ROOT = CSS.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
 
 function rootColour(name) {

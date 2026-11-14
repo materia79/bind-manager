@@ -37,10 +37,9 @@ function proseLines(text) {
   return out;
 }
 
-/** GitHub's heading id: lowercase, punctuation dropped, spaces to hyphens, duplicates numbered. */
-function headingIds(text) {
-  const ids = new Set();
-  const seen = new Map();
+/** Base heading ids in document order (duplicates repeated): lowercase, punctuation dropped, spaces to hyphens. */
+function headingBases(text) {
+  const bases = [];
   let fenced = false;
   for (const line of text.split(/\r?\n/)) {
     if (/^\s*(```|~~~)/.test(line)) {
@@ -55,11 +54,27 @@ function headingIds(text) {
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s_-]/gu, '')
       .replace(/\s/g, '-');
+    bases.push(base);
+  }
+  return bases;
+}
+
+/** GitHub's heading ids: duplicates get -1, -2, … */
+function headingIds(text) {
+  const ids = new Set();
+  const seen = new Map();
+  for (const base of headingBases(text)) {
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
     ids.add(n === 0 ? base : `${base}-${n}`);
   }
   return ids;
+}
+
+/** Heading ids that occur more than once in a document (a link to them lands on the first only). */
+function duplicateHeadingIds(text) {
+  const bases = headingBases(text);
+  return [...new Set(bases.filter((b, i) => bases.indexOf(b) !== i))];
 }
 
 /** Relative link targets of a document: { target, line }. */
@@ -100,10 +115,15 @@ describe('documentation links', () => {
       }
       expect(broken).toEqual([]);
     });
+
+    it(`${doc}: no two headings share an id`, () => {
+      expect(duplicateHeadingIds(readFileSync(join(ROOT, doc), 'utf8'))).toEqual([]);
+    });
   }
 
   it('the heading-id rule matches GitHub on the cases these docs use', () => {
     const ids = headingIds('## Upgrading from 0.1.x\n## 1) `build.js`\n## Sizing and Theming\n### Browser shortcut guard\n## Browser Shortcut Guard\n```\n## not a heading\n```\n');
     expect([...ids]).toEqual(['upgrading-from-01x', '1-buildjs', 'sizing-and-theming', 'browser-shortcut-guard', 'browser-shortcut-guard-1']);
+    expect(duplicateHeadingIds('## A b\n### a B\n## c\n')).toEqual(['a-b']);
   });
 });

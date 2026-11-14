@@ -604,7 +604,12 @@ export class GamepadRuntime {
       return; // Never fire action events during capture
     }
 
-    if (this._gameplaySuppressed) return;
+    if (this._gameplaySuppressed) {
+      // A latched code seen released while suppressed must not swallow the
+      // first press after gameplay resumes.
+      this._clearReleasedLatches(gamepad.index, cur);
+      return;
+    }
 
     // ── Button events ─────────────────────────────────────────────────────────
     const btnLen = Math.min(cur.buttons.length, GP_BUTTON_COUNT);
@@ -735,6 +740,21 @@ export class GamepadRuntime {
     if (!this._latched.has(gamepadIndex)) this._latched.set(gamepadIndex, new Set());
     const latched = this._latched.get(gamepadIndex);
     for (const code of codes) latched.add(code);
+  }
+
+  /**
+   * Un-latch every latched code of this gamepad that is inactive in `state`.
+   * @param {number} gamepadIndex
+   * @param {{ buttons: boolean[], axes: number[] }} state
+   * @private
+   */
+  _clearReleasedLatches(gamepadIndex, state) {
+    const latched = this._latched.get(gamepadIndex);
+    if (!latched || latched.size === 0) return;
+    const active = new Set(this._activeCodes(state));
+    for (const code of [...latched]) {
+      if (!active.has(code)) latched.delete(code);
+    }
   }
 
   /**

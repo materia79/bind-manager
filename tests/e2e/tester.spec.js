@@ -145,34 +145,45 @@ test.describe('Controller Tester does not jump', () => {
   });
 });
 
-const SCALE_ELEMENTS = [
-  '.bm-tester-panel',
-  '.bm-tester-head',
-  '.bm-tester-pad',
-  '.bm-tester-status',
-  '.bm-tester-profile-chip',
-  '.bm-tester-profile-select',
-  '.bm-tester-debug-btn',
-  '.bm-tester-close-btn',
-  '.bm-tester-debug',
-  '.bm-tester-editor',
-  '.bm-tester-signal',
-  '.bm-tester-active-codes',
-];
+/**
+ * Elements checked for scale invariance, per side-panel state. With both panels
+ * open the side column shows a native scrollbar, whose fixed pixel width does
+ * not scale (like a 1px hairline), so each panel is measured on its own.
+ */
+const SCALE_STATES = {
+  debug: [
+    '.bm-tester-panel',
+    '.bm-tester-head',
+    '.bm-tester-pad',
+    '.bm-tester-status',
+    '.bm-tester-profile-chip',
+    '.bm-tester-profile-select',
+    '.bm-tester-debug-btn',
+    '.bm-tester-close-btn',
+    '.bm-tester-debug',
+    '.bm-tester-signal',
+    '.bm-tester-active-codes',
+  ],
+  editor: ['.bm-tester-editor', '.bm-tester-editor-actions', '.bm-tester-edit-target', '.bm-tester-bindings-section'],
+};
+const SCALE_ELEMENTS = Object.values(SCALE_STATES).flat();
 
-/** Boxes of SCALE_ELEMENTS with the tester open, pad connected, both panels on. */
+/** Boxes of SCALE_ELEMENTS with the tester open and the pad connected. */
 async function scaleBoxes(browser, width, height) {
   const page = await browser.newPage({ viewport: { width, height } });
   await openDemo(page);
   const panel = await openTester(page);
   await expect(panel.locator('.bm-tester-profile-select')).toBeEnabled();
-  await panel.locator('.bm-tester-debug-btn').click();
-  await panel.locator('.bm-tester-editor-btn').click();
-  await frames(page);
-  const boxes = await page.evaluate((sels) => Object.fromEntries(sels.map((s) => {
-    const r = document.querySelector(`.bm-tester-modal ${s}`).getBoundingClientRect();
-    return [s, { x: r.x, y: r.y, width: r.width, height: r.height }];
-  })), SCALE_ELEMENTS);
+  const boxes = {};
+  for (const [state, sels] of Object.entries(SCALE_STATES)) {
+    await panel.locator(state === 'debug' ? '.bm-tester-debug-btn' : '.bm-tester-editor-btn').click();
+    await frames(page);
+    Object.assign(boxes, await page.evaluate((list) => Object.fromEntries(list.map((s) => {
+      const r = document.querySelector(`.bm-tester-modal ${s}`).getBoundingClientRect();
+      return [s, { x: r.x, y: r.y, width: r.width, height: r.height }];
+    })), sels));
+    await panel.locator(state === 'debug' ? '.bm-tester-debug-btn' : '.bm-tester-editor-btn').click();
+  }
   await page.close();
   return boxes;
 }
@@ -247,6 +258,48 @@ for (const vp of [{ width: 1000, height: 600 }, { width: 390, height: 844 }]) {
     });
   });
 }
+
+test.describe('bindings list', () => {
+  for (const vp of [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]) {
+    test(`a binding row is fully visible with both panels open @ ${vp.width}x${vp.height}`, async ({ browser }) => {
+      const page = await browser.newPage({ viewport: vp });
+      const pad = await openDemo(page);
+      const panel = await openTester(page);
+      await panel.locator('.bm-tester-debug-btn').click();
+      await panel.locator('.bm-tester-editor-btn').click();
+      await panel.locator('.bm-tester-edit-toggle-btn').click();
+      await panel.locator('.bm-tester-pad [data-code="GP_B3"]').click();
+      // assign a binding so the list has a real row (button, index, source)
+      await pad.setButton(2, 1);
+      await expect(panel.locator('.bm-tester-edit-status')).toHaveText(/^Updated GP_B3/);
+      await pad.reset();
+      const item = panel.locator('.bm-tester-binding-item').first();
+      await expect(item).toBeVisible();
+      await item.scrollIntoViewIfNeeded();
+      const geo = await item.evaluate((el) => {
+        const r = (e) => e.getBoundingClientRect();
+        const clipOf = (e) => {
+          let box = { top: -Infinity, bottom: Infinity };
+          for (let p = e.parentElement; p; p = p.parentElement) {
+            const cs = getComputedStyle(p);
+            if (/(auto|scroll|hidden)/.test(cs.overflowY)) {
+              const pr = r(p);
+              box = { top: Math.max(box.top, pr.top), bottom: Math.min(box.bottom, pr.bottom) };
+            }
+          }
+          return box;
+        };
+        const meta = el.querySelector('.bm-tester-binding-meta');
+        return { item: r(el), meta: r(meta), clip: clipOf(el) };
+      });
+      expect(geo.item.top).toBeGreaterThanOrEqual(geo.clip.top - 0.5);
+      expect(geo.item.bottom).toBeLessThanOrEqual(geo.clip.bottom + 0.5);
+      expect(geo.meta.bottom).toBeLessThanOrEqual(geo.item.bottom + 0.5);
+      expect(geo.meta.bottom).toBeLessThanOrEqual(geo.clip.bottom + 0.5);
+      await page.close();
+    });
+  }
+});
 
 test.describe('live controller view', () => {
   test.use({ viewport: { width: 1920, height: 1080 } });

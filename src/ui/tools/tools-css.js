@@ -256,7 +256,12 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tester-panel.bm-side-open .bm-tester-side { display: flex; }
 .bm-tester-side > section { flex: 1 1 0; }
 .bm-tester-side > section[hidden] { display: none; }
-.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-debug { flex: 0 0 ${u(372)}; }
+/* Both open: the side column scrolls as a whole and every section keeps its natural height. */
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { overflow-y: auto; scrollbar-gutter: stable; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side > section { flex: none; overflow: visible; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-raw { flex: none; height: ${u(208)}; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-bindings-section,
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-bindings-list { flex: none; }
 
 .bm-tester-active-codes {
   padding: 0 ${u(10)};
@@ -312,7 +317,7 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tester-edit-status { color: #9fc0d8; font-size: var(--bm-fs-xs); }
 .bm-tester-bindings-section {
   flex: 1 1 0;
-  min-height: 0;
+  min-height: ${u(74)};
   display: flex;
   flex-direction: column;
   gap: ${u(6)};
@@ -320,7 +325,7 @@ export const BUILT_IN_TOOLS_CSS = `
 }
 .bm-tester-bindings-section[data-empty="true"] { visibility: hidden; }
 .bm-tester-bindings-head { flex: none; height: ${u(20)}; line-height: ${u(20)}; font-size: var(--bm-fs-xs); color: #b8def8; }
-.bm-tester-bindings-list { flex: 1 1 0; min-height: 0; overflow-y: auto; list-style: none; display: grid; align-content: start; gap: ${u(6)}; }
+.bm-tester-bindings-list { flex: 1 1 0; min-height: ${u(48)}; overflow-y: auto; list-style: none; display: grid; align-content: start; gap: ${u(6)}; }
 .bm-tester-binding-item {
   display: flex;
   justify-content: space-between;

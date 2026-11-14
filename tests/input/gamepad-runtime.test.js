@@ -274,6 +274,82 @@ describe('GamepadRuntime — gameplay suppression', () => {
   });
 });
 
+describe('GamepadRuntime — A1: no stuck actions on suppress / disconnect', () => {
+  it('releases held buttons when gameplay is suppressed', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    expect(events).toEqual(['pressed']);
+
+    runtime.setGameplaySuppressed(true);
+    expect(events).toEqual(['pressed', 'released']);
+  });
+
+  it('a button still held after un-suppress stays silent until released and pressed anew', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));     // pressed
+    runtime.setGameplaySuppressed(true);                             // released
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime.setGameplaySuppressed(false);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));     // still held: silent
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: false }));    // release: silent (already released)
+    expect(events).toEqual(['pressed', 'released']);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));     // new press
+    expect(events).toEqual(['pressed', 'released', 'pressed']);
+  });
+
+  it('a button pressed during suppression and held after it does not fire held without pressed', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(e.type));
+    runtime._processGamepad(makeGamepad('GP', 0));
+    runtime.setGameplaySuppressed(true);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime.setGameplaySuppressed(false);
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: false }));
+    expect(events).toEqual([]);
+  });
+
+  it('releases a held axis direction and zeroes analog actions on suppress', () => {
+    const { runtime } = setup({ analogThreshold: 0.5, deadband: 0.12 });
+    const events = [];
+    runtime.onAction('moveX', e => events.push(`${e.type}:${e.value}`));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.9]));
+    events.length = 0;
+    runtime.setGameplaySuppressed(true);
+    expect(events).toContain('released:0');
+    expect(events).toContain('analog:0');
+  });
+
+  it('releases held inputs when the pad disconnects', () => {
+    const { runtime } = setup({ analogThreshold: 0.5, deadband: 0.12 });
+    const events = [];
+    runtime.onAnyAction(e => events.push(`${e.actionId}:${e.type}:${e.value}`));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }, [-0.9]));
+    events.length = 0;
+    runtime._handleDisconnect({ gamepad: makeGamepad('GP', 0) });
+    expect(events).toContain('jump:released:0');
+    expect(events).toContain('moveX:released:0');
+    expect(events).toContain('moveX:analog:0');
+    expect(runtime.isPressed(GP_B0)).toBe(false);
+  });
+
+  it('does not release inputs of another pad on disconnect', () => {
+    const { runtime } = setup();
+    const events = [];
+    runtime.onAction('jump', e => events.push(`${e.gamepadIndex}:${e.type}`));
+    runtime._processGamepad(makeGamepad('GP', 0, { 0: true }));
+    runtime._processGamepad(makeGamepad('GP', 1, { 0: true }));
+    events.length = 0;
+    runtime._handleDisconnect({ gamepad: makeGamepad('GP', 1) });
+    expect(events).toEqual(['1:released']);
+  });
+});
+
 describe('GamepadRuntime — capture mode', () => {
   it('delivers first button press to capture callback and suppresses actions', () => {
     const { runtime } = setup();

@@ -65,6 +65,8 @@ export class GamepadRuntime {
     this._curState = new Map();
     /** @type {Map<number, Set<string>>} captured codes per gamepad, silent until released */
     this._latched = new Map();
+    /** @type {Map<number, Set<string>>} codes that fired 'pressed' and not yet 'released', per gamepad */
+    this._pressedCodes = new Map();
     /** @type {Map<number, any>} */
     this._resolvedProfileByGamepadIndex = new Map();
     /** @type {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>} */
@@ -116,10 +118,21 @@ export class GamepadRuntime {
   /**
    * Suppress / restore normal gameplay dispatching (used by modal while open).
    * Capture mode is NOT affected — capture still works when suppressed.
+   *
+   * Suppressing fires 'released' (and a final analog 0) for every input that
+   * is active, so no action stays pressed while the modal is open. Inputs
+   * still held when gameplay resumes stay silent until released and pressed
+   * anew.
    * @param {boolean} suppressed
    */
   setGameplaySuppressed(suppressed) {
+    suppressed = !!suppressed;
+    if (suppressed === this._gameplaySuppressed) return;
     this._gameplaySuppressed = suppressed;
+    for (const gamepadIndex of [...this._curState.keys()]) {
+      if (suppressed) this._releaseActiveInputs(gamepadIndex);
+      this._latchActiveInputs(gamepadIndex);
+    }
   }
 
   /**
@@ -398,8 +411,10 @@ export class GamepadRuntime {
   }
 
   _handleDisconnect(e) {
+    this._releaseActiveInputs(e.gamepad.index);
     this._curState.delete(e.gamepad.index);
     this._latched.delete(e.gamepad.index);
+    this._pressedCodes.delete(e.gamepad.index);
     this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
     if (this._captureCallback) {
       const cb = this._captureCallback;
@@ -526,6 +541,61 @@ export class GamepadRuntime {
       }
     }
     return null;
+  }
+
+  /**
+   * Codes active in a logical state snapshot (buttons down, axis directions
+   * past the analog threshold).
+   * @param {{ buttons: boolean[], axes: number[] }} state
+   * @returns {string[]}
+   * @private
+   */
+  _activeCodes(state) {
+    const codes = [];
+    const btnLen = Math.min(state.buttons.length, GP_BUTTON_COUNT);
+    for (let i = 0; i < btnLen; i++) {
+      if (state.buttons[i]) codes.push(`GP_B${i}`);
+    }
+    const axisLen = Math.min(state.axes.length, GP_AXIS_COUNT);
+    for (let a = 0; a < axisLen; a++) {
+      const val = state.axes[a] ?? 0;
+      if (val < -this._analogThreshold) codes.push(`GP_A${a}N`);
+      if (val > this._analogThreshold) codes.push(`GP_A${a}P`);
+    }
+    return codes;
+  }
+
+  /**
+   * Fire 'released' for every code of this gamepad that fired 'pressed', and a
+   * final analog 0 for every axis outside the deadband.
+   * @private
+   */
+  _releaseActiveInputs(gamepadIndex) {
+    const pressed = this._pressedCodes.get(gamepadIndex);
+    if (pressed) {
+      for (const code of [...pressed]) this._dispatch(gamepadIndex, code, 'released', 0);
+    }
+    const state = this._curState.get(gamepadIndex);
+    if (!state) return;
+    const axisLen = Math.min(state.axes.length, GP_AXIS_COUNT);
+    for (let a = 0; a < axisLen; a++) {
+      if (Math.abs(state.axes[a] ?? 0) > this._deadband) this._dispatchAnalog(gamepadIndex, a, 0);
+    }
+  }
+
+  /**
+   * Latch every input active on this gamepad, so it fires nothing until it
+   * has been released.
+   * @private
+   */
+  _latchActiveInputs(gamepadIndex) {
+    const state = this._curState.get(gamepadIndex);
+    if (!state) return;
+    const codes = this._activeCodes(state);
+    if (codes.length === 0) return;
+    if (!this._latched.has(gamepadIndex)) this._latched.set(gamepadIndex, new Set());
+    const latched = this._latched.get(gamepadIndex);
+    for (const code of codes) latched.add(code);
   }
 
   /**
@@ -807,6 +877,12 @@ export class GamepadRuntime {
    * @private
    */
   _dispatch(gamepadIndex, code, type, value) {
+    if (type === 'pressed') {
+      if (!this._pressedCodes.has(gamepadIndex)) this._pressedCodes.set(gamepadIndex, new Set());
+      this._pressedCodes.get(gamepadIndex).add(code);
+    } else if (type === 'released') {
+      this._pressedCodes.get(gamepadIndex)?.delete(code);
+    }
     const actionIds = this._store.getActionsByCode(code, 'gamepad');
     for (const actionId of actionIds) {
       const action = this._registry.get(actionId);

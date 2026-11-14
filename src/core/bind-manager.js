@@ -331,6 +331,8 @@ export function createBindManager(options = {}) {
      * - replace: apply payload actions and clear missing known actions (keyboard
      *   and, for v2 payloads, gamepad slots); in v2 a device field missing from
      *   an entry clears that device too. v1 payloads leave gamepad slots alone.
+     *   Saved bindings of actions not registered yet are replaced by the
+     *   payload's (validated) entries for them, or dropped when it has none.
      *
      * @param {object | string} payload
      * @param {{ mode?: 'merge' | 'replace' }} [options]
@@ -347,6 +349,7 @@ export function createBindManager(options = {}) {
         appliedActions: 0,
         appliedSlots: 0,
         skippedUnknownActions: [],
+        storedUnregisteredActions: [],
         invalidEntries: [],
         conflictCount: 0,
       };
@@ -361,11 +364,7 @@ export function createBindManager(options = {}) {
       const payloadVersion = parsed.value.version;
       const knownActions = registry.getAll();
       const incomingActionIds = new Set(Object.keys(bindingsObj));
-
-      // Track unknown action ids present in import payload.
-      for (const actionId of incomingActionIds) {
-        if (!registry.has(actionId)) report.skippedUnknownActions.push(actionId);
-      }
+      const unknownActionIds = [...incomingActionIds].filter(id => !registry.has(id));
 
       for (const action of knownActions) {
         const incoming = _hasOwn(bindingsObj, action.id) ? bindingsObj[action.id] : undefined;
@@ -442,6 +441,30 @@ export function createBindManager(options = {}) {
         }
 
         if (actionChanged) report.appliedActions += 1;
+      }
+
+      // ── Actions not registered (yet) ─────────────────────────────────────
+      // Merge mode ignores them. Replace mode makes the saved entries of all
+      // unregistered actions match the payload: valid entries are stored (and
+      // apply when the action registers), saved ids missing from the payload
+      // are dropped, and an unrecognisable entry keeps the saved one.
+      const stored = new Set();
+      if (mode === 'replace') {
+        const entries = new Map();
+        for (const actionId of unknownActionIds) {
+          const saved = store.getSavedEntry(actionId);
+          const entry = _normaliseBindingEntry(bindingsObj[actionId], payloadVersion, actionId, report.invalidEntries);
+          if (!entry) {
+            if (saved !== undefined) entries.set(actionId, saved);
+            continue;
+          }
+          entries.set(actionId, _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, report.invalidEntries));
+          stored.add(actionId);
+        }
+        store.replaceUnregisteredSaved(entries);
+      }
+      for (const actionId of unknownActionIds) {
+        (stored.has(actionId) ? report.storedUnregisteredActions : report.skippedUnknownActions).push(actionId);
       }
 
       return report;
@@ -784,6 +807,52 @@ function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntri
   return null;
 }
 
+/**
+ * Validate a normalised import entry of an action that is not registered into
+ * a saved entry ({ keyboard?, gamepad? }), with the checks used for registered
+ * actions. Slot counts are unknown, so the payload's array length is kept.
+ * Per device: a provided array is validated (an unknown code keeps the saved
+ * slot, a non-string value becomes null); a v2 field that is missing clears
+ * the device ([]); otherwise (invalid field, v1 payload, legacy array entry)
+ * the saved device array is kept, or left out so defaults apply.
+ * @param {{ keyboard: unknown[] | null, gamepad: unknown[] | null, keyboardMissing: boolean, gamepadMissing: boolean }} entry
+ * @param {unknown} saved
+ * @param {number} payloadVersion
+ * @param {string} actionId
+ * @param {string[]} invalidEntries
+ * @returns {{ keyboard?: (string|null)[], gamepad?: (string|null)[] }}
+ */
+function _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, invalidEntries) {
+  const savedKb = Array.isArray(saved) ? saved : (saved && Array.isArray(saved.keyboard) ? saved.keyboard : null);
+  const savedGp = saved && !Array.isArray(saved) && Array.isArray(saved.gamepad) ? saved.gamepad : null;
+
+  const device = (name, source, missing, savedSlots, isValid) => {
+    if (source) {
+      return Array.from(source, (raw, slot) => {
+        if (raw === null || raw === undefined) return null;
+        if (typeof raw === 'string') {
+          if (isValid(raw)) return raw;
+          invalidEntries.push(`Action "${actionId}" ${name} slot ${slot} has unknown code "${raw}"`);
+          return typeof savedSlots?.[slot] === 'string' ? savedSlots[slot] : null;
+        }
+        invalidEntries.push(`Action "${actionId}" ${name} slot ${slot} has invalid value type`);
+        return null;
+      });
+    }
+    if (missing) return [];
+    return savedSlots ? [...savedSlots] : undefined;
+  };
+
+  const result = {};
+  const keyboard = device('keyboard', entry.keyboard, entry.keyboardMissing, savedKb, isKnownCode);
+  const gamepad = payloadVersion >= 2
+    ? device('gamepad', entry.gamepad, entry.gamepadMissing, savedGp, isGamepadCode)
+    : (savedGp ? [...savedGp] : undefined);
+  if (keyboard) result.keyboard = keyboard;
+  if (gamepad) result.gamepad = gamepad;
+  return result;
+}
+
 /** Own-property check (ids like "constructor" must not match Object.prototype members). */
 function _hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
@@ -852,7 +921,9 @@ function _hasOwn(obj, key) {
  * @property {'merge' | 'replace'} mode
  * @property {number} appliedActions
  * @property {number} appliedSlots
- * @property {string[]} skippedUnknownActions
+ * @property {string[]} skippedUnknownActions     - ids not registered whose payload entry was ignored
+ * @property {string[]} storedUnregisteredActions - replace mode: ids not registered whose entry was
+ *           stored and applies when the action registers
  * @property {string[]} invalidEntries
  * @property {number} conflictCount
  */

@@ -118,6 +118,31 @@ export class BindingStore {
   }
 
   /**
+   * The raw saved entry loaded for an action id (own keys only), or undefined.
+   * @param {string} actionId
+   * @returns {unknown}
+   */
+  getSavedEntry(actionId) {
+    return this._saved.get(actionId);
+  }
+
+  /**
+   * Replace the saved entries of all actions that are not registered with
+   * `entries` (replace-mode import) and commit, so storage reflects them even
+   * when no live binding changed. Entries for registered ids are ignored.
+   * @param {Map<string, unknown>} entries
+   */
+  replaceUnregisteredSaved(entries) {
+    for (const id of [...this._saved.keys()]) {
+      if (!this._registry.has(id)) this._saved.delete(id);
+    }
+    for (const [id, entry] of entries) {
+      if (!this._registry.has(id)) this._saved.set(id, entry);
+    }
+    this._requestCommit();
+  }
+
+  /**
    * Assign a code to a specific slot of an action on the given device.
    * Returns conflict warnings (other actions that already use this code on the same device).
    * Conflicts are reported but never block the assignment.
@@ -264,6 +289,11 @@ export class BindingStore {
         console.error('[BindManager] Subscriber threw an error:', err);
       }
     }
+    this._requestCommit();
+  }
+
+  /** Commit now, or at the end of the running batch. @private */
+  _requestCommit() {
     if (this._batchDepth > 0) this._batchDirty = true;
     else this._commit();
   }

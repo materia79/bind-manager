@@ -68,8 +68,8 @@ Important behavior:
 - A first `keydown` becomes `pressed`.
 - A repeated `keydown` becomes `held`.
 - `keyup` becomes `released`.
-- During capture mode, the next key is consumed for rebinding instead of normal gameplay.
-- Pressing `Escape` during keyboard capture returns `null` to indicate cancellation.
+- During capture mode, keys are consumed for rebinding instead of normal gameplay. The binding commits when the non-modifier key is released, as a combo with the modifiers held when it was pressed (`ShiftLeft+KeyW`); a modifier pressed and released on its own binds that modifier.
+- Pressing `Escape` during keyboard capture cancels it at once (on keydown) and returns `null`.
 
 This file is the authoritative source for keyboard runtime semantics in the project.
 
@@ -87,8 +87,12 @@ Examples:
 It exports:
 
 - `KEY_DISPLAY_NAMES`
-- `getKeyLabel(code)`
-- `isKnownCode(code)`
+- `getKeyLabel(code)` (combo codes become "Left Shift + W")
+- `isKnownCode(code)` (a combo is known when every part is)
+- `MODIFIER_ORDER`, `MODIFIER_CODES`
+- `buildComboCode(modifiers, primaryCode)`: the canonical combo string, modifiers in `MODIFIER_ORDER`
+
+All of them are exported from `src/index.js`.
 
 The UI layer uses this file whenever it needs to render a keyboard binding label.
 
@@ -178,7 +182,7 @@ This file decides how a connected controller should be interpreted for labeling 
 
 It exports helpers such as:
 
-- `getGamepadIdentityKey(gamepadId)` / `getGamepadIdentityKeys(gamepadId)`: `vendor-product` when the id carries the pair, else `id:<lowercased id>`; the legacy `id:` key is kept as a fallback so overrides stored by 0.1.x for Chrome ids still apply
+- `getGamepadIdentityKey(gamepadId)` / `getGamepadIdentityKeys(gamepadId)`: `vendor-product` when the id carries the pair, else `id:<lowercased id>`; the legacy `id:` key is kept as a fallback so overrides stored by 0.1.0 for Chrome ids still apply
 - `normaliseGamepadProfileOverride(override)`
 - `getControllerFamily(profile, gamepadId)`
 - `isControllerProfileApplicable(profile, gamepad)`: an exact profile fits only a pad the browser did not remap (`mapping !== 'standard'`) whose raw button and axis counts equal the profile's `sourceButtons` / `sourceAxes`
@@ -279,15 +283,16 @@ For a bound keyboard code, the runtime emits:
 
 If the window loses focus, all currently pressed keys are released internally and `released` events are fired for them. This avoids the classic stuck-key problem when users alt-tab away from the page.
 
-### Capture behavior
+### Keyboard capture
 
 Keyboard capture is a one-shot mode.
 
 While active:
 
-- normal gameplay action dispatch is bypassed for the captured key
-- the next non-repeated key becomes the new binding code
-- `Escape` cancels capture and returns `null`
+- normal gameplay action dispatch is bypassed
+- pressing a non-modifier key records it with the modifiers held at that moment; the binding commits when that key is released (capture-on-release), as a combo such as `ControlLeft+KeyS`
+- a modifier pressed and released with no other key binds the modifier itself
+- `Escape` cancels capture on keydown and returns `null`
 
 ## Gamepad behavior in detail
 
@@ -326,7 +331,7 @@ This lets the same stick support both:
 - digital-style bindings such as `Left Stick Left`
 - analog gameplay callbacks such as move speed or aim magnitude
 
-### Capture behavior
+### Gamepad capture
 
 Gamepad capture waits for the first new meaningful input:
 

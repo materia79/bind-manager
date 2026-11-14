@@ -12,7 +12,7 @@ It provides:
 
 Input support: keyboard, mouse buttons, mouse wheel and the browser Gamepad API, including modifier key combos (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`) with capture-on-release semantics. Gamepads are labelled per controller family (eight families, detected by vendor/product id), with exact generated profiles for controllers whose raw layout needs remapping.
 
-Coming from 0.1.x? Read [Upgrading from 0.1.x](#upgrading-from-01x) first.
+Coming from the last public build? Read [Upgrading from 0.1.0](#upgrading-from-010) first.
 
 ## Online Demo
 
@@ -32,7 +32,7 @@ A [demo page](https://materia79.github.io/projects/bind-manager/standalone-demo.
 - Eight controller label families detected by vendor/product id, an Xbox Elite paddle variant, exact generated device profiles
 - Manual gamepad profile override and family/generic fallback behavior
 - Built-in tools (opt-in): Controller Test (live controller view, Debug panel, Profile editor) and Input Remap (guided capture into a controller profile)
-- UI sized on a viewport scale unit (`--bm-u`), so it looks the same at any resolution with the same aspect ratio
+- UI sized on a viewport scale unit (`--bm-u`), so it looks the same between 1280x720 and 3840x2160 at the same aspect ratio
 - Mouse button and wheel bindings (buttons 0–4, wheel up/down, one notch = one press, Ctrl/Shift/Alt + wheel chords)
 - Opt-in browser shortcut guard: cancels reload/find/save/zoom/scroll/context-menu/… while the game owns input, Keyboard Lock in fullscreen, optional "leave site?" prompt
 - Modifier key combos for keyboard and mouse (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`)
@@ -58,21 +58,23 @@ Use these internal docs when you want implementation details rather than package
 
 ## Install and Run
 
-This repository is currently browser-native ESM.
-
-1. Start the demo server:
+The package is not published on npm. Get the code from the public repository:
 
 ```bash
-npm run demo
+git clone https://github.com/materia79/bind-manager.git
+cd bind-manager
+npm install    # Node ^20.19.0 or >=22.12.0 (package.json "engines"); needed for the build and the tests
+npm run demo   # serves the repository root on port 3001
 ```
 
-1. Open:
+Then open `http://localhost:3001/demo/`.
 
-```text
-http://localhost:3001/demo/
-```
+To use it in a game, either:
 
-The demo page registers fourteen actions with keyboard, mouse and gamepad defaults, logs every action event, and has HUD buttons for the bindings modal, the two built-in tools, the browser shortcut guard and fullscreen. Its **Fake controller** panel (off by default, labelled as simulated) installs a pretend gamepad of a chosen family (Xbox, Xbox Elite, Xbox 360, DualShock 4, DualSense, Switch Pro, Steam Deck, Stadia, unknown) with on-screen buttons, for trying the gamepad features without a pad.
+- copy `src/` into your project and import from your copy of `src/index.js` (plain ES modules: load your script with `<script type="module">` from a page served over http, not opened as a `file://` URL), or
+- run `npm run build` and load `dist/bind-manager.min.js` with a `<script>` tag; it exposes everything as `window.BindManager` (see [dist/README.md](dist/README.md)).
+
+The demo page registers fourteen actions with keyboard, mouse and gamepad defaults. Its event log shows `pressed` for every action, `released` for Move Forward, Block, Open Map, Open Inventory and Sprint, and `held` for Move Forward, plus binding changes, resets and the guard's pointer-lock and fullscreen state. Its HUD has the buttons Key Bindings, Controller Test, Input Remap, Toggle Hints, Reset All, Fullscreen + Keyboard Lock and Arm/Disarm Leave Guard, and a guard status line. Its **Fake controller** panel (off by default, labelled as simulated) installs a pretend gamepad of a chosen family (Xbox, Xbox Elite, Xbox 360, DualShock 4, DualSense, Switch Pro, Steam Deck, Stadia, unknown) with on-screen buttons, for trying the gamepad features without a pad.
 
 A runnable minimal page is in [examples/standalone/index.html](examples/standalone/index.html) (`http://localhost:3001/examples/standalone/`).
 
@@ -128,12 +130,14 @@ Script-tag usage:
 
 ## Quick Start
 
+Load this as a module (`<script type="module">`) from a page served over http; `./src/index.js` is your copy of the library's `src/index.js` (see [Install and Run](#install-and-run)). The `GP_*` strings are gamepad codes, listed under [Gamepads](#gamepads).
+
 ```js
 import { createBindManager } from './src/index.js';
 
 const binds = createBindManager({
 	namespace: 'my-game',
-	debug: true,      // enables F5 modal toggle
+	debug: true,      // F5 toggles the modal and no longer reloads the page
 	debugKey: 'F5',
 	builtInTools: true, // Input Remap and Controller Test in the modal's footer
 });
@@ -170,7 +174,12 @@ binds.subscribe((event) => {
 		console.log('Binding updated', event.actionId, event.device, event.slot, event.newCode);
 	}
 });
+
+// Your own settings button: open the bindings modal without the debug key.
+document.querySelector('#settings').addEventListener('click', () => binds.open());
 ```
+
+With `debug: true`, the debug key (F5) toggles the modal and its default (page reload) is cancelled; leave `debug` off in production and call `binds.open()` from your own menu. Browsers expose a gamepad only after one of its buttons is pressed while the page is open, so a pad appears in the modal and the hints after the first press.
 
 ## API
 
@@ -226,13 +235,15 @@ Action definition fields:
 - `openInputRemap()` — opens the Input Remap tool when `builtInTools` enables it (no-op otherwise)
 - `openControllerTest()` — opens the Controller Test tool when `builtInTools` enables it (no-op otherwise)
 
+The built-in tools are always part of the library (and of the bundle); `builtInTools` decides whether they are mounted and shown as footer buttons in the bindings modal.
+
 ### Active state and cursor persistence
 
 - `active` (getter) — `true` when the binding modal or capture session is open. Use this to show/hide your game cursor.
-- `keepCursorAfterClose` (getter/setter) — when `true`, bind-manager will not force cursor teardown on close.
+- `keepCursorAfterClose` (getter/setter) — a flag kept for host use: the library stores it but never reads it. bind-manager never changes the cursor or pointer lock itself; use `active` / `onActiveChange` to do that in your game.
 - `onActiveChange(callback)` — subscribe to active-state transitions. Callback receives `(active: boolean)`. Returns an unsubscribe function.
 
-### Browser shortcut guard
+### Browser guard API
 
 - `browserGuard` (getter) — always present; inert until enabled. Methods:
   - `enabled`, `setEnabled(boolean)`, `setTarget(element | null)`
@@ -243,7 +254,7 @@ Action definition fields:
   - `enterFullscreen(element?)` → `Promise<{ fullscreen, keyboardLocked, error? }>`, `exitFullscreen()`
   - `armLeaveGuard()`, `disarmLeaveGuard()`, `isLeaveGuardArmed()`
 
-When `builtInTools` is enabled, these tools are bundled into the library output and surfaced as footer actions inside the bindings modal.
+See [Browser Shortcut Guard](#browser-shortcut-guard) for the guide.
 
 ### Binding queries and mutations
 
@@ -301,7 +312,7 @@ Everything below is exported from `src/index.js` (and is a property of `window.B
 | Profile resolution | `getControllerFamily`, `getResolvedGamepadLabel`, `isControllerProfileApplicable`, `resolveGamepadProfile` |
 | Mapping helpers | `decodeHatValue`, `isHatEntryActive`, `isHatGridLayout`, `readMappingEntryMagnitude` |
 
-New since 0.1.x: `GP_B17`..`GP_B23`, `GP_BUTTON_COUNT`, `GP_AXIS_COUNT`, `GAMEPAD_FAMILIES`, `GAMEPAD_FAMILY_NAMES`, `GAMEPAD_DEVICE_FAMILIES`, `GAMEPAD_LABEL_VARIANTS`, `GAMEPAD_UNVERIFIED_LABELS`, `getGamepadFamilyName`, `getGamepadLabelVariant`, `isGamepadLabelUnverified`, `parseGamepadId`, `isControllerProfileApplicable`, `decodeHatValue`, `isHatEntryActive`, `isHatGridLayout`, `readMappingEntryMagnitude`. Nothing was removed.
+New since 0.1.0: `GP_B17`..`GP_B23`, `GP_BUTTON_COUNT`, `GP_AXIS_COUNT`, `GAMEPAD_FAMILIES`, `GAMEPAD_FAMILY_NAMES`, `GAMEPAD_DEVICE_FAMILIES`, `GAMEPAD_LABEL_VARIANTS`, `GAMEPAD_UNVERIFIED_LABELS`, `getGamepadFamilyName`, `getGamepadLabelVariant`, `isGamepadLabelUnverified`, `parseGamepadId`, `isControllerProfileApplicable`, `decodeHatValue`, `isHatEntryActive`, `isHatGridLayout`, `readMappingEntryMagnitude`. Nothing was removed.
 
 ## Browser Shortcut Guard
 
@@ -335,7 +346,7 @@ playButton.addEventListener('click', () => binds.browserGuard.enterFullscreen())
 | `contextMenu` | `true` | cancel the context menu |
 | `keyboardLock` | `true` | request Keyboard Lock in JS fullscreen |
 | `keyboardLockKeys` | `DEFAULT_KEYBOARD_LOCK_KEYS` | keys to lock; `null` = every key |
-| `leaveGuard` | `false` | arm a `beforeunload` prompt on the first engaged input |
+| `leaveGuard` | `false` | arm a `beforeunload` prompt when the guard first engages |
 
 **When it is engaged.** Only while all of these hold: the guard is enabled; the bindings modal, a capture session and the built-in tools are closed; focus is not in a text field (`input`, `textarea`, `select`, contenteditable — those keep every browser default); and the game owns input. With `when: 'auto'` that means pointer lock on the target, fullscreen containing the target, focus inside the target, or `setGameOwnsInput(true)`. `when: 'always'` treats the whole page as the game, so Space on a focused page button is cancelled too. Events aimed at bind-manager UI are never touched. Listeners run on `window` in the capture phase, so a game's `stopPropagation()` cannot bypass them, and gameplay dispatch is unchanged.
 
@@ -360,11 +371,11 @@ playButton.addEventListener('click', () => binds.browserGuard.enterFullscreen())
 Entries are kept separate so you can filter single ones out, e.g. keep plain wheel scrolling but still block Ctrl+wheel zoom:
 
 ```js
-import { DEFAULT_BLOCKED_SHORTCUTS } from 'bind-manager';
+import { DEFAULT_BLOCKED_SHORTCUTS } from './src/index.js'; // your copy of src/index.js, or window.BindManager
 createBindManager({ browserGuard: { shortcuts: DEFAULT_BLOCKED_SHORTCUTS.filter(p => p !== 'MouseWheel') } });
 ```
 
-The primary mouse button is never cancelled (focus and `requestPointerLock()` need it), nor are Escape and F11. DevTools combos other than F12 (Ctrl+Shift+I/J/C) are not in the default list; add them with `block` if you want. Whether F1/F3/F6/F7/F12 can be cancelled is up to each browser.
+The primary mouse button is never cancelled (focus and `requestPointerLock()` need it). Escape and F11 are not in the default list, so they keep their browser behaviour unless you bind them to an action (with `blockBound`) or add them with `block`; then they are cancelled too. DevTools combos other than F12 (Ctrl+Shift+I/J/C) are not in the default list; add them with `block` if you want. Whether F1/F3/F6/F7/F12 can be cancelled is up to each browser.
 
 ### What a page cannot block, and Keyboard Lock
 
@@ -392,7 +403,7 @@ What remains unblockable:
 
 ### Leave-site guard
 
-With `leaveGuard: true`, the guard arms a `beforeunload` "Leave site?" prompt on the first engaged input. It stays armed after the cursor is released, so clicking the tab's close button still asks. Call `disarmLeaveGuard()` right before your app's own navigation (it re-arms on the next engaged input), or arm and disarm it by hand with `armLeaveGuard()` and `disarmLeaveGuard()`. Browsers only show the prompt after the user has interacted with the page, and they use their own fixed text.
+With `leaveGuard: true`, the guard arms a `beforeunload` "Leave site?" prompt as soon as it first engages: pointer lock on the target, focus moving into the target, fullscreen containing the target, `setGameOwnsInput(true)`, or the first input event it handles while engaged. It stays armed after the cursor is released, so clicking the tab's close button still asks. Call `disarmLeaveGuard()` right before your app's own navigation (it re-arms on the next engagement), or arm and disarm it by hand with `armLeaveGuard()` and `disarmLeaveGuard()`. Browsers only show the prompt after the user has interacted with the page, and they use their own fixed text.
 
 ## Mouse Wheel Bindings
 
@@ -467,7 +478,7 @@ The one shipped exact profile is `054c-0ce6` (DualSense), captured from the raw 
 
 ### The scale unit
 
-Every length in the UI is a multiple of `--bm-u` and every text size one of four font tokens, so the UI looks the same on any resolution with the same aspect ratio:
+Every length in the UI is a multiple of `--bm-u` and every text size one of four font tokens, so between 1280x720 and 3840x2160 the UI looks the same at any resolution with the same aspect ratio. Below that range it keeps its 1280x720 size (and is capped at the viewport); above it, its 3840x2160 size. Small text also has px floors (9px and 10px), so near the floor the smallest text does not shrink with the rest.
 
 ```css
 :root {
@@ -492,7 +503,7 @@ The library injects its stylesheet into `<head>` when the manager mounts (inside
 
 The bindings modal is capped at the viewport whatever these say: at most `100vw - min(32u, 4vw)` wide and `100dvh - min(32u, 4dvh)` tall. The three size variables are no longer declared on `:root` (their defaults are fallbacks where they are used), so `getComputedStyle(document.documentElement)` returns nothing for them. Set the font tokens through `--bm-font-*`; a host value for the internal `--bm-fs-*` tokens is replaced on the library's roots.
 
-One caveat for the built-in tools: their lengths follow a `--bm-u` set on an ancestor, but their text follows only a `--bm-u` set on `:root`, and `--bm-font-*` does not reach them.
+For the built-in tools' text, see the caveat under [Known Gaps](#known-gaps).
 
 At 1280x720 and below, the smallest text is 9.33px (`--bm-fs-xs`), the others 10px, 11.33px and 14px.
 
@@ -513,7 +524,7 @@ At 1280x720 and below, the smallest text is 9.33px (`--bm-fs-xs`), the others 10
 | `--bm-hints-bg`, `--bm-hints-border` | `rgba(10, 10, 25, 0.85)`, `rgba(255, 255, 255, 0.08)` |
 | `--bm-hint-key-bg`, `--bm-hint-key-border` | `rgba(255, 255, 255, 0.12)`, `rgba(255, 255, 255, 0.22)` |
 
-Changed defaults since 0.1.x: `--bm-text-secondary` (`#9090b0` → `#b0b0d0`) and `--bm-text-desc` (`#6a6a90` → `#9898c0`), so both reach 4.5:1 contrast on every default background.
+Changed defaults since 0.1.0: `--bm-text-secondary` (`#9090b0` → `#b0b0d0`) and `--bm-text-desc` (`#6a6a90` → `#9898c0`), so both reach 4.5:1 contrast on every default background.
 
 **Borders are box-shadows.** Hairlines are drawn as `box-shadow` rings (outer for the modal, the capture modal and the hint pill; inset for buttons, the profile panel, the select, the warning), so they never shift the layout. Library buttons and selects have `border: 0`. A host `border-color` override therefore has no visible effect any more; recolour the hairlines through the variables above (`--bm-modal-border`, `--bm-btn-border`, `--bm-capture-border`, `--bm-group-border`, `--bm-warn-border`, `--bm-hints-border`, `--bm-hint-key-border`, `--bm-accent` on hover) or override `box-shadow`. In the built-in tools, the hairline colours are `--bm-tool-line` and `--bm-btn-line`, declared on the tool panels and on `.bm-tool-btn` themselves (set them on those elements; an ancestor value is overridden). Tool overlays use fixed z-indexes (10020, 10030, 10040).
 
@@ -529,7 +540,7 @@ Slot columns line up across all rows in every layout. At the default width (body
 
 ### Below 1280x720
 
-`--bm-u` stays at its floor, so the UI keeps its 1280x720 size. The bindings modal is capped at the viewport, its body scrolls, and its rows fall back to stacked or narrow; nothing overflows sideways. The capture modal (480u) is capped the same way. The built-in tools (Controller Test 1400u x 800u, Input Remap 1200u x 760u, capture window 640u x 420u at normal sizes) fill the viewport minus 16px below 1280 wide or 720 tall and become one scrolling column; below 800px wide their header takes two rows. The Controller Test's controller view keeps a minimum width of 780u (520px) and scrolls sideways when narrower, starting at its centre.
+`--bm-u` stays at its floor, so the UI keeps its 1280x720 size. The bindings modal is capped at the viewport, its body scrolls, and its rows fall back to stacked or narrow; nothing overflows sideways. The capture modal (480u) is capped the same way. The two built-in tools (Controller Test 1400u x 800u and Input Remap 1200u x 760u at normal sizes) fill the viewport minus 16px below 1280 wide or 720 tall and become one scrolling column; below 800px wide their header takes two rows. Their capture window (640u x 420u) does not fill the viewport; it is capped at the viewport minus 16px. The Controller Test's controller view keeps a minimum width of 780u (520px) and scrolls sideways when narrower, starting at its centre.
 
 ### Hint bar
 
@@ -537,10 +548,10 @@ The hint bar is a centred pill near the bottom edge (`min(16u, 2vh)` above it), 
 
 ### Removed classes and markup
 
-Styles written for 0.1.x against these no longer match:
+Styles written for 0.1.0 against these no longer match:
 
-- Bindings modal: `bm-profile-summary`, `bm-profile-meta`, `bm-profile-subtitle` (now `bm-profile-name` with the raw id in its `title`, and `bm-profile-chip` with `bm-profile-chip--exact|family|generic|manual|memory-edit`), `bm-profile-controls`, and the **Auto** button `bm-profile-auto-btn` (use the select's "Auto detect" option). New: `bm-profile-note`, `bm-empty`, `bm-device-row--keyboard` / `--gamepad`, `bm-layout-*`.
-- Built-in tools: the card classes `bm-debug-card` / `bm-tester-card` (now `bm-tool-section`), `bm-debug-small` / `bm-tester-help` (now `bm-tool-note`), `bm-debug-actions` / `bm-tester-actions`, the profile status lines and Auto buttons (now `bm-tool-device`, `bm-tool-chip`, `bm-tool-select`), the DOM controller view (`bm-tester-controller`, `bm-tester-node`, `bm-tester-stick*`, `bm-tester-trigger-*`; now one SVG `bm-tester-pad` with `bm-pad-*` classes), the raw-input toggle (`bm-tester-raw-toggle-btn`, `bm-tester-raw-pre`; now the Debug panel's `bm-tester-raw`), `bm-tester-last-signal`, `bm-tester-detail`.
+- Bindings modal: `bm-with-gamepad` (CSS only), `bm-profile-summary`, `bm-profile-meta`, `bm-profile-subtitle` (now `bm-profile-name` with the raw id in its `title`, and `bm-profile-chip` with `bm-profile-chip--exact|family|generic|manual|memory-edit`), `bm-profile-controls`, and the **Auto** button `bm-profile-auto-btn` (use the select's "Auto detect" option). New: `bm-profile-note`, `bm-empty`, `bm-device-row--keyboard` / `--gamepad`, `bm-layout-*`.
+- Built-in tools: the card classes `bm-debug-card` / `bm-tester-card` (now `bm-tool-section`), `bm-debug-small` / `bm-tester-help` (now `bm-tool-note`), `bm-debug-actions` / `bm-tester-actions`, the profile status lines and Auto buttons (now `bm-tool-device`, `bm-tool-chip`, `bm-tool-select`), the DOM controller view (`bm-tester-controller`, `bm-tester-node`, `bm-tester-stick`, `bm-tester-stick-dot`, `bm-tester-trigger-meter`, `bm-tester-trigger-fill`, `bm-tester-l2-fill`, `bm-tester-r2-fill`, `bm-tester-edit-mode`; now one SVG `bm-tester-pad` with `bm-pad-*` classes; `bm-tester-trigger-edit` still exists), the raw-input toggle (`bm-tester-raw-toggle-btn`, `bm-tester-raw-pre`; now the Debug panel's `bm-tester-raw`), `bm-tester-last-signal`, `bm-tester-detail`.
 
 ## Built-in Tools
 
@@ -548,15 +559,15 @@ Enable them with `builtInTools: true` (or `{ inputRemap: true, controllerTest: t
 
 ### Controller Test
 
-A fixed-size panel with a header (title, the device's own name with the raw id in its tooltip, a profile chip such as "Family · DualSense", "Exact · DualSense", "Manual · Stadia", "Generic" or "Edited", the profile select with "Auto detect", **Debug**, **Profile editor**, **Close**), a live SVG view of the controller in the family's layout, and one status line.
+Opened by the footer button **Controller Test** (its dialog title reads "Controller Tester"). A fixed-size panel with a header (title, the device's own name with the raw id in its tooltip, a profile chip such as "Family · DualSense", "Exact · DualSense", "Manual · Stadia", "Generic" or "Edited", the profile select with "Auto detect", **Debug**, **Profile editor**, **Close**), a live SVG view of the controller in the family's layout, and one status line.
 
 - The view lights a control exactly when the game gets `pressed` for it (it reads `getGamepadLogicalState()` and the runtime's thresholds); movement below the threshold shows as a faint partial fill. Sticks show a dot, triggers a 0.00–1.00 bar; extra buttons (`GP_B17`..) show only when the pad has them, Elite paddles in a row of small keys.
 - **Debug** opens the last strongest signal (kind, index, direction, delta, raw, code, and the logical code it resolves to with its label), the active codes (`Active: GP_B0=Cross, …`) and a raw table of every button and axis.
-- **Profile editor** opens **Calibrate baseline** (1.5 s; keep the controls released), **Edit mode** (click a control in the view, then hold the physical input you want for it: it is assigned after about two 100 ms samples; **Trigger targets** L2/R2/L2A/R2A pick the trigger codes), **Capture update** (a 5 s capture window for the selected control), **Download JSON** (the current exact or edited profile definition as `<key>.json`), **Reset edits** (discard this controller's in-memory edits), and the selected control's current binding with **Remove**. Edits are the [in-memory mapping edits](#in-memory-mapping-edits) above: not saved.
+- **Profile editor** opens **Calibrate baseline** (1.5 s; keep the controls released), **Edit mode** (click a control in the view, then hold the physical input you want for it: it is assigned after about two 100 ms samples; **Trigger targets** L2/R2/L2A/R2A pick the trigger codes; L2A/R2A are `GP_B6A`/`GP_B7A`, the analog trigger readings, which exist only in this editor and in captures: they cannot be bound to actions), **Capture update** (a 5 s capture window for the selected control), **Download JSON** (the current exact or edited profile definition as `<key>.json`), **Reset edits** (discard this controller's in-memory edits), and the selected control's current binding with **Remove**. Edits are the [in-memory mapping edits](#in-memory-mapping-edits) above: not saved.
 
 ### Input Remap
 
-A guided capture of a controller into the capture JSON that `npm run process_controller_defs` turns into an exact profile. Pick the preset (only "DualSense / PlayStation Layout" exists: 27 steps for `GP_B0`..`GP_B16`, the analog triggers `GP_B6A`/`GP_B7A` and the eight stick directions), press **Start Debug** and release everything for the 2 s baseline, then walk the steps with **Back**, **Redo**, **Capture** (each capture window is 5 s; the strongest stable input wins) and **Next**. The panel shows the live strongest signal, a validation line and the JSON (`schemaVersion`, `runMeta.targetController { index, id, buttons, axes }`, `runMeta.baseline`, `sequence`, `captures`, `byExpected`, `controllerDefinition`), with **Copy JSON** and **Download JSON** (file name `<vendor>-<product>_dualsense.json`).
+A guided capture of a controller into the capture JSON that `npm run process_controller_defs` turns into an exact profile. Pick the preset (only "DualSense / PlayStation Layout" exists: 27 steps for `GP_B0`..`GP_B16`, the analog triggers `GP_B6A`/`GP_B7A` (capture-only codes; they cannot be bound) and the eight stick directions), press **Start Debug** and release everything for the 2 s baseline, then walk the steps with **Back**, **Redo**, **Capture** (each capture window is 5 s; the strongest stable input wins) and **Next**. The panel shows the live strongest signal, a validation line and the JSON (`schemaVersion`, `runMeta.targetController { index, id, buttons, axes }`, `runMeta.baseline`, `sequence`, `captures`, `byExpected`, `controllerDefinition`), with **Copy JSON** and **Download JSON** (file name `<vendor>-<product>_dualsense.json`).
 
 The full workflow, and what it needs from the pad, is in [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md#adding-a-controller-profile).
 
@@ -619,68 +630,96 @@ In `replace` mode:
 
 An unknown code keeps the slot's current value and is reported in `invalidEntries`; a wrong value type clears the slot and is reported. An invalid `mode` throws.
 
-## Upgrading from 0.1.x
+## Upgrading from 0.1.0
+
+The baseline is the last public build: the `main-latest` bundle of the public `main` branch as of 2026-08-10, package version 0.1.0. The version number of this release is set at release time. Below, "0.1.0" means that build.
 
 Everything a host will notice, in one list. Nothing was removed from the public API.
 
 **Events**
 
-- Opening the bindings modal (gameplay suppressed) and disconnecting a pad now fire `released` for every gamepad code that fired `pressed`, and one final `analog` event with value 0 for every axis that last reported a non-zero value. 0.1.x left them pressed.
+- Opening the bindings modal (gameplay suppressed) and disconnecting a pad now fire `released` for every gamepad code that fired `pressed`, and one final `analog` event with value 0 for every axis that last reported a non-zero value. 0.1.0 left them pressed.
 - An input still held when gameplay resumes (modal closed) or after a capture is *latched*: it stays silent until it is released and pressed anew, so no `held` arrives without a `pressed`. Analog events are not latched. A code released while the modal was open is unlatched at once.
-- An axis that returns into the deadband sends exactly one `analog` event with value 0; 0.1.x left the last non-zero value standing.
-- Hat D-pad diagonals now press both directions (up-right = `GP_B12` and `GP_B15`).
-- A button in an exact or edited mapping counts as pressed by the same rule as an unmapped one (`pressed` or value above 0.5); 0.1.x used the analog threshold for mapped buttons and ignored `pressed`.
+- An axis that returns into the deadband sends exactly one `analog` event with value 0; 0.1.0 left the last non-zero value standing.
+- Hat D-pad diagonals now press both directions (up-right = `GP_B12` and `GP_B15`); a hat value between grid positions (the resting value) is neutral.
+- A button in an exact or edited mapping counts as pressed by the same rule as an unmapped one (`pressed` or value above 0.5); 0.1.0 used the analog threshold for mapped buttons and ignored `pressed`.
 
 **Gamepad families and labels**
 
-- Five new families (`xbox360`, `dualshock4`, `switch-pro`, `steam`, `stadia`) and detection by vendor/product id in both Chrome and Firefox id forms. 0.1.x knew `xbox`, `dualsense` and `generic` and matched ids by substring.
+- Five new families (`xbox360`, `dualshock4`, `switch-pro`, `steam`, `stadia`) and detection by vendor/product id in both Chrome and Firefox id forms. 0.1.0 knew `xbox`, `dualsense` and `generic` and matched ids by substring.
 - DualShock 4 pads (`054c-05c4`, `054c-09cc`, `054c-0ba0`, and a bare "Wireless Controller" id) are no longer labelled as DualSense: they get the `dualshock4` family (`GP_B8` is Share, not Create).
 - Xbox 360-era ids (`045e-028e`, `028f`, `0291`, `02a1`, `02a9`, `0719`, Logitech F310/F510/F710 in X mode, the Steam virtual pad `28de-11ff`, Amazon Luna `1949-041a`) get the `xbox360` family (Back, Start, Guide). XInput ids without vendor/product stay `xbox`.
-- An unknown Microsoft or Sony vendor/product pair is now `generic` (`Btn 0`, …); 0.1.x labelled every Microsoft id Xbox and every Sony id DualSense.
-- Xbox labels changed: `GP_B8` Back → View, `GP_B9` Start → Menu, `GP_B10` L3 → LS, `GP_B11` R3 → RS; `GP_B17` is Share. Elite controllers label `GP_B17`..`GP_B20` Paddle 1..4.
+- An unknown Microsoft or Sony vendor/product pair is now `generic` (`Btn 0`, …); 0.1.0 labelled every Microsoft id Xbox and every Sony id DualSense.
+- Xbox labels changed: `GP_B8` Back → View, `GP_B9` Start → Menu, `GP_B10` L3 → LS, `GP_B11` R3 → RS; `GP_B17` is Share. Elite controllers label `GP_B17`..`GP_B20` Paddle 1..4. DualSense and DualShock 4 label `GP_B17` Touchpad; generic labels go up to `Btn 23`.
 - `GP_B17`..`GP_B23` exist: the runtime reads, captures and dispatches 24 buttons.
-- `manager.getGamepadLabel(code)` without an index uses the first connected pad; 0.1.x used pad 0, so with pad 0 unplugged every label fell back to generic.
+- `manager.getGamepadLabel(code)` without an index uses the first connected pad; 0.1.0 used pad 0, so with pad 0 unplugged every label fell back to generic.
+- New: `getGamepadThresholds()` and `getGamepadLogicalState(index)` (what the runtime dispatches with and reads).
 
 **Exact profiles and overrides**
 
-- An exact profile applies only to a pad it fits (`mapping !== 'standard'` and equal raw button/axis counts). 0.1.x also handed the DualSense raw profile to any Sony pad (vendor-only fallback) and applied it to remapped pads. A manual exact override saved by 0.1.x that does not fit is now ignored (reported in `ignoredOverride`, no warning on load) and the pad uses its family.
+- An exact profile applies only to a pad it fits (`mapping !== 'standard'` and equal raw button/axis counts). 0.1.0 also handed the DualSense raw profile to any Sony pad (vendor-only fallback) and applied it to remapped pads. A manual exact override saved by 0.1.0 that does not fit is now ignored (reported in `ignoredOverride`, no warning on load) and the pad uses its family.
 - `getAvailableGamepadProfileOptions()` lists only exact profiles that fit the pad, and every named family with its display name.
-- `removeGamepadProfileMappingEntry()` restores the code's base entry; 0.1.x left the code mapped to nothing. An edit on a pad without an exact profile no longer unmaps the rest of the pad. Edits survive a reconnect. New: `resetGamepadProfileMapping()`.
-- Profile overrides are stored per controller model under a `vendor-product` key now, also for Chrome-form ids (0.1.x used `id:<lowercased id>` for those). Overrides saved by 0.1.x are still read and are rewritten under the new key on their next change. **Downgrade:** overrides set or changed by this version for Chrome-form ids do not apply in 0.1.x (the localStorage key is the same, the key inside it is not), overrides naming a new family show generic labels there, and saved `GP_B17`+ bindings never fire there.
+- `removeGamepadProfileMappingEntry()` restores the code's base entry; 0.1.0 left the code mapped to nothing. An edit on a pad without an exact profile no longer unmaps the rest of the pad. Edits survive a reconnect. New: `resetGamepadProfileMapping()`.
+- Profile overrides are stored per controller model under a `vendor-product` key now, also for Chrome-form ids (0.1.0 used `id:<lowercased id>` for those). Overrides saved by 0.1.0 are still read and are rewritten under the new key on their next change. **Downgrade:** overrides set or changed by this version for Chrome-form ids do not apply in 0.1.0 (the localStorage key is the same, the key inside it is not), overrides naming a new family show generic labels there, and saved `GP_B17`+ bindings never fire there.
 
 **Import and storage**
 
-- Replace-mode import clears the gamepad slots of missing actions (version 2 payloads) and the device fields missing from an entry, and makes the saved entries of unregistered actions match the payload (stored, dropped, capped). The report has two new fields, `storedUnregisteredActions` and `droppedUnregisteredActions`. See [JSON Export and Import](#json-export-and-import).
-- Saved bindings of unregistered actions are kept; 0.1.x wiped them on the first save before the action registered.
+- Replace-mode import clears the gamepad slots of missing actions (version 2 payloads) and the device fields missing from an entry, and makes the saved entries of unregistered actions match the payload (stored, dropped, capped at ids of 128 characters, 512 ids per import, 16 slots per device). The report has two new fields, `storedUnregisteredActions` and `droppedUnregisteredActions`. See [JSON Export and Import](#json-export-and-import).
+- Saved bindings of unregistered actions are kept; 0.1.0 wiped them on the first save before the action registered.
 - Failed saves are visible: one console warning and `getStorageStatus()`. `LocalStorageAdapter.save()` returns `true`/`false`; a custom adapter whose `save()` throws or returns `false` is counted as failing.
 
 **Mouse**
 
 - Window blur and the page going hidden release every held mouse button (`released` events) and reset the wheel notch counter.
-- During gameplay, the context menu is cancelled for right clicks while `MouseButton2` (bare or as a combo with the held modifiers) is bound, except in text fields and the bind-manager UI; keyboard-opened menus are left alone. Without the browser guard, 0.1.x never cancelled it, so the menu could open on the press and swallow the release.
+- During gameplay, the context menu is cancelled for right clicks while `MouseButton2` (bare or as a combo with the held modifiers) is bound, except in text fields and the bind-manager UI; keyboard-opened menus are left alone. Without the browser guard, 0.1.0 never cancelled it, so the menu could open on the press and swallow the release.
 - A right press inside a text field or the bind-manager UI dispatches nothing.
-- The window wheel listener is passive unless a capture runs or a wheel code is bound during gameplay; the browser guard's non-passive wheel listener exists only while the guard is enabled. 0.1.x always registered non-passive listeners, which made the browser wait for JavaScript on every scroll.
+- The window wheel listener is passive unless a capture runs or a wheel code is bound during gameplay; the browser guard's non-passive wheel listener exists only while the guard is enabled. 0.1.0 always registered non-passive listeners, which made the browser wait for JavaScript on every scroll.
 
 **Built-in tools**
 
 - Rebuilt: fixed-size panels on the scale unit, an SVG controller view, the Debug and Profile editor panels, Reset edits. The Auto buttons are gone (use "Auto detect" in the select). The Input Remap dialog is titled "Input Remap" (was "Input Debugger").
 - While a tool is open, Escape and Tab are stopped at window capture and handled by the topmost tool dialog, wherever focus is. One tool is open at a time.
 
+**Bindings modal behaviour**
+
+- `open()` while the modal is open does nothing (no re-render, focus and scroll stay). Tab is trapped inside the modal and the capture dialog; closing returns focus to the element that opened it.
+- After a pointer cancel of the capture dialog (Cancel pressed by mouse, touch or pen), the click that follows is swallowed, so it never reaches the bind button underneath; for 350 ms a tap on that spot starts no new capture.
+
 **Look and layout**
 
-- Every size is on `--bm-u`. The bindings modal is 1080u wide (1080px at 1920x1080; 0.1.x: 660px) and picks one of three row layouts; the hint bar is a centred pill capped at three rows (0.1.x: a full-width bar at the bottom edge). See [Sizing and Theming](#sizing-and-theming).
-- `--bm-modal-width`, `--bm-modal-max-h` and `--bm-modal-radius` are no longer declared on `:root`; `--bm-text-secondary` and `--bm-text-desc` have new defaults; borders are box-shadows, so `border-color` overrides no longer apply; several classes were removed (listed under [Removed classes and markup](#removed-classes-and-markup)). Focused controls in the bindings modal and the capture dialog get a 2u accent outline.
-- `bind-manager.min.js` grew from 149,425 to 201,755 bytes (38,703 → 55,734 bytes gzip -9), mostly the rebuilt tools, the families and the stylesheet.
+- Every size is on `--bm-u`. The bindings modal is 1080u wide (1080px at 1920x1080; 0.1.0: 660px) and picks one of three row layouts; the hint bar is a centred pill capped at three rows (0.1.0: a full-width bar at the bottom edge). See [Sizing and Theming](#sizing-and-theming).
+- `--bm-modal-width`, `--bm-modal-max-h` and `--bm-modal-radius` are no longer declared on `:root` and have new defaults: 1080u (was 660px), 880u (was 80vh) and 12u (was 10px); `--bm-text-secondary` and `--bm-text-desc` have new defaults; borders are box-shadows, so `border-color` overrides no longer apply; several classes were removed (listed under [Removed classes and markup](#removed-classes-and-markup)). Focused controls in the bindings modal and the capture dialog get a 2u accent outline.
+- `bind-manager.min.js` grew from 134,734 bytes in 0.1.0 to 201,755 bytes (34,486 → 55,734 bytes gzip -9), mostly the rebuilt tools, the families, the stylesheet and the browser guard.
+
+**Also new since 0.1.0 (made before the UI round)**
+
+- The opt-in browser shortcut guard: `browserGuard` option, `manager.browserGuard`, and the exports `DEFAULT_BLOCKED_SHORTCUTS`, `DEFAULT_KEYBOARD_LOCK_KEYS`, `parseShortcutPattern`, `matchesShortcutPattern`. Nothing changes unless you enable it.
+- Wheel bindings fire one `pressed` + `released` per notch (`WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD`, the `wheelPixelThreshold` option); 0.1.0 fired one per raw `WheelEvent`, so trackpads produced dozens. Shift+wheel chords work in Chromium and Safari; pure horizontal scrolling no longer counts as Wheel Down.
+- `registerAction()` throws when `slots` or `gamepadSlots` is not a positive integer (`undefined`/`null` still mean the default); default bindings beyond the slot count are dropped with a console warning.
+- `importBindings()` accepts only payload versions 1 and 2 and validates the device arrays and codes: an unknown code keeps the slot and is reported in `invalidEntries`.
+- `isActionPressed()` honours the action's `playerIndex`.
+- New: `clearStorage()`. `resetAll()` writes storage once.
+- `destroy()` closes the modal first, so `active` ends `false` and `onActiveChange` listeners get `false`.
+- A key or mouse button pressed while the modal was open or during a capture no longer produces a lone `released` when it is let go; Escape cancelling a keyboard capture clears the held keys.
+- Holding the debug key no longer toggles the modal on every key repeat.
+- Gamepad capture ignores inputs already held when it starts, and the captured input stays silent until released.
+- Stored profile overrides are normalised on load; invalid ones are dropped.
+- Action ids such as `__proto__` or `constructor` work.
 
 ## Known Gaps
 
-- The shipped DualSense exact profile (`054c-0ce6`) has no touchpad mapping: the guided capture has no step for `GP_B17`, so the touchpad click is not mapped on a raw (Firefox) DualSense. With Chrome's standard mapping the `dualsense` family labels `GP_B17` Touchpad.
-- Labels in `GAMEPAD_UNVERIFIED_LABELS` (Xbox Share, the Steam back buttons, Stadia Assistant/Capture) are not verified on hardware.
+- The shipped DualSense exact profile (`054c-0ce6`) has no touchpad mapping: the guided capture has no step for `GP_B17`, so the touchpad click is not mapped on a raw (Firefox) DualSense. A binding on `GP_B17` still shows the family label "Touchpad" there, although it cannot fire. With Chrome's standard mapping `GP_B17` works and is labelled Touchpad.
+- Labels in `GAMEPAD_UNVERIFIED_LABELS` (Xbox Share, the Steam back buttons, Stadia Assistant/Capture) are not verified on hardware. The Xbox Elite paddle labels (Paddle 1..4) come from research too and are not verified on hardware either; they are not listed in `GAMEPAD_UNVERIFIED_LABELS`.
 - The Controller Test's controller view keeps a minimum width of 780u (520px); on phone-sized viewports it scrolls sideways.
 - The smallest text is about 9.3 CSS px at 1280x720 and below.
-- A capture taken from a pad the browser reports with `mapping: 'standard'` (most pads in Chrome) produces a profile that never applies, and nothing warns about it; see [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md#adding-a-controller-profile).
 - The guided capture has one preset (DualSense layout) and tags every capture with the `dualsense` family.
-- The built-in tools' text does not follow a `--bm-u` set on an ancestor below `:root`, nor `--bm-font-*`.
+
+<!-- STATUS AT THIS VERSION: the two items below are being changed; replace this block when they are. -->
+**Being changed (status at this version):**
+
+- **Captures from remapped pads.** A capture taken from a pad the browser reports with `mapping: 'standard'` (most pads in Chrome) produces a profile that never applies, and nothing warns about it; see [src/input/controller_definitions/README.md](src/input/controller_definitions/README.md#adding-a-controller-profile).
+- **Text size of the built-in tools.** Their lengths follow a `--bm-u` set on an ancestor, but their text follows only a `--bm-u` set on `:root`, and `--bm-font-*` does not reach them.
+<!-- END STATUS -->
 
 ## ThreeJS and Standalone Examples
 
@@ -723,13 +762,13 @@ Run unit tests:
 npm test
 ```
 
-Run E2E tests (requires Chromium, auto-installed via Playwright):
+Run E2E tests (install Chromium for Playwright once with `npx playwright install chromium`):
 
 ```bash
 npm run test:e2e
 ```
 
-The e2e server port defaults to 3001; set `BM_E2E_PORT` to give a worktree its own server (a set port never reuses a running one). `tests/e2e/demo.spec.js` checks the demo page, the standalone demo (run `npm run build` first) and the runnable example.
+The e2e server port defaults to 3001; set `BM_E2E_PORT` to run the e2e server on another port. `tests/e2e/demo.spec.js` checks the demo page, the standalone demo (run `npm run build` first) and the runnable example.
 
 Manual checks for the browser guard and wheel bindings (desktop browsers; `npm run demo`, open `/demo/`, click the game area to capture the cursor):
 

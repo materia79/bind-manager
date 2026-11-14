@@ -8,6 +8,18 @@ const CSS = `
 /* ================================================================
    Bind Manager — base styles
    Customise via CSS custom properties on any ancestor element or :root
+
+   Every length is a multiple of --bm-u (1px at 1920x1080, scales with the
+   viewport, clamped to [--bm-u-min, --bm-u-max]), so the UI looks the same on
+   any resolution with the same aspect ratio. Set --bm-u: 1px (on :root or any
+   ancestor) for fixed sizes; --bm-u-min / --bm-u-max take effect on :root.
+   Borders are drawn as box-shadow rings so they never shift the layout.
+
+   Size overrides without a default here (the default is used where they apply,
+   so it follows --bm-u set on any ancestor):
+     --bm-modal-width   default calc(1080 * var(--bm-u))
+     --bm-modal-max-h   default calc(880 * var(--bm-u))
+     --bm-modal-radius  default calc(12 * var(--bm-u))
    ================================================================ */
 
 :root {
@@ -18,13 +30,10 @@ const CSS = `
   --bm-overlay-bg:   rgba(0, 0, 0, 0.75);
   --bm-modal-bg:     #1e1e2e;
   --bm-modal-border: #3a3a5c;
-  --bm-modal-radius: 10px;
-  --bm-modal-width:  660px;
-  --bm-modal-max-h:  80vh;
 
   --bm-text-primary:   #e0e0f0;
-  --bm-text-secondary: #9090b0;
-  --bm-text-desc:      #6a6a90;
+  --bm-text-secondary: #b0b0d0;
+  --bm-text-desc:      #9898c0;
 
   --bm-group-bg:     #16162a;
   --bm-group-border: #2a2a44;
@@ -63,6 +72,45 @@ const CSS = `
   --bm-fs-l: calc(21 * var(--bm-u));
 }
 
+.bm-overlay,
+.bm-overlay *,
+.bm-overlay *::before,
+.bm-overlay *::after,
+.bm-capture-overlay,
+.bm-capture-overlay *,
+.bm-hints,
+.bm-hints * {
+  box-sizing: border-box;
+}
+
+/*
+ * The font tokens again, so a --bm-u set on any ancestor (not only :root) resizes text as well.
+ * Hosts set fixed text sizes through --bm-font-xs / -s / -m / -l (on :root or any ancestor);
+ * a host value for --bm-fs-* itself is replaced here.
+ */
+.bm-overlay,
+.bm-capture-overlay,
+.bm-hints {
+  --bm-fs-xs: var(--bm-font-xs, max(9px, calc(14 * var(--bm-u))));
+  --bm-fs-s: var(--bm-font-s, max(10px, calc(15 * var(--bm-u))));
+  --bm-fs-m: var(--bm-font-m, calc(17 * var(--bm-u)));
+  --bm-fs-l: var(--bm-font-l, calc(21 * var(--bm-u)));
+}
+
+:where(.bm-overlay, .bm-capture-overlay) :where(button, select) {
+  margin: 0;
+  border: 0;
+  font-family: inherit;
+  font-size: var(--bm-fs-m);
+  line-height: 1.2;
+}
+
+.bm-overlay :focus-visible,
+.bm-capture-overlay :focus-visible {
+  outline: calc(2 * var(--bm-u)) solid var(--bm-accent);
+  outline-offset: calc(2 * var(--bm-u));
+}
+
 /* ---- Overlay ---- */
 .bm-overlay {
   position: fixed;
@@ -78,19 +126,38 @@ const CSS = `
 
 /* ---- Modal container ---- */
 .bm-modal {
+  position: relative;
   background: var(--bm-modal-bg);
-  border: 1px solid var(--bm-modal-border);
-  border-radius: var(--bm-modal-radius);
-  width: var(--bm-modal-width);
-  max-width: calc(100vw - 32px);
-  max-height: var(--bm-modal-max-h);
+  border-radius: var(--bm-modal-radius, calc(12 * var(--bm-u)));
+  width: var(--bm-modal-width, calc(1080 * var(--bm-u)));
+  /* Never larger than the viewport, whatever --bm-u or the host sizes say */
+  max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
+  max-height: min(var(--bm-modal-max-h, calc(880 * var(--bm-u))), calc(100vh - min(32 * var(--bm-u), 4vh)));
+  max-height: min(var(--bm-modal-max-h, calc(880 * var(--bm-u))), calc(100dvh - min(32 * var(--bm-u), 4dvh)));
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 0 0 1px var(--bm-modal-border),
+    0 calc(24 * var(--bm-u)) calc(64 * var(--bm-u)) rgba(0, 0, 0, 0.6);
   font-family: system-ui, -apple-system, sans-serif;
-  font-size: 14px;
+  font-size: var(--bm-fs-m);
+  line-height: 1.3;
   color: var(--bm-text-primary);
+}
+.bm-modal:focus {
+  outline: none;
+}
+
+/* Measures --bm-u in px for the layout decision in modal-controller.js */
+.bm-u-probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(1000 * var(--bm-u));
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* ---- Header ---- */
@@ -98,27 +165,39 @@ const CSS = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--bm-modal-border);
+  gap: calc(16 * var(--bm-u));
+  height: calc(64 * var(--bm-u));
+  padding: 0 calc(16 * var(--bm-u)) 0 calc(24 * var(--bm-u));
+  box-shadow: inset 0 -1px 0 var(--bm-modal-border);
   flex-shrink: 0;
 }
 
 .bm-modal-title {
   margin: 0;
-  font-size: 16px;
+  min-width: 0;
+  font-size: var(--bm-fs-l);
   font-weight: 600;
+  line-height: 1.2;
   color: var(--bm-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bm-close-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(36 * var(--bm-u));
+  height: calc(36 * var(--bm-u));
+  padding: 0;
   background: none;
-  border: none;
   color: var(--bm-text-secondary);
-  font-size: 18px;
+  font-size: var(--bm-fs-l);
   line-height: 1;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: calc(8 * var(--bm-u));
   transition: color 0.15s, background 0.15s;
 }
 .bm-close-btn:hover {
@@ -129,93 +208,144 @@ const CSS = `
 /* ---- Scrollable body ---- */
 .bm-modal-body {
   overflow-y: auto;
-  flex: 1;
-  padding: 12px 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: calc(16 * var(--bm-u)) 0;
+  /* The scrollbar space is always reserved, so the layout does not depend on overflow */
+  scrollbar-gutter: stable;
+}
+.bm-modal-body::-webkit-scrollbar {
+  width: calc(10 * var(--bm-u));
+}
+.bm-modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.bm-modal-body::-webkit-scrollbar-thumb {
+  background: var(--bm-btn-border);
+  border-radius: calc(5 * var(--bm-u));
+}
+@supports not selector(::-webkit-scrollbar) {
+  .bm-modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bm-btn-border) transparent;
+  }
 }
 
+.bm-empty {
+  margin: 0;
+  padding: calc(24 * var(--bm-u));
+  color: var(--bm-text-desc);
+  text-align: center;
+}
+
+/* ---- Gamepad profile line: name · source chip · profile select ---- */
 .bm-profile-panel {
-  margin: 0 20px 12px;
-  padding: 12px;
-  border: 1px solid var(--bm-group-border);
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--bm-u)) calc(12 * var(--bm-u));
+  min-height: calc(48 * var(--bm-u));
+  margin: 0 calc(24 * var(--bm-u)) calc(8 * var(--bm-u));
+  padding: calc(8 * var(--bm-u)) calc(8 * var(--bm-u)) calc(8 * var(--bm-u)) calc(16 * var(--bm-u));
+  border-radius: calc(8 * var(--bm-u));
   background: var(--bm-group-bg);
+  box-shadow: inset 0 0 0 1px var(--bm-group-border);
+}
+
+.bm-profile-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--bm-text-primary);
 }
 
 .bm-profile-panel-empty {
+  min-height: calc(40 * var(--bm-u));
+}
+.bm-profile-panel-empty .bm-profile-name {
   color: var(--bm-text-desc);
+  font-size: var(--bm-fs-s);
 }
 
-.bm-profile-summary {
-  display: flex;
+.bm-profile-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  color: var(--bm-text-primary);
+  height: calc(24 * var(--bm-u));
+  padding: 0 calc(10 * var(--bm-u));
+  border-radius: calc(12 * var(--bm-u));
+  background: rgba(92, 124, 250, 0.16);
+  color: var(--bm-accent-hover);
+  font-size: var(--bm-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
 }
-
-.bm-profile-meta,
-.bm-profile-subtitle {
+.bm-profile-chip--family,
+.bm-profile-chip--generic {
+  background: var(--bm-btn-bg);
   color: var(--bm-text-secondary);
-  font-size: 12px;
 }
-
-.bm-profile-subtitle {
-  margin-top: 4px;
-  word-break: break-word;
-}
-
-.bm-profile-controls {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
+.bm-profile-chip--manual,
+.bm-profile-chip--memory-edit {
+  background: var(--bm-warn-bg);
+  color: var(--bm-warn-text);
 }
 
 .bm-profile-select {
-  flex: 1;
+  flex: 0 1 calc(300 * var(--bm-u));
   min-width: 0;
-  height: 32px;
-  padding: 0 10px;
-  background: var(--bm-btn-bg);
-  border: 1px solid var(--bm-btn-border);
-  border-radius: 6px;
+  max-width: 100%;
+  height: calc(32 * var(--bm-u));
+  padding: 0 calc(32 * var(--bm-u)) 0 calc(12 * var(--bm-u));
+  appearance: none;
+  background-color: var(--bm-btn-bg);
+  /* SVG chevron in the default --bm-text-secondary; sized from the s token, so never below 8px */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.75 6 6.25l4.5-4.5' fill='none' stroke='%23b0b0d0' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: calc(100% - 12 * var(--bm-u)) 50%;
+  background-size: calc(0.8 * var(--bm-fs-s)) auto;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px var(--bm-btn-border);
+  border-radius: calc(6 * var(--bm-u));
   color: var(--bm-text-primary);
-}
-
-.bm-profile-auto-btn {
-  height: 32px;
-  padding: 0 12px;
-  background: var(--bm-btn-bg);
-  border: 1px solid var(--bm-btn-border);
-  border-radius: 6px;
-  color: var(--bm-text-primary);
+  font-size: var(--bm-fs-s);
+  text-overflow: ellipsis;
   cursor: pointer;
 }
-
-.bm-profile-auto-btn:hover,
 .bm-profile-select:hover {
-  border-color: var(--bm-accent);
+  box-shadow: inset 0 0 0 1px var(--bm-accent);
+}
+.bm-profile-select option {
+  background: var(--bm-modal-bg);
+  color: var(--bm-text-primary);
 }
 
 /* ---- Group ---- */
-.bm-group {
-  margin-bottom: 4px;
+.bm-group + .bm-group {
+  margin-top: calc(8 * var(--bm-u));
 }
 
 .bm-group-title {
-  padding: 8px 20px 6px;
-  font-size: 11px;
+  padding: calc(12 * var(--bm-u)) calc(24 * var(--bm-u)) calc(6 * var(--bm-u));
+  font-size: var(--bm-fs-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
+  line-height: 1.2;
   text-transform: uppercase;
   color: var(--bm-text-secondary);
 }
 
-/* ---- Action row ---- */
+/* ---- Action row: label | keyboard slots | gamepad slots | reset ---- */
 .bm-action-row {
   display: flex;
   align-items: center;
-  padding: 8px 20px;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--bm-u)) calc(16 * var(--bm-u));
+  min-height: calc(52 * var(--bm-u));
+  padding: calc(8 * var(--bm-u)) calc(24 * var(--bm-u));
   transition: background 0.1s;
 }
 .bm-action-row:hover {
@@ -223,7 +353,7 @@ const CSS = `
 }
 
 .bm-action-info {
-  flex: 1;
+  flex: 1 1 calc(200 * var(--bm-u));
   min-width: 0;
 }
 
@@ -236,9 +366,9 @@ const CSS = `
 }
 
 .bm-action-desc {
-  font-size: 12px;
+  font-size: var(--bm-fs-xs);
   color: var(--bm-text-desc);
-  margin-top: 2px;
+  margin-top: calc(2 * var(--bm-u));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -247,33 +377,86 @@ const CSS = `
 .bm-action-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: calc(12 * var(--bm-u));
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
 }
 
-.bm-action-controls.bm-with-gamepad {
-  align-items: flex-start;
-}
-
+/*
+ * Layouts, chosen in modal-controller.js from the modal's real width and the
+ * widest slot counts over all actions (--bm-kb-slots, --bm-gp-slots):
+ *   bm-layout-inline   label | keyboard slots | gamepad slots | reset
+ *   bm-layout-stacked  label | keyboard row above gamepad row | reset
+ *   bm-layout-narrow   label on its own line, then the stacked rows
+ * Device rows have a fixed width, so slot columns line up across all rows.
+ * Every level may still shrink and wrap, so nothing ever overflows sideways.
+ */
 .bm-device-rows {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(6 * var(--bm-u)) calc(28 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
 }
 
 .bm-device-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(8 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+
+.bm-device-row--keyboard {
+  width: calc((32 + var(--bm-kb-slots, 2) * 154 - 6) * var(--bm-u));
+}
+.bm-device-row--gamepad {
+  position: relative;
+  width: calc((32 + var(--bm-gp-slots, 1) * 154 - 6) * var(--bm-u));
+}
+
+/* Divider between the keyboard and the gamepad group on one line */
+.bm-layout-inline .bm-device-row--gamepad::before {
+  content: '';
+  position: absolute;
+  left: calc(-14 * var(--bm-u));
+  top: calc(6 * var(--bm-u));
+  bottom: calc(6 * var(--bm-u));
+  width: 1px;
+  background: var(--bm-modal-border);
+}
+
+.bm-layout-stacked .bm-device-rows,
+.bm-layout-narrow .bm-device-rows {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.bm-layout-stacked .bm-device-row,
+.bm-layout-narrow .bm-device-row {
+  width: calc((32 + max(var(--bm-kb-slots, 2), var(--bm-gp-slots, 1)) * 154 - 6) * var(--bm-u));
+}
+.bm-layout-narrow .bm-action-info {
+  flex-basis: 100%;
+}
+.bm-layout-narrow .bm-action-controls {
+  margin-left: 0;
 }
 
 .bm-device-badge {
-  width: 18px;
-  font-size: 13px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(24 * var(--bm-u));
+  height: calc(36 * var(--bm-u));
+  font-size: var(--bm-fs-m);
   flex-shrink: 0;
   color: var(--bm-text-desc);
   user-select: none;
-  line-height: 32px;
 }
 
 .bm-device-badge.bm-device-gp {
@@ -283,33 +466,39 @@ const CSS = `
 
 .bm-bind-slots {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: calc(6 * var(--bm-u));
+  min-width: 0;
 }
 
 .bm-slot {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(4 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ---- Bind button ---- */
 .bm-bind-btn {
-  min-width: 72px;
-  height: 32px;
-  padding: 0 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: calc(120 * var(--bm-u));
+  height: calc(36 * var(--bm-u));
+  padding: 0 calc(10 * var(--bm-u));
   background: var(--bm-btn-bg);
-  border: 1px solid var(--bm-btn-border);
-  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--bm-btn-border);
+  border-radius: calc(6 * var(--bm-u));
   color: var(--bm-text-primary);
-  font-size: 13px;
-  font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, box-shadow 0.15s;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .bm-bind-btn:hover {
   background: var(--bm-btn-hover);
-  border-color: var(--bm-accent);
+  box-shadow: inset 0 0 0 1px var(--bm-accent);
 }
 .bm-bind-btn.bm-unbound {
   color: var(--bm-text-desc);
@@ -318,7 +507,7 @@ const CSS = `
 /* Capture state: waiting for user to press a key */
 .bm-bind-btn.bm-capturing {
   background: var(--bm-capture-bg);
-  border-color: var(--bm-capture-border);
+  box-shadow: inset 0 0 0 1px var(--bm-capture-border);
   color: var(--bm-capture-text);
   animation: bm-pulse 1s ease-in-out infinite;
 }
@@ -336,31 +525,37 @@ const CSS = `
 
 /* ---- "No controller" placeholder ---- */
 .bm-no-controller {
-  font-size: 11px;
+  font-size: var(--bm-fs-xs);
   color: var(--bm-text-desc);
   font-style: italic;
-  padding: 2px 4px;
-  line-height: 32px;
+  padding: 0 calc(4 * var(--bm-u));
+  line-height: calc(36 * var(--bm-u));
 }
 
 .bm-clear-slot-btn {
-  width: 22px;
-  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(24 * var(--bm-u));
+  height: calc(24 * var(--bm-u));
   padding: 0;
-  border-radius: 4px;
-  border: 1px solid var(--bm-btn-border);
-  background: var(--bm-btn-bg);
+  border-radius: calc(6 * var(--bm-u));
+  flex-shrink: 0;
+  background: transparent;
   color: var(--bm-text-secondary);
-  font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .bm-clear-slot-btn:hover {
   background: var(--bm-btn-hover);
-  border-color: var(--bm-reset-color);
   color: var(--bm-reset-hover);
+}
+
+/* Nothing to clear: keep the space so columns stay aligned */
+.bm-bind-btn.bm-unbound + .bm-clear-slot-btn {
+  visibility: hidden;
 }
 
 @keyframes bm-pulse {
@@ -370,14 +565,18 @@ const CSS = `
 
 /* ---- Per-action reset button ---- */
 .bm-action-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(32 * var(--bm-u));
+  height: calc(32 * var(--bm-u));
+  padding: 0;
   background: none;
-  border: none;
   color: var(--bm-text-desc);
-  font-size: 16px;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: calc(6 * var(--bm-u));
   transition: color 0.15s, background 0.15s;
+  font-size: var(--bm-fs-l);
   line-height: 1;
 }
 .bm-action-reset-btn:hover {
@@ -385,90 +584,109 @@ const CSS = `
   background: var(--bm-btn-hover);
 }
 
-/* ---- Footer ---- */
+/* ---- Footer: conflict warning · tool buttons · Reset All ---- */
 .bm-modal-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
-  border-top: 1px solid var(--bm-modal-border);
+  flex-wrap: wrap;
+  gap: calc(12 * var(--bm-u));
+  min-height: calc(64 * var(--bm-u));
+  padding: calc(14 * var(--bm-u)) calc(24 * var(--bm-u));
+  box-shadow: inset 0 1px 0 var(--bm-modal-border);
   flex-shrink: 0;
-  gap: 12px;
 }
 
 .bm-footer-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 /* ---- Conflict warning ---- */
 .bm-conflict-warning {
-  flex: 1;
-  font-size: 12px;
+  flex: 1 1 calc(240 * var(--bm-u));
+  min-width: 0;
+  font-size: var(--bm-fs-s);
+  line-height: 1.3;
+  /* At most three lines; the full text is in the title */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   color: var(--bm-warn-text);
   background: var(--bm-warn-bg);
-  border: 1px solid var(--bm-warn-border);
-  border-radius: 5px;
-  padding: 6px 10px;
+  box-shadow: inset 0 0 0 1px var(--bm-warn-border);
+  border-radius: calc(6 * var(--bm-u));
+  padding: calc(6 * var(--bm-u)) calc(12 * var(--bm-u));
   transition: opacity 0.2s;
 }
 .bm-conflict-warning.bm-hidden {
   display: none;
 }
 
-/* ---- Reset All button ---- */
+/* ---- Footer buttons ---- */
+.bm-reset-all-btn,
+.bm-footer-action-btn {
+  height: calc(36 * var(--bm-u));
+  padding: 0 calc(16 * var(--bm-u));
+  border-radius: calc(6 * var(--bm-u));
+  max-width: 100%;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
+}
 .bm-reset-all-btn {
   background: none;
-  border: 1px solid var(--bm-btn-border);
-  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--bm-btn-border);
   color: var(--bm-reset-color);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  padding: 6px 14px;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 .bm-footer-action-btn {
   background: var(--bm-btn-bg);
-  border: 1px solid var(--bm-btn-border);
-  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--bm-btn-border);
   color: var(--bm-text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  padding: 6px 14px;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .bm-footer-action-btn:hover {
   background: var(--bm-btn-hover);
-  border-color: var(--bm-accent);
+  box-shadow: inset 0 0 0 1px var(--bm-accent);
 }
 .bm-footer-action-btn--debug {
   color: #ffd3a4;
-  border-color: rgba(250, 170, 90, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(250, 170, 90, 0.55);
   background: rgba(250, 170, 90, 0.12);
 }
 .bm-footer-action-btn--debug:hover {
   background: rgba(250, 170, 90, 0.22);
-  border-color: rgba(255, 192, 120, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(255, 192, 120, 0.95);
 }
 .bm-footer-action-btn--test {
   color: #b8f2ff;
-  border-color: rgba(100, 210, 235, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(100, 210, 235, 0.5);
   background: rgba(100, 210, 235, 0.12);
 }
 .bm-footer-action-btn--test:hover {
   background: rgba(100, 210, 235, 0.22);
-  border-color: rgba(130, 235, 255, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(130, 235, 255, 0.95);
 }
 .bm-reset-all-btn:hover {
   background: var(--bm-btn-hover);
-  border-color: var(--bm-reset-color);
+  box-shadow: inset 0 0 0 1px var(--bm-reset-color);
   color: var(--bm-reset-hover);
+}
+.bm-reset-all-btn:disabled,
+.bm-footer-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---- Capture modal ---- */
@@ -483,34 +701,48 @@ const CSS = `
 }
 
 .bm-capture-modal {
-  width: min(420px, calc(100vw - 32px));
-  padding: 18px;
-  border-radius: 10px;
-  border: 1px solid var(--bm-capture-border);
+  width: calc(480 * var(--bm-u));
+  max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
+  max-height: calc(100vh - min(32 * var(--bm-u), 4vh));
+  max-height: calc(100dvh - min(32 * var(--bm-u), 4dvh));
+  overflow-y: auto;
+  padding: calc(24 * var(--bm-u));
+  border-radius: calc(12 * var(--bm-u));
   background: linear-gradient(180deg, rgba(58, 42, 0, 0.98), rgba(27, 20, 0, 0.98));
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    0 0 0 1px var(--bm-capture-border),
+    0 calc(20 * var(--bm-u)) calc(48 * var(--bm-u)) rgba(0, 0, 0, 0.45);
   color: var(--bm-text-primary);
   font-family: system-ui, -apple-system, sans-serif;
+  font-size: var(--bm-fs-m);
+  line-height: 1.4;
+}
+.bm-capture-modal:focus {
+  outline: none;
 }
 
 .bm-capture-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: calc(16 * var(--bm-u));
 }
 
 .bm-capture-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--bm-fs-l);
+  font-weight: 600;
+  line-height: 1.2;
   color: var(--bm-capture-text);
 }
 
 .bm-capture-cancel-btn {
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 6px;
-  border: 1px solid var(--bm-capture-border);
+  flex-shrink: 0;
+  height: calc(36 * var(--bm-u));
+  padding: 0 calc(16 * var(--bm-u));
+  border-radius: calc(6 * var(--bm-u));
+  box-shadow: inset 0 0 0 1px var(--bm-capture-border);
   background: rgba(255, 208, 96, 0.08);
   color: var(--bm-capture-text);
   cursor: pointer;
@@ -521,36 +753,44 @@ const CSS = `
 }
 
 .bm-capture-message {
-  margin-top: 14px;
-  font-size: 14px;
+  margin-top: calc(16 * var(--bm-u));
+  font-size: var(--bm-fs-m);
 }
 
 .bm-capture-detail {
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: calc(8 * var(--bm-u));
+  font-size: var(--bm-fs-s);
   color: var(--bm-text-secondary);
   white-space: pre-wrap;
 }
 
-/* ====== Action Hints Bar (bottom of screen) ====== */
+/* ====== Action Hints Bar (centred at the bottom of the screen) ====== */
 
 .bm-hints {
   position: fixed;
-  bottom: 0;
   left: 0;
   right: 0;
+  bottom: min(16 * var(--bm-u), 2vh);
   z-index: var(--bm-z-hints);
+  width: fit-content;
+  max-width: calc(100vw - min(32 * var(--bm-u), 4vw));
+  /* At most three rows of hints (8 + 3 x 26 + 2 x 6 gap + 6); further rows are clipped */
+  max-height: min(calc(104 * var(--bm-u)), calc(100vh - 2 * min(16 * var(--bm-u), 2vh)));
+  overflow: hidden;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 4px 16px;
-  padding: 8px 20px;
+  gap: calc(6 * var(--bm-u)) calc(20 * var(--bm-u));
+  padding: calc(8 * var(--bm-u)) calc(16 * var(--bm-u));
+  border-radius: calc(10 * var(--bm-u));
   background: var(--bm-hints-bg);
-  border-top: 1px solid var(--bm-hints-border);
+  box-shadow: 0 0 0 1px var(--bm-hints-border);
   pointer-events: none;
   font-family: system-ui, -apple-system, sans-serif;
-  font-size: 12px;
+  font-size: var(--bm-fs-s);
+  line-height: 1.2;
   color: var(--bm-text-secondary);
   /* backdrop-filter: blur(6px); jsdom doesn't support this, but it's still nice for browsers */
 }
@@ -558,27 +798,30 @@ const CSS = `
 .bm-hint-item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: calc(8 * var(--bm-u));
+  min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
 }
 
 .bm-hint-keys {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: calc(4 * var(--bm-u));
 }
 
 .bm-hint-key {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
-  height: 20px;
-  padding: 0 5px;
+  min-width: calc(28 * var(--bm-u));
+  height: calc(26 * var(--bm-u));
+  padding: 0 calc(7 * var(--bm-u));
   background: var(--bm-hint-key-bg);
-  border: 1px solid var(--bm-hint-key-border);
-  border-radius: 3px;
-  font-size: 11px;
+  box-shadow: inset 0 0 0 1px var(--bm-hint-key-border);
+  border-radius: calc(5 * var(--bm-u));
+  font-size: var(--bm-fs-xs);
   font-family: inherit;
   font-style: normal;
   color: var(--bm-text-primary);
@@ -587,10 +830,14 @@ const CSS = `
 
 .bm-hint-sep {
   color: var(--bm-text-desc);
-  font-size: 10px;
+  font-size: var(--bm-fs-xs);
 }
 
 .bm-hint-label {
+  min-width: 0;
+  max-width: calc(240 * var(--bm-u));
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--bm-text-secondary);
 }
 
@@ -598,8 +845,9 @@ const CSS = `
 .bm-hint-gp-key {
   color: var(--bm-accent-hover);
   background: rgba(92, 124, 250, 0.12);
-  border-color: rgba(92, 124, 250, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(92, 124, 250, 0.35);
 }
+
 `;
 
 let _injected = false;

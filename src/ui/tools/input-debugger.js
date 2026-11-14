@@ -16,7 +16,7 @@ import {
  * @param {ReturnType<import('./tool-context.js').createToolContext>} ctx
  */
 export function createInputDebugger(ctx) {
-  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, refreshProfileControls, wireProfileControls, formatResolvedProfileSummary, applyControllerLabels } = ctx;
+  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, refreshProfileControls, wireProfileControls } = ctx;
 
   const els = {
     modal: q('.bm-debug-modal'),

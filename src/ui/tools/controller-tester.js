@@ -10,6 +10,9 @@ import {
   getTriggerFillValue,
   toProfileMappingEntry,
 } from './signals.js';
+import { createDomWriter } from './dom-writer.js';
+import { createPadView } from './pad-view.js';
+import { getStickLayoutForFamily } from './pad-layout.js';
 
 /**
  * Controller Tester tool: live controller view, signal details and the in-memory
@@ -17,12 +20,12 @@ import {
  * @param {ReturnType<import('./tool-context.js').createToolContext>} ctx
  */
 export function createControllerTester(ctx) {
-  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, refreshProfileControls, wireProfileControls, formatResolvedProfileSummary, applyControllerLabels } = ctx;
+  const { manager, q, addWindowListener, setSharedCapturePayload, pickGamepad, resolvePreferredGamepadIndex, getGamepadByIndex, captureBaseline, captureWithMiniModal, refreshProfileControls, wireProfileControls, formatResolvedProfileSummary } = ctx;
 
   const els = {
     modal: q('.bm-tester-modal'),
     panel: q('.bm-tester-panel'),
-    controller: q('.bm-tester-controller'),
+    controller: q('.bm-tester-pad'),
     profileStatus: q('.bm-tester-profile-status'),
     profileSelect: q('.bm-tester-profile-select'),
     profileAutoBtn: q('.bm-tester-profile-auto-btn'),
@@ -42,13 +45,11 @@ export function createControllerTester(ctx) {
     triggerEditSection: q('.bm-tester-trigger-edit'),
     rawToggleBtn: q('.bm-tester-raw-toggle-btn'),
     rawPre: q('.bm-tester-raw-pre'),
-    leftStickDot: q('.bm-tester-left-stick-dot'),
-    rightStickDot: q('.bm-tester-right-stick-dot'),
-    l2Fill: q('.bm-tester-l2-fill'),
-    r2Fill: q('.bm-tester-r2-fill'),
   };
 
-  const controllerNodes = [...els.controller.querySelectorAll('[data-code]')];
+  const writer = createDomWriter();
+  const pad = createPadView(els.controller, writer);
+  pad.setLayout('offset');
   const AUTO_CAPTURE_FRAMES = 2;
   const HIGH_DELTA_THRESHOLD = 0.85;
   const state = {
@@ -378,30 +379,28 @@ export function createControllerTester(ctx) {
     els.editStatus.textContent = successMsg;
   }
 
+  function applyControllerLabels(gamepadIndex = 0) {
+    const family = manager.getResolvedGamepadProfile(gamepadIndex)?.family ?? 'generic';
+    if (pad.setLayout(getStickLayoutForFamily(family))) updateEditUiState();
+    pad.setLabels((code) => manager.getGamepadLabel(code, gamepadIndex), family);
+  }
+
   function applyHighlights(activeCodes) {
     const active = new Set(activeCodes);
-    for (const node of controllerNodes) {
-      node.classList.toggle('bm-active', active.has(node.dataset.code));
-    }
+    pad.setActive(active);
     for (const btn of els.triggerEditSection.querySelectorAll('.bm-tester-code-btn')) {
       btn.classList.toggle('bm-active', active.has(btn.dataset.code));
     }
   }
 
   function updateSticks(gamepad, baseline, mapping = null) {
-    const lx = getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 0, 0);
-    const ly = getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 1, 1);
-    const rx = getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 2, 2);
-    const ry = getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 3, 3);
-    els.leftStickDot.style.transform = `translate(calc(-50% + ${Math.round(lx * 14)}px), calc(-50% + ${Math.round(ly * 14)}px))`;
-    els.rightStickDot.style.transform = `translate(calc(-50% + ${Math.round(rx * 14)}px), calc(-50% + ${Math.round(ry * 14)}px))`;
+    pad.setStick('left', getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 0, 0), getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 1, 1));
+    pad.setStick('right', getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 2, 2), getLogicalAxisValueFromMapping(gamepad, baseline, mapping, 3, 3));
   }
 
   function updateTriggers(gamepad, baseline, mapping = null) {
-    const left = getTriggerFillValue(gamepad, baseline, mapping, 'GP_B6A', 6);
-    const right = getTriggerFillValue(gamepad, baseline, mapping, 'GP_B7A', 7);
-    els.l2Fill.style.height = `${Math.round(left * 100)}%`;
-    els.r2Fill.style.height = `${Math.round(right * 100)}%`;
+    pad.setTrigger('left', getTriggerFillValue(gamepad, baseline, mapping, 'GP_B6A', 6));
+    pad.setTrigger('right', getTriggerFillValue(gamepad, baseline, mapping, 'GP_B7A', 7));
   }
 
   function setStatus(text) { els.status.textContent = text; }
@@ -523,12 +522,7 @@ export function createControllerTester(ctx) {
 
   function updateEditUiState() {
     els.editToggleBtn.textContent = state.editMode ? 'Disable Edit Mode' : 'Enable Edit Mode';
-    els.controller.classList.toggle('bm-tester-edit-mode', state.editMode);
-    for (const node of controllerNodes) {
-      const isSelected = state.editMode && state.selectedCode === node.dataset.code;
-      node.classList.toggle('bm-selected', isSelected);
-      node.classList.toggle('bm-editable', state.editMode);
-    }
+    pad.setEdit(state.editMode, state.selectedCode);
     els.triggerEditSection.style.display = state.editMode ? '' : 'none';
     for (const btn of els.triggerEditSection.querySelectorAll('.bm-tester-code-btn')) {
       btn.classList.toggle('bm-selected', state.editMode && state.selectedCode === btn.dataset.code);
@@ -556,10 +550,7 @@ export function createControllerTester(ctx) {
 
   function clearVisuals() {
     applyHighlights([]);
-    els.leftStickDot.style.transform = 'translate(-50%, -50%)';
-    els.rightStickDot.style.transform = 'translate(-50%, -50%)';
-    els.l2Fill.style.height = '0%';
-    els.r2Fill.style.height = '0%';
+    pad.clear();
   }
 
   return { open, close, isOpen: () => state.isOpen };

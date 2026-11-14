@@ -1,7 +1,7 @@
 import { _esc } from './esc.js';
 import { getStrongestSignal, toGpCode } from './signals.js';
 import { cloneJson } from './capture-payload.js';
-import { serialiseProfileOverrideValue, parseProfileOverrideValue, abbreviateTesterLabel } from './profile-options.js';
+import { serialiseProfileOverrideValue, parseProfileOverrideValue } from './profile-options.js';
 
 /**
  * Runtime helpers shared by the built-in tools: DOM lookup inside the mounted root,
@@ -219,16 +219,6 @@ export function createToolContext(manager, root) {
     return `Profile: ${sourceLabel} (${profileName})`;
   }
 
-  function applyControllerLabels(gamepadIndex = 0) {
-    const nodes = root.querySelectorAll('.bm-tester-controller [data-code]');
-    for (const node of nodes) {
-      const code = node.dataset.code;
-      const label = manager.getGamepadLabel(code, gamepadIndex);
-      node.textContent = abbreviateTesterLabel(label);
-      node.title = label;
-    }
-  }
-
   return {
     manager,
     root,
@@ -246,6 +236,5 @@ export function createToolContext(manager, root) {
     refreshProfileControls,
     wireProfileControls,
     formatResolvedProfileSummary,
-    applyControllerLabels,
   };
 }

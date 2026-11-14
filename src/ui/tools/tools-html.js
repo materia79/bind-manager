@@ -1,3 +1,5 @@
+import { padSvgOpenTag } from './pad-view.js';
+
 /** Static markup of the built-in tools, mounted once by createBuiltInToolsController. */
 export function getBuiltInToolsHtml() {
   return `
@@ -52,43 +54,13 @@ export function getBuiltInToolsHtml() {
         <div class="bm-tester-body">
           <div class="bm-tester-card">
             <h3>Live Controller View</h3>
-            <div class="bm-tester-controller">
-              <div class="bm-tester-node bm-wide" data-code="GP_B4" style="left: 82px; top: 20px;">L1</div>
-              <div class="bm-tester-node bm-wide" data-code="GP_B5" style="right: 82px; top: 20px;">R1</div>
-              <div class="bm-tester-trigger-meter" style="left: 96px; top: 48px;"><div class="bm-tester-trigger-fill bm-tester-l2-fill"></div></div>
-              <div class="bm-tester-trigger-meter" style="right: 96px; top: 48px;"><div class="bm-tester-trigger-fill bm-tester-r2-fill"></div></div>
-              <div class="bm-tester-node bm-wide" data-code="GP_B6" style="left: 78px; top: 112px;">L2</div>
-              <div class="bm-tester-node bm-wide" data-code="GP_B7" style="right: 78px; top: 112px;">R2</div>
-              <div class="bm-tester-trigger-edit" style="display:none;">
-                <span>Trigger analog targets</span>
-                <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B6">L2</button>
-                <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B7">R2</button>
-                <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B6A">L2A</button>
-                <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B7A">R2A</button>
-              </div>
-              <div class="bm-tester-node" data-code="GP_B12" style="left: 56px; top: 132px;">U</div>
-              <div class="bm-tester-node" data-code="GP_B13" style="left: 56px; top: 190px;">D</div>
-              <div class="bm-tester-node" data-code="GP_B14" style="left: 26px; top: 162px;">L</div>
-              <div class="bm-tester-node" data-code="GP_B15" style="left: 86px; top: 162px;">R</div>
-              <div class="bm-tester-stick" style="left: 130px; top: 170px;"><div class="bm-tester-stick-dot bm-tester-left-stick-dot"></div></div>
-              <div class="bm-tester-node" data-code="GP_A1N" style="left: 165px; top: 146px;">Up</div>
-              <div class="bm-tester-node" data-code="GP_A1P" style="left: 165px; top: 258px;">Down</div>
-              <div class="bm-tester-node" data-code="GP_A0N" style="left: 108px; top: 202px;">Left</div>
-              <div class="bm-tester-node" data-code="GP_A0P" style="left: 222px; top: 202px;">Right</div>
-              <div class="bm-tester-node" data-code="GP_B10" style="left: 166px; top: 204px;">L3</div>
-              <div class="bm-tester-node" data-code="GP_B2" style="right: 86px; top: 132px;">Sq</div>
-              <div class="bm-tester-node" data-code="GP_B3" style="right: 56px; top: 104px;">Tr</div>
-              <div class="bm-tester-node" data-code="GP_B0" style="right: 56px; top: 162px;">Cr</div>
-              <div class="bm-tester-node" data-code="GP_B1" style="right: 26px; top: 132px;">Ci</div>
-              <div class="bm-tester-stick" style="right: 130px; top: 170px;"><div class="bm-tester-stick-dot bm-tester-right-stick-dot"></div></div>
-              <div class="bm-tester-node" data-code="GP_A3N" style="right: 165px; top: 146px;">Up</div>
-              <div class="bm-tester-node" data-code="GP_A3P" style="right: 165px; top: 258px;">Down</div>
-              <div class="bm-tester-node" data-code="GP_A2N" style="right: 222px; top: 202px;">Left</div>
-              <div class="bm-tester-node" data-code="GP_A2P" style="right: 108px; top: 202px;">Right</div>
-              <div class="bm-tester-node" data-code="GP_B11" style="right: 166px; top: 204px;">R3</div>
-              <div class="bm-tester-node bm-wide" data-code="GP_B8" style="left: 214px; top: 134px;">Create</div>
-              <div class="bm-tester-node" data-code="GP_B16" style="left: 256px; top: 160px;">PS</div>
-              <div class="bm-tester-node bm-wide" data-code="GP_B9" style="left: 292px; top: 134px;">Options</div>
+            ${padSvgOpenTag('bm-tester-pad')}</svg>
+            <div class="bm-tester-trigger-edit" style="display:none;">
+              <span>Trigger analog targets</span>
+              <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B6">L2</button>
+              <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B7">R2</button>
+              <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B6A">L2A</button>
+              <button class="bm-tool-btn bm-tester-code-btn" data-code="GP_B7A">R2A</button>
             </div>
             <div class="bm-tester-raw-section">
               <button type="button" class="bm-tool-btn bm-tester-raw-toggle-btn" style="font-size:11px;padding:2px 10px;height:26px;margin-top:6px;">Show raw input</button>

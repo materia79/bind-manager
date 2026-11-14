@@ -19,7 +19,7 @@ const SET = process.env.BM_SCREENS;
 const OUT_DIR = fileURLToPath(new URL(`../../test-results/screens-${SET}/`, import.meta.url));
 
 /** The tools also get a below-the-floor viewport. */
-const TOOL_SCREENS = [...SCREENS, { name: '1000x600', width: 1000, height: 600 }];
+const TOOL_SCREENS = [...SCREENS, { name: '1000x600', width: 1000, height: 600 }, { name: '390x844', width: 390, height: 844 }, { name: '820x1180', width: 820, height: 1180 }];
 
 test.skip(!SET, 'set BM_SCREENS=<name> to produce screenshots');
 
@@ -100,6 +100,17 @@ for (const screen of TOOL_SCREENS) {
       await expect(mini).toBeHidden();
     });
 
+    test('controller tester without a controller', async ({ page }) => {
+      await installFakeGamepad(page, DUALSENSE_CHROME);
+      await page.goto('/demo/');
+      await page.waitForSelector('#open-btn');
+      await openBindings(page);
+      await page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]').click();
+      const panel = page.locator('.bm-tester-modal.bm-tester-open .bm-tester-panel');
+      await expect(panel.locator('.bm-pad-message')).toBeVisible();
+      await shoot(page, 'controller-tester', 'nopad', screen);
+    });
+
     test('controller tester', async ({ page }) => {
       const pad = await openWithPad(page);
       await page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]').click();
@@ -136,6 +147,16 @@ for (const screen of TOOL_SCREENS) {
       await panel.locator('.bm-tester-debug-btn').click();
       const bothBox = await panel.boundingBox();
       await shoot(page, 'controller-tester', 'active-debug-editor', screen);
+
+      // (f) both, edit mode: GP_B3 selected and assigned, its binding row listed
+      await pad.reset();
+      await panel.locator('.bm-tester-edit-toggle-btn').click();
+      await panel.locator('.bm-tester-pad [data-code="GP_B3"]').click();
+      await pad.setButton(2, 1);
+      await expect(panel.locator('.bm-tester-edit-status')).toHaveText(/^Updated GP_B3/);
+      await pad.reset();
+      await panel.locator('.bm-tester-binding-item').first().scrollIntoViewIfNeeded();
+      await shoot(page, 'controller-tester', 'edit-debug-editor', screen);
 
       mkdirSync(OUT_DIR, { recursive: true });
       const boxes = { screen: screen.name, idle: idleBox, active: activeBox, debug: debugBox, editor: editorBox, both: bothBox };

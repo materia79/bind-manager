@@ -150,6 +150,8 @@ export class GamepadRuntime {
     this._latched = new Map();
     /** @type {Map<number, Set<string>>} codes that fired 'pressed' and not yet 'released', per gamepad */
     this._pressedCodes = new Map();
+    /** @type {Map<number, Set<number>>} axes whose last analog event was non-zero, per gamepad */
+    this._analogActive = new Map();
     /** @type {Map<number, any>} */
     this._resolvedProfileByGamepadIndex = new Map();
     /** @type {Map<string, { type: 'profile', key: string } | { type: 'family', family: string }>} */
@@ -498,6 +500,7 @@ export class GamepadRuntime {
     this._curState.delete(e.gamepad.index);
     this._latched.delete(e.gamepad.index);
     this._pressedCodes.delete(e.gamepad.index);
+    this._analogActive.delete(e.gamepad.index);
     this._resolvedProfileByGamepadIndex.delete(e.gamepad.index);
     if (this._captureCallback) {
       const cb = this._captureCallback;
@@ -570,9 +573,12 @@ export class GamepadRuntime {
       const curVal  = cur.axes[a]  ?? 0;
       const thr = this._analogThreshold;
 
-      // Continuous analog event (above deadband, direction-agnostic)
+      // Continuous analog event (above deadband, direction-agnostic), and one
+      // final 0 when the axis comes back into the deadband.
       if (Math.abs(curVal) > this._deadband) {
         this._dispatchAnalog(gamepad.index, a, curVal);
+      } else if (this._analogActive.get(gamepad.index)?.has(a)) {
+        this._dispatchAnalog(gamepad.index, a, 0);
       }
 
       // Negative direction (e.g. stick left or stick up)
@@ -650,7 +656,7 @@ export class GamepadRuntime {
 
   /**
    * Fire 'released' for every code of this gamepad that fired 'pressed', and a
-   * final analog 0 for every axis outside the deadband.
+   * final analog 0 for every axis whose last analog event was non-zero.
    * @private
    */
   _releaseActiveInputs(gamepadIndex) {
@@ -658,11 +664,9 @@ export class GamepadRuntime {
     if (pressed) {
       for (const code of [...pressed]) this._dispatch(gamepadIndex, code, 'released', 0);
     }
-    const state = this._curState.get(gamepadIndex);
-    if (!state) return;
-    const axisLen = Math.min(state.axes.length, GP_AXIS_COUNT);
-    for (let a = 0; a < axisLen; a++) {
-      if (Math.abs(state.axes[a] ?? 0) > this._deadband) this._dispatchAnalog(gamepadIndex, a, 0);
+    const analog = this._analogActive.get(gamepadIndex);
+    if (analog) {
+      for (const axisIndex of [...analog]) this._dispatchAnalog(gamepadIndex, axisIndex, 0);
     }
   }
 
@@ -959,10 +963,17 @@ export class GamepadRuntime {
 
   /**
    * Resolve both axis-direction codes to bound actions and fire analog events.
-   * Only fires if action.analog is true.
+   * Only fires if action.analog is true. Tracks which axes are non-zero so a
+   * final 0 can be sent when they return into the deadband.
    * @private
    */
   _dispatchAnalog(gamepadIndex, axisIndex, value) {
+    if (value !== 0) {
+      if (!this._analogActive.has(gamepadIndex)) this._analogActive.set(gamepadIndex, new Set());
+      this._analogActive.get(gamepadIndex).add(axisIndex);
+    } else {
+      this._analogActive.get(gamepadIndex)?.delete(axisIndex);
+    }
     const codes = [`GP_A${axisIndex}N`, `GP_A${axisIndex}P`];
     const seenActions = new Set();
     for (const code of codes) {

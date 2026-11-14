@@ -987,3 +987,43 @@ describe('GamepadRuntime — A5: in-memory mapping edits survive a reconnect', (
     expect(events).toEqual(['pressed']);
   });
 });
+
+describe('GamepadRuntime — A7: final analog zero', () => {
+  it('sends exactly one analog 0 when an axis returns into the deadband', () => {
+    const { runtime } = setup({ deadband: 0.12, analogThreshold: 0.5 });
+    const analog = [];
+    runtime.onAction('moveX', (e) => { if (e.type === 'analog') analog.push(e.value); });
+
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.3]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.7]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.05]));  // inside the deadband
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.02]));
+
+    expect(analog).toHaveLength(3);
+    expect(analog[0]).toBeCloseTo(-0.3);
+    expect(analog[1]).toBeCloseTo(-0.7);
+    expect(analog[2]).toBe(0);
+  });
+
+  it('sends nothing for an axis that never left the deadband', () => {
+    const { runtime } = setup({ deadband: 0.12 });
+    const analog = [];
+    runtime.onAction('moveX', (e) => { if (e.type === 'analog') analog.push(e.value); });
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0.05]));
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    expect(analog).toEqual([]);
+  });
+
+  it('does not send a second zero after suppress already zeroed the axis', () => {
+    const { runtime } = setup({ deadband: 0.12 });
+    const analog = [];
+    runtime.onAction('moveX', (e) => { if (e.type === 'analog') analog.push(e.value); });
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [-0.3]));
+    runtime.setGameplaySuppressed(true);                          // zero
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    runtime.setGameplaySuppressed(false);
+    runtime._processGamepad(makeGamepad('GP', 0, {}, [0]));
+    expect(analog.map((v) => Math.abs(v) < 1e-9 ? 0 : v)).toEqual([-0.3, 0]);
+  });
+});

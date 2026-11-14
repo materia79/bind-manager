@@ -263,6 +263,13 @@ export const BUILT_IN_TOOLS_CSS = `
 .bm-tester-side > section[hidden] { display: none; }
 /* Both open: the side column scrolls as a whole and every section keeps its natural height. */
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { overflow-y: auto; scrollbar-gutter: stable; }
+/* Its scrollbar is sized and coloured like the bindings modal body's, in u, so the column scales. */
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar { width: ${u(10)}; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar-track { background: transparent; }
+.bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side::-webkit-scrollbar-thumb { background: var(--bm-btn-border); border-radius: ${u(5)}; }
+@supports not selector(::-webkit-scrollbar) {
+  .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side { scrollbar-width: thin; scrollbar-color: var(--bm-btn-border) transparent; }
+}
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-side > section { flex: none; overflow: visible; }
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-raw { flex: none; height: ${u(208)}; }
 .bm-tester-panel.bm-debug-on.bm-editor-on .bm-tester-bindings-section,

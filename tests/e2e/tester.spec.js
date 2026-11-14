@@ -147,26 +147,29 @@ test.describe('Controller Tester does not jump', () => {
 
 /**
  * Elements checked for scale invariance, per side-panel state. With both panels
- * open the side column shows a native scrollbar, whose fixed pixel width does
- * not scale (like a 1px hairline), so each panel is measured on its own.
+ * open the side column scrolls; its scrollbar is sized in --bm-u, so that state
+ * scales too.
  */
+const DEBUG_ELEMENTS = [
+  '.bm-tester-panel',
+  '.bm-tester-head',
+  '.bm-tester-pad',
+  '.bm-tester-status',
+  '.bm-tester-profile-chip',
+  '.bm-tester-profile-select',
+  '.bm-tester-debug-btn',
+  '.bm-tester-close-btn',
+  '.bm-tester-debug',
+  '.bm-tester-signal',
+  '.bm-tester-active-codes',
+];
+const EDITOR_ELEMENTS = ['.bm-tester-editor', '.bm-tester-editor-actions', '.bm-tester-edit-target', '.bm-tester-bindings-section'];
 const SCALE_STATES = {
-  debug: [
-    '.bm-tester-panel',
-    '.bm-tester-head',
-    '.bm-tester-pad',
-    '.bm-tester-status',
-    '.bm-tester-profile-chip',
-    '.bm-tester-profile-select',
-    '.bm-tester-debug-btn',
-    '.bm-tester-close-btn',
-    '.bm-tester-debug',
-    '.bm-tester-signal',
-    '.bm-tester-active-codes',
-  ],
-  editor: ['.bm-tester-editor', '.bm-tester-editor-actions', '.bm-tester-edit-target', '.bm-tester-bindings-section'],
+  debug: { toggles: ['.bm-tester-debug-btn'], elements: DEBUG_ELEMENTS },
+  editor: { toggles: ['.bm-tester-editor-btn'], elements: EDITOR_ELEMENTS },
+  both: { toggles: ['.bm-tester-debug-btn', '.bm-tester-editor-btn'], elements: [...DEBUG_ELEMENTS, ...EDITOR_ELEMENTS, '.bm-tester-side', '.bm-tester-raw'] },
 };
-const SCALE_ELEMENTS = Object.values(SCALE_STATES).flat();
+const SCALE_ELEMENTS = Object.entries(SCALE_STATES).flatMap(([state, { elements }]) => elements.map((s) => `${state} ${s}`));
 
 /** Boxes of SCALE_ELEMENTS with the tester open and the pad connected. */
 async function scaleBoxes(browser, width, height) {
@@ -175,14 +178,14 @@ async function scaleBoxes(browser, width, height) {
   const panel = await openTester(page);
   await expect(panel.locator('.bm-tester-profile-select')).toBeEnabled();
   const boxes = {};
-  for (const [state, sels] of Object.entries(SCALE_STATES)) {
-    await panel.locator(state === 'debug' ? '.bm-tester-debug-btn' : '.bm-tester-editor-btn').click();
+  for (const [state, { toggles, elements }] of Object.entries(SCALE_STATES)) {
+    for (const t of toggles) await panel.locator(t).click();
     await frames(page);
-    Object.assign(boxes, await page.evaluate((list) => Object.fromEntries(list.map((s) => {
+    Object.assign(boxes, await page.evaluate(({ list, prefix }) => Object.fromEntries(list.map((s) => {
       const r = document.querySelector(`.bm-tester-modal ${s}`).getBoundingClientRect();
-      return [s, { x: r.x, y: r.y, width: r.width, height: r.height }];
-    })), sels));
-    await panel.locator(state === 'debug' ? '.bm-tester-debug-btn' : '.bm-tester-editor-btn').click();
+      return [`${prefix} ${s}`, { x: r.x, y: r.y, width: r.width, height: r.height }];
+    })), { list: elements, prefix: state }));
+    for (const t of toggles) await panel.locator(t).click();
   }
   await page.close();
   return boxes;

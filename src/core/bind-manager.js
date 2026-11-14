@@ -115,7 +115,7 @@ export function createBindManager(options = {}) {
   // Saved entries of actions not registered yet are carried through. A failed
   // save (quota, storage unavailable) never stops later saves: every commit
   // tries again; the failure is warned once and readable via getStorageStatus().
-  const storageStatus = { ok: true, failedSaves: 0, lastError: null };
+  const storageStatus = { ok: true, failedSaves: 0, lastError: null, lastFailure: null };
   let warnedSaveFailure = false;
   const unsubPersist = store.onCommit(() => {
     let ok;
@@ -128,11 +128,13 @@ export function createBindManager(options = {}) {
     }
     if (ok) {
       storageStatus.ok = true;
+      storageStatus.lastError = null;
       return;
     }
     storageStatus.ok = false;
     storageStatus.failedSaves += 1;
     storageStatus.lastError = error ?? storageAdapter.lastSaveError ?? null;
+    storageStatus.lastFailure = { error: storageStatus.lastError, at: Date.now() };
     if (!warnedSaveFailure) {
       warnedSaveFailure = true;
       console.warn('[BindManager] Saving bindings failed; later changes will be saved again. See manager.getStorageStatus().', storageStatus.lastError);
@@ -564,6 +566,19 @@ export function createBindManager(options = {}) {
     resetAll() { store.resetAll(); },
 
     /**
+     * Result of the most recent save. `ok` is false and `lastError` holds the
+     * error while the last save failed (quota exceeded, storage unavailable,
+     * or a custom adapter's save() threw or returned false); a successful
+     * save clears `lastError`. `lastFailure` keeps the most recent failure
+     * (`{ error, at }`, `at` a Date.now() timestamp). Every later change is
+     * saved again regardless.
+     * @returns {{ ok: boolean, failedSaves: number, lastError: unknown, lastFailure: { error: unknown, at: number } | null }}
+     */
+    getStorageStatus() {
+      return { ...storageStatus };
+    },
+
+    /**
      * Delete everything persisted for this namespace (bindings and gamepad
      * profile overrides) via the storage adapter's clear(). In-memory
      * bindings are untouched; the next binding change is persisted again.
@@ -572,16 +587,6 @@ export function createBindManager(options = {}) {
      * Call resetAll() first to also return the live bindings to defaults.
      * @returns {boolean} false when the storage adapter has no clear()
      */
-    /**
-     * Result of the most recent save. ok is false while the last save failed
-     * (quota exceeded, storage unavailable, or a custom adapter's save() threw
-     * or returned false); every later change is saved again regardless.
-     * @returns {{ ok: boolean, failedSaves: number, lastError: unknown }}
-     */
-    getStorageStatus() {
-      return { ...storageStatus };
-    },
-
     clearStorage() {
       if (typeof storageAdapter.clear !== 'function') return false;
       storageAdapter.clear();

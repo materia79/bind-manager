@@ -103,7 +103,7 @@ describe('a failed save does not break later saves', () => {
   const saved = () => JSON.parse(window.localStorage.getItem('bind-manager:quota-test'))?.bindings?.jump?.keyboard;
 
   it('keeps saving on later changes and exposes the failure', () => {
-    expect(manager.getStorageStatus()).toEqual({ ok: true, failedSaves: 0, lastError: null });
+    expect(manager.getStorageStatus()).toEqual({ ok: true, failedSaves: 0, lastError: null, lastFailure: null });
 
     setItem.failNext(2);
     manager.setBinding('jump', 0, 'KeyJ');
@@ -117,7 +117,10 @@ describe('a failed save does not break later saves', () => {
 
     manager.setBinding('jump', 0, 'KeyL');
     expect(saved()).toEqual(['KeyL']);
-    expect(manager.getStorageStatus()).toMatchObject({ ok: true, failedSaves: 2 });
+    // F10: a successful save clears lastError; lastFailure keeps the last failure.
+    expect(manager.getStorageStatus()).toMatchObject({ ok: true, failedSaves: 2, lastError: null });
+    expect(manager.getStorageStatus().lastFailure.error.name).toBe('QuotaExceededError');
+    expect(typeof manager.getStorageStatus().lastFailure.at).toBe('number');
 
     setItem.failNext(1);
     manager.setBinding('jump', 0, 'KeyM');

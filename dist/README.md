@@ -44,11 +44,11 @@ The bundle injects its stylesheets into `<head>` when the manager mounts its UI.
 
 ## Standalone demo
 
-[standalone-demo.html](standalone-demo.html) is the page that is published as the online demo. It needs nothing but `bind-manager.min.js` next to it. It shows:
+[standalone-demo.html](standalone-demo.html) is the page that is published as the online demo (the online copy changes only when the owner republishes it). It needs nothing but `bind-manager.min.js` next to it. This version shows:
 
 - the bindings modal (button or F5), the hint bar and the event log
 - the built-in tools, opened from the modal's footer or from the "Controller Test" and "Input Remap" buttons
-- a **Fake controller** panel for visitors without a gamepad: pick a family (Xbox, Xbox Elite, Xbox 360, DualShock 4, DualSense, Switch Pro, Steam Deck, Stadia, an unknown USB pad) and the page installs a simulated pad with that pad's real browser id, plus on-screen buttons that press its inputs while held. It is off by default and labelled as simulated; while it is on, real pads are hidden from the page.
+- a **Fake controller** panel for visitors without a gamepad (new in this version; the online demo has it once it is republished): pick a family (Xbox, Xbox Elite, Xbox 360, DualShock 4, DualSense, Switch Pro, Steam Deck, Stadia, an unknown USB pad) and the page installs a simulated pad with that pad's real browser id, plus on-screen buttons that press its inputs while held. It is off by default and labelled as simulated; while it is on, real pads are hidden from the page.
 
 To run it locally, from the repository root:
 
@@ -63,7 +63,7 @@ To publish it, copy `standalone-demo.html` and `bind-manager.min.js` into the sa
 
 ## Bundle size
 
-`bind-manager.min.js` is 201,755 bytes minified (55,734 bytes gzip -9) at this version, up from 149,425 bytes (38,703 gzip) in 0.1.x. The growth is the built-in tools (the SVG controller view, the Debug and Profile editor panels), the eight gamepad families and the scale-unit stylesheet. Measure your own build with `npm run build`; the numbers above are from the build of this tree.
+`bind-manager.min.js` is 201,755 bytes minified (55,734 bytes gzip -9) at this version, up from 134,734 bytes (34,486 gzip) in 0.1.0, the last public build (`main-latest` of 2026-08-10). The growth is the built-in tools (the SVG controller view, the Debug and Profile editor panels), the eight gamepad families, the scale-unit stylesheet, the browser shortcut guard and the wheel notch counter. Measure your own build with `npm run build`; the numbers above are from the build of this tree.
 
 ## Rebuilding
 

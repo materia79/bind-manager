@@ -249,3 +249,29 @@ test.describe('screens: Controller Tester per family (real manager)', () => {
     });
   }
 });
+test.describe('screens: Controller Tester with an in-memory edit (real manager)', () => {
+  test.use({ viewport: { width: 1920, height: 1080 } });
+
+  test('tester xbox edited', async ({ page }) => {
+    const fam = FAMILY_PADS.find((f) => f.name === 'xbox');
+    const pad = await installFakeGamepad(page, { id: fam.id, mapping: 'standard', buttonCount: fam.buttonCount, axisCount: 4 });
+    await page.goto('/package.json');
+    await page.setContent('<!doctype html><html><head><style>body { margin: 0; background: #0b1020; }</style></head><body></body></html>');
+    await page.evaluate(async () => {
+      const { createBindManager } = await import('/src/index.js');
+      window.__bm = createBindManager({ namespace: `screens-edited-${Math.random()}`, builtInTools: true });
+      window.__bm.registerAction({ id: 'jump', label: 'Jump', defaultBindings: ['Space'], defaultGamepadBindings: ['GP_B0'] });
+    });
+    await pad.connect();
+    await page.evaluate(() => window.__bm.open());
+    await page.locator('.bm-footer-action-btn[data-footer-action-id="controller-test"]').click();
+    const panel = page.locator('.bm-tester-modal.bm-tester-open .bm-tester-panel');
+    await expect(panel.locator('select').first()).toBeEnabled();
+    await page.evaluate(() => window.__bm.setGamepadProfileMappingEntry(0, 'GP_B0', { kind: 'button', index: 3 }));
+    await panel.locator('.bm-tester-editor-btn').click();
+    await expect(panel.locator('.bm-tester-profile-chip')).toHaveText('Edited');
+    await pad.setButtons({ 3: 1, 5: 0.4 });
+    await expect.poll(() => panel.locator('.bm-pad-el.bm-active').count()).toBeGreaterThanOrEqual(1);
+    await shoot(page, 'tester-family', 'xbox-edited', { name: '1920x1080' });
+  });
+});

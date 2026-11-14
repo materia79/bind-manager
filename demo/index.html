@@ -11,7 +11,10 @@
      * follows the viewport, clamped to [0.6667px, 2px]. It repeats the clamp of
      * the library's --bm-u instead of reading it, because the library injects
      * its stylesheet later and this sheet must not depend on that order.
-     * Text that would get too small has a px floor.
+     * Text that would get too small has a px floor (10px / 11px), so the HUD
+     * is an exact scaled copy only where the floors do not apply: from about
+     * 1477px wide at 16:9 (13u >= 10px). Below that, text stays legible instead
+     * of shrinking further.
      */
     :root {
       --demo-u: clamp(0.6667px, min(100vw / 1920, 100vh / 1080), 2px);

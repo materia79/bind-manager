@@ -184,6 +184,8 @@ export function createFakeController({ select, pad, status, labelFor = (code) =>
   }
 
   select.addEventListener('change', () => {
+    // An on-screen button held while switching must not stay highlighted or pressed.
+    releaseAll();
     disconnect();
     if (select.value) {
       connect(select.value);

@@ -10,7 +10,10 @@
        * Page chrome scales like the library UI: --demo-u is 1px at 1920x1080 and
        * follows the viewport, clamped to [0.6667px, 2px] (the clamp of the
        * library's --bm-u, repeated here because the bundle injects its stylesheet
-       * later). Text that would get too small has a px floor.
+       * later). Text that would get too small has a px floor (10px / 11px), so
+       * the HUD is an exact scaled copy only where the floors do not apply: from
+       * about 1477px wide at 16:9 (13u >= 10px). Below that, text stays legible
+       * instead of shrinking further.
        */
       :root {
         --demo-u: clamp(0.6667px, min(100vw / 1920, 100vh / 1080), 2px);
@@ -511,7 +514,7 @@
 
         appendLog('Demo ready. Press F5 to toggle Bind Manager UI.', 'info');
         appendLog('Try W/ArrowUp, Space, F, G, E, M, ShiftLeft, or connected gamepad defaults.', 'info');
-        appendLog('No gamepad? Pick a fake controller on the right.', 'info');
+        appendLog('No gamepad? Pick a pad in the Fake controller panel.', 'info');
       })();
 
       /**
@@ -635,6 +638,8 @@
         };
 
         select.addEventListener('change', () => {
+          // An on-screen button held while switching must not stay highlighted or pressed.
+          releaseAll();
           disconnect();
           if (select.value) {
             connect(select.value);

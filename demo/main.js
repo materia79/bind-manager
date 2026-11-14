@@ -344,4 +344,4 @@ function log(message, type = 'info') {
 
 log('Bind Manager demo ready', 'info');
 log('Press F5 to toggle the key bindings modal', 'info');
-log('No gamepad? Pick a fake controller on the right', 'info');
+log('No gamepad? Pick a pad in the Fake controller panel', 'info');

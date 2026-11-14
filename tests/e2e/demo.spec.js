@@ -213,6 +213,16 @@ test.describe('fake controller families', () => {
     expect(problems).toEqual([]);
   });
 
+  test('switching the family while an on-screen button is held releases it', async ({ page }) => {
+    await openDemo(page);
+    await page.locator('#fake-select').selectOption('dualsense');
+    await fakeInput(page, 'b0', true);
+    await expect(page.locator('#fake-pad .is-down')).toHaveCount(1);
+    await page.locator('#fake-select').selectOption('xbox');
+    await expect(page.locator('#fake-pad .is-down')).toHaveCount(0);
+    expect(await page.evaluate(() => navigator.getGamepads()[0].buttons[0].pressed)).toBe(false);
+  });
+
   test('an on-screen input drives the game actions', async ({ page }) => {
     await openDemo(page);
     await page.locator('#fake-select').selectOption('xbox');

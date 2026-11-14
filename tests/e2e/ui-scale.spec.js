@@ -569,3 +569,239 @@ test.describe('Focus and scroll in a real browser', () => {
     expect(info.footer).toBeLessThanOrEqual(110);
   });
 });
+
+// ── Delta 2: touch cancel, layout class, first frame, font overrides, hint pill, chevron ──
+
+/** Text of every bind button, keyed by action/device/slot. */
+function bindingTexts(page) {
+  return page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.bm-bind-btn')]
+    .map((b) => [`${b.dataset.actionId}/${b.dataset.device}/${b.dataset.slot}`, b.textContent])));
+}
+
+async function captureState(page) {
+  return page.evaluate(() => ({
+    captureOpen: document.querySelector('.bm-capture-overlay')?.getAttribute('aria-hidden') === 'false',
+    capturing: document.querySelectorAll('.bm-capturing').length,
+    focusInModal: document.querySelector('.bm-overlay').contains(document.activeElement),
+  }));
+}
+
+/** Wait long enough for a delayed touch click (and anything it would trigger) to arrive. */
+async function quiet(page) {
+  await page.waitForTimeout(400);
+  await settle(page);
+}
+
+/**
+ * A point inside the Cancel button with a bind button directly underneath the
+ * capture dialog (scrolling the modal body if needed), so a click that leaks
+ * through the dialog would start a new capture.
+ */
+async function pointOverBindButton(page) {
+  const point = await page.evaluate(async () => {
+    const overlay = document.querySelector('.bm-capture-overlay');
+    const cancel = document.querySelector('.bm-capture-cancel-btn').getBoundingClientRect();
+    const body = document.querySelector('.bm-modal-body');
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    overlay.style.visibility = 'hidden';
+    try {
+      for (let scroll = 0; scroll <= body.scrollHeight; scroll += 8) {
+        body.scrollTop = scroll;
+        await frame();
+        for (let y = cancel.top + 3; y < cancel.bottom - 2; y += 3) {
+          for (let x = cancel.left + 3; x < cancel.right - 2; x += 3) {
+            const el = document.elementFromPoint(x, y);
+            if (el?.classList.contains('bm-bind-btn')) return { x, y };
+          }
+        }
+      }
+      return null;
+    } finally {
+      overlay.style.visibility = '';
+    }
+  });
+  expect(point, 'a bind button lies under the Cancel button').not.toBeNull();
+  return point;
+}
+
+for (const size of [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]) {
+  test.describe(`Cancel by touch never reaches what is underneath @ ${size.width}x${size.height}`, () => {
+    test.use({ viewport: size, hasTouch: true });
+
+    for (const device of ['gamepad', 'keyboard']) {
+      test(`tap Cancel during a ${device} capture`, async ({ page }) => {
+        const pad = await installFakeGamepad(page, DUALSENSE_CHROME);
+        await stressPage(page, {});
+        await pad.connect();
+        await settle(page);
+        const before = await bindingTexts(page);
+
+        await page.locator(`.bm-bind-btn[data-action-id="a3"][data-device="${device}"][data-slot="0"]`).tap();
+        await expect(page.locator('.bm-capture-modal')).toBeVisible();
+        const point = await pointOverBindButton(page);
+        await page.touchscreen.tap(point.x, point.y);
+        await quiet(page);
+
+        expect(await captureState(page)).toEqual({ captureOpen: false, capturing: 0, focusInModal: true });
+        await page.keyboard.press('KeyZ');
+        await quiet(page);
+        expect(await bindingTexts(page)).toEqual(before);
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.bm-modal')).toBeHidden();
+      });
+    }
+
+    test('a bind button tapped right after a cancel still starts a capture', async ({ page }) => {
+      await stressPage(page, {});
+      await page.locator('.bm-bind-btn[data-action-id="a3"][data-device="keyboard"]').first().tap();
+      const point = await pointOverBindButton(page);
+      await page.touchscreen.tap(point.x, point.y);
+      await quiet(page);
+      await expect(page.locator('.bm-capture-modal')).toBeHidden();
+      await page.locator('.bm-bind-btn[data-action-id="a5"][data-device="keyboard"]').first().tap();
+      await expect(page.locator('.bm-capture-modal')).toBeVisible();
+      expect((await captureState(page)).capturing).toBe(1);
+    });
+  });
+}
+
+test.describe('Cancel by mouse, then an immediate genuine click', () => {
+  test.use({ viewport: REFERENCE });
+
+  test('a bind button clicked right after a mouse cancel starts a capture', async ({ page }) => {
+    await stressPage(page, {});
+    await page.locator('.bm-bind-btn[data-action-id="a3"][data-device="keyboard"]').first().click();
+    await page.locator('.bm-capture-cancel-btn').click();
+    await expect(page.locator('.bm-capture-modal')).toBeHidden();
+    await page.locator('.bm-bind-btn[data-action-id="a5"][data-device="keyboard"]').first().click();
+    await expect(page.locator('.bm-capture-modal')).toBeVisible();
+  });
+
+  test('pen-like pointer: Cancel by pointer events is never recorded and starts nothing', async ({ page }) => {
+    await stressPage(page, {});
+    const before = await bindingTexts(page);
+    await page.locator('.bm-bind-btn[data-action-id="a3"][data-device="keyboard"]').first().click();
+    const point = await pointOverBindButton(page);
+    // Dispatch a pen pointer sequence at Cancel, then the click a pen tap produces at the same point
+    await page.evaluate(([x, y]) => {
+      const opts = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'pen', isPrimary: true };
+      document.elementFromPoint(x, y).dispatchEvent(new PointerEvent('pointerdown', opts));
+      document.elementFromPoint(x, y).dispatchEvent(new PointerEvent('pointerup', opts));
+      document.elementFromPoint(x, y).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, detail: 1 }));
+    }, [point.x, point.y]);
+    await quiet(page);
+    expect(await captureState(page)).toEqual({ captureOpen: false, capturing: 0, focusInModal: true });
+    expect(await bindingTexts(page)).toEqual(before);
+  });
+});
+
+test.describe('Layout class from the measured width (item 3)', () => {
+  const CASES = [
+    { name: '2+2 at the default width', size: { width: 1920, height: 1080 }, kb: 2, gp: 2, expected: 'bm-layout-inline' },
+    { name: '3+3 at the default width', size: { width: 1920, height: 1080 }, kb: 3, gp: 3, expected: 'bm-layout-stacked' },
+    { name: '2+2 in a 900px host modal', size: { width: 1920, height: 1080 }, kb: 2, gp: 2, hostCss: 'body { --bm-modal-width: 900px; }', expected: 'bm-layout-stacked' },
+    { name: '2+1 in a 660px host modal at 3840x2160', size: { width: 3840, height: 2160 }, kb: 2, gp: 1, hostCss: 'body { --bm-modal-width: 660px; --bm-modal-max-h: 80vh; }', expected: 'bm-layout-narrow' },
+    { name: '2+1 at 390x844', size: { width: 390, height: 844 }, kb: 2, gp: 1, expected: 'bm-layout-narrow' },
+  ];
+  for (const c of CASES) {
+    test(c.name, async ({ page }) => {
+      await page.setViewportSize(c.size);
+      await stressPage(page, { kb: c.kb, gp: c.gp, hostCss: c.hostCss });
+      expect(await layoutClass(page)).toBe(c.expected);
+    });
+  }
+});
+
+test.describe('Content-sized host widths are right in the first frame (item 4)', () => {
+  for (const width of ['auto', 'fit-content', 'max-content']) {
+    for (const size of [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+      test(`--bm-modal-width: ${width} at ${size.width}x${size.height}`, async ({ page }) => {
+        await page.setViewportSize(size);
+        await stressPage(page, { kb: 2, gp: 2, hostCss: `body { --bm-modal-width: ${width}; }` });
+        const result = await page.evaluate(async () => {
+          const cls = () => [...document.querySelector('.bm-modal').classList].find((c) => c.startsWith('bm-layout-'));
+          window.__bm.close();
+          window.__bm.open();
+          const changes = [];
+          const modal = document.querySelector('.bm-modal');
+          const observer = new MutationObserver(() => changes.push(cls()));
+          observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+          const atOpen = cls();
+          for (let i = 0; i < 4; i++) await new Promise((r) => requestAnimationFrame(r));
+          observer.disconnect();
+          return { atOpen, final: cls(), changes };
+        });
+        expect(result.atOpen).toBe(result.final);
+        expect(result.changes).toEqual([]);
+        expect(await horizontalOverflow(page)).toEqual([]);
+      });
+    }
+  }
+});
+
+test.describe('Host font overrides (item 5)', () => {
+  test.use({ viewport: REFERENCE });
+  for (const css of ['html:root { --bm-font-m: 24px; --bm-font-l: 30px; }', 'body { --bm-font-m: 24px; --bm-font-l: 30px; }']) {
+    test(`${css} sets the body and title text`, async ({ page }) => {
+      await stressPage(page, { hostCss: css });
+      const sizes = await page.evaluate(() => ({
+        label: parseFloat(getComputedStyle(document.querySelector('.bm-action-label')).fontSize),
+        bind: parseFloat(getComputedStyle(document.querySelector('.bm-bind-btn')).fontSize),
+        title: parseFloat(getComputedStyle(document.querySelector('.bm-modal-title')).fontSize),
+        desc: parseFloat(getComputedStyle(document.querySelector('.bm-action-desc')).fontSize),
+      }));
+      expect(sizes).toEqual({ label: 24, bind: 24, title: 30, desc: 14 });
+    });
+  }
+});
+
+test.describe('Hint pill with long labels (item 6)', () => {
+  const LONG = 'A hint label that is far too long to fit on any reasonable screen, eighty chars';
+  for (const size of [{ width: 390, height: 844 }, { width: 1000, height: 600 }, { width: 1920, height: 1080 }]) {
+    test(`stays inside the viewport and at most three rows at ${size.width}x${size.height}`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await stressPage(page, { label: LONG });
+      await page.evaluate(() => { window.__bm.close(); window.__bm.showAllHints(); });
+      await settle(page);
+      const u = unitFor(size);
+      const info = await page.evaluate(() => {
+        const pill = document.querySelector('.bm-hints').getBoundingClientRect();
+        const items = [...document.querySelectorAll('.bm-hint-item')].map((el) => el.getBoundingClientRect())
+          .filter((r) => r.top < pill.bottom && r.bottom > pill.top);
+        const label = document.querySelector('.bm-hint-label');
+        return {
+          pill: { left: pill.left, right: pill.right, height: pill.height, bottom: pill.bottom },
+          items: items.map((r) => ({ left: r.left, right: r.right })),
+          labelWidth: label.getBoundingClientRect().width,
+          title: label.getAttribute('title'),
+          text: label.textContent,
+        };
+      });
+      expect(info.pill.left).toBeGreaterThanOrEqual(0);
+      expect(info.pill.right).toBeLessThanOrEqual(size.width);
+      for (const r of info.items) {
+        expect(r.left).toBeGreaterThanOrEqual(info.pill.left - 0.5);
+        expect(r.right).toBeLessThanOrEqual(info.pill.right + 0.5);
+      }
+      expect(info.pill.height).toBeLessThanOrEqual(104 * u + 1);
+      expect(info.labelWidth).toBeLessThanOrEqual(240 * u + 0.5);
+      expect(info.title).toBe(info.text);
+    });
+  }
+});
+
+test.describe('Select chevron (item 7)', () => {
+  test('is an SVG drawn at least 8px wide at 1280x720', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const pad = await installFakeGamepad(page, DUALSENSE_CHROME);
+    await stressPage(page, {});
+    await pad.connect();
+    await expect(page.locator('.bm-profile-select')).toBeVisible();
+    const bg = await page.locator('.bm-profile-select').evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { image: s.backgroundImage, size: s.backgroundSize };
+    });
+    expect(bg.image).toContain('svg');
+    expect(parseFloat(bg.size)).toBeGreaterThanOrEqual(8);
+  });
+});

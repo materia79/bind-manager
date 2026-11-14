@@ -117,3 +117,34 @@ for (const stress of STRESS) {
     });
   }
 }
+
+test.describe('styles screens @ 1920x1080 (touch cancel)', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, hasTouch: true });
+  test('bindings modal after a touch cancel of a gamepad capture', async ({ page }) => {
+    const pad = await installFakeGamepad(page, DUALSENSE_CHROME);
+    await stressPage(page, { kb: 2, gp: 1, count: 15 });
+    await pad.connect();
+    await page.locator('.bm-bind-btn[data-action-id="a3"][data-device="gamepad"]').tap();
+    await expect(page.locator('.bm-capture-modal')).toBeVisible();
+    await page.locator('.bm-capture-cancel-btn').tap();
+    await page.waitForTimeout(400);
+    await expect(page.locator('.bm-capture-modal')).toBeHidden();
+    await shoot(page, 'bindings-modal', 'touch-cancel', { name: '1920x1080' });
+  });
+});
+
+test.describe('styles screens @ 390x844 (long hints)', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  test('hint pill with 15 long labels', async ({ page }) => {
+    await stressPage(page, { kb: 2, gp: 1, count: 15 });
+    await page.evaluate(() => {
+      window.__bm.close();
+      window.__bm.hideAllHints();
+      const long = 'A hint label that is far too long to fit on any reasonable screen, eighty chars';
+      for (let i = 15; i < 30; i++) {
+        window.__bm.registerAction({ id: `h${i}`, label: `${long} ${i}`, slots: 1, defaultBindings: ['KeyH'] }).showHint();
+      }
+    });
+    await shoot(page, 'hint-bar', 'long-labels', { name: '390x844' });
+  });
+});

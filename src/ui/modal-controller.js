@@ -38,6 +38,9 @@ export class ModalController {
     this._returnFocusEl = null;
     /** Body scroll position at close(), restored on the next open(). */
     this._savedScrollTop = 0;
+    /** Widest slot counts over all actions, for the layout decision. */
+    this._slotCounts = { kb: 1, gp: 1 };
+    this._resizeObserver = null;
     /** @type {{ actionId: string, slot: number, device: string, buttonEl: HTMLElement } | null} */
     this._captureTarget = null;
     this._warningTimeout = null;
@@ -93,6 +96,10 @@ export class ModalController {
     });
 
     container.appendChild(this._overlay);
+    // Re-evaluate the row layout whenever the modal body changes size (viewport, host CSS)
+    if (typeof ResizeObserver === 'function') {
+      this._resizeObserver = new ResizeObserver(() => this._updateLayout());
+    }
     this._render();
 
     // Re-render when any binding changes while modal is open
@@ -120,6 +127,8 @@ export class ModalController {
     window.removeEventListener('mousedown', this._handleBlockMouseDown, true);
     window.removeEventListener('contextmenu', this._handleBlockContextMenu, true);
     window.removeEventListener('auxclick', this._handleBlockAuxClick, true);
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
     this._overlay?.remove();
         if (this._onGamepadChange && typeof window !== 'undefined') {
           window.removeEventListener('bm-gamepad-connected',    this._onGamepadChange);
@@ -132,15 +141,15 @@ export class ModalController {
   }
 
   open() {
-    if (!this._overlay) return;
-    if (!this._open) {
-      const active = document.activeElement;
-      this._returnFocusEl = active instanceof HTMLElement && active !== document.body && !this._overlay.contains(active)
-        ? active
-        : null;
-    }
+    // Already open: keep focus, scroll and content as they are
+    if (!this._overlay || this._open) return;
+    const active = document.activeElement;
+    this._returnFocusEl = active instanceof HTMLElement && active !== document.body && !this._overlay.contains(active)
+      ? active
+      : null;
     this._render();
     this._overlay.style.display = 'flex';
+    this._updateLayout();
     const body = this._overlay.querySelector('.bm-modal-body');
     if (body) body.scrollTop = this._savedScrollTop;
     this._open = true;
@@ -200,8 +209,12 @@ export class ModalController {
     const actions = [...groups.values()].flat();
     const kbSlots = Math.max(1, ...actions.map((a) => a.slots));
     const gpSlots = Math.max(1, ...actions.map((a) => a.gamepadSlots));
+    this._slotCounts = { kb: kbSlots, gp: gpSlots };
+    // Until the first measurement, assume the default modal width; _updateLayout() corrects it
+    const layout = _layoutFor(DEFAULT_BODY_WIDTH, kbSlots, gpSlots);
     this._overlay.innerHTML = `
-      <div class="bm-modal" tabindex="-1" style="--bm-kb-slots: ${kbSlots}; --bm-gp-slots: ${gpSlots}">
+      <div class="bm-modal bm-layout-${layout}" tabindex="-1" style="--bm-kb-slots: ${kbSlots}; --bm-gp-slots: ${gpSlots}">
+        <span class="bm-u-probe" aria-hidden="true"></span>
         <div class="bm-modal-header">
           <h2 class="bm-modal-title">Key Bindings</h2>
           <button class="bm-close-btn" type="button" aria-label="Close">✕</button>
@@ -222,6 +235,11 @@ export class ModalController {
 
     const body = this._overlay.querySelector('.bm-modal-body');
     if (body) body.scrollTop = scrollTop;
+    if (body && this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver.observe(body);
+    }
+    this._updateLayout();
 
     // Restore capture highlight if mid-capture when render was forced
     if (this._captureTarget) {
@@ -465,7 +483,7 @@ export class ModalController {
     return `
       <div class="bm-action-row" data-action-id="${_esc(action.id)}">
         <div class="bm-action-info">
-          <div class="bm-action-label">${_esc(action.label)}</div>
+          <div class="bm-action-label" title="${_esc(action.label)}">${_esc(action.label)}</div>
           ${action.description ? `<div class="bm-action-desc" title="${_esc(action.description)}">${_esc(action.description)}</div>` : ''}
         </div>
         <div class="bm-action-controls">
@@ -545,9 +563,7 @@ export class ModalController {
         onCancel: () => this._cancelCapture(),
       });
       this._gamepadRuntime.startCapture((code) => {
-        this._captureModal?.close();
-        this._captureTarget = null;
-        this._setCaptureUiState(false, null);
+        this._endCapture(actionId, slot, 'gamepad');
         if (code === null) { this._updateBindButtons(); return; }
         const result = this._store.set(actionId, slot, code, 'gamepad');
         if (result.conflicts.length > 0) {
@@ -575,9 +591,7 @@ export class ModalController {
         } else {
           this._runtime.cancelCapture();
         }
-        this._captureModal?.close();
-        this._captureTarget = null;
-        this._setCaptureUiState(false, null);
+        this._endCapture(actionId, slot, 'keyboard');
         if (code === null) { this._updateBindButtons(); return; }
         const result = this._store.set(actionId, slot, code, 'keyboard');
         if (result.conflicts.length > 0) {
@@ -594,17 +608,43 @@ export class ModalController {
 
   _cancelCapture() {
     if (this._captureTarget) {
-      if (this._captureTarget.device === 'gamepad') {
+      // Read first: a runtime may report the cancel synchronously and end the capture itself
+      const { actionId, slot, device } = this._captureTarget;
+      if (device === 'gamepad') {
         this._gamepadRuntime?.cancelCapture();
       } else {
         this._runtime.cancelCapture();
         this._mouseRuntime?.cancelCapture();
       }
-      this._captureModal?.close();
-      this._captureTarget = null;
-      this._setCaptureUiState(false, null);
+      this._endCapture(actionId, slot, device || 'keyboard');
       this._updateBindButtons();
     }
+  }
+
+  /**
+   * Close the capture dialog and put focus back on the captured slot, found by
+   * identity: a refresh() during the capture may have replaced the button.
+   */
+  _endCapture(actionId, slot, device) {
+    this._captureModal?.close({ restoreFocus: false });
+    this._captureTarget = null;
+    this._setCaptureUiState(false, null);
+    if (!this._open || !this._overlay) return;
+    const btn = this._overlay.querySelector(_slotSelector('bm-bind-btn', actionId, slot, device));
+    (btn && _isFocusable(btn) ? btn : this._overlay.querySelector('.bm-modal'))?.focus({ preventScroll: true });
+  }
+
+  /** Pick the row layout from the modal body's real width (see the layout notes in styles.js). */
+  _updateLayout() {
+    const modal = this._overlay?.querySelector('.bm-modal');
+    const body = modal?.querySelector('.bm-modal-body');
+    const probe = modal?.querySelector('.bm-u-probe');
+    if (!body || !probe) return;
+    const u = probe.getBoundingClientRect().width / 1000;
+    // Hidden or no layout engine (jsdom): keep the class chosen at render time
+    if (!(u > 0) || body.clientWidth === 0) return;
+    const layout = _layoutFor(body.clientWidth / u, this._slotCounts.kb, this._slotCounts.gp);
+    for (const name of LAYOUTS) modal.classList.toggle(`bm-layout-${name}`, name === layout);
   }
 
   _setCaptureUiState(capturing, activeButton) {
@@ -636,6 +676,7 @@ export class ModalController {
     });
     const label = device === 'gamepad' ? this._getGamepadLabel(code) : getKeyLabel(code);
     warningEl.textContent = `${label} is also bound to ${names.join(', ')} — both will be active.`;
+    warningEl.title = warningEl.textContent;
     warningEl.classList.remove('bm-hidden');
     clearTimeout(this._warningTimeout);
     this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 5000);
@@ -645,6 +686,7 @@ export class ModalController {
     const warningEl = this._overlay?.querySelector('.bm-conflict-warning');
     if (!warningEl) return;
     warningEl.textContent = message;
+    warningEl.title = message;
     warningEl.classList.remove('bm-hidden');
     clearTimeout(this._warningTimeout);
     this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 4000);
@@ -700,6 +742,34 @@ const SOURCE_LABELS = {
   generic: 'Generic',
   'memory-edit': 'Edited',
 };
+
+/*
+ * Row geometry in --bm-u, mirrored from styles.js: row padding 24 + 24, label
+ * at least 200, row gap 16, device row = badge 24 + gap 8 + n slots of 154
+ * (bind 120 + gap 4 + clear 24 + gap 6) - 6, 28 between device groups on one
+ * line, then gap 12 and the 32 reset button.
+ */
+const LAYOUTS = ['inline', 'stacked', 'narrow'];
+const ROW_PADDING = 48;
+const LABEL_MIN = 200;
+const ROW_GAP = 16;
+const GROUP_GAP = 28;
+const RESET = 12 + 32;
+/** Default modal (1080) minus the reserved scrollbar gutter (10). */
+const DEFAULT_BODY_WIDTH = 1070;
+
+function _deviceWidth(slots) {
+  return 32 + slots * 154 - 6;
+}
+
+/** @returns {'inline' | 'stacked' | 'narrow'} */
+function _layoutFor(bodyWidthU, kbSlots, gpSlots) {
+  const kb = _deviceWidth(kbSlots);
+  const gp = _deviceWidth(gpSlots);
+  if (bodyWidthU >= ROW_PADDING + LABEL_MIN + ROW_GAP + kb + GROUP_GAP + gp + RESET) return 'inline';
+  if (bodyWidthU >= ROW_PADDING + LABEL_MIN + ROW_GAP + Math.max(kb, gp) + RESET) return 'stacked';
+  return 'narrow';
+}
 
 function _isFocusable(el) {
   if (!(el instanceof HTMLElement) || el.disabled || el.closest('[hidden], .bm-hidden')) return false;

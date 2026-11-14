@@ -314,3 +314,103 @@ describe('ModalController gamepad profile panel', () => {
     expect(document.querySelector('.bm-profile-chip')?.textContent).toBe('Exact');
   });
 });
+
+describe('ModalController focus after capture and repeated open (delta)', () => {
+  beforeEach(() => {
+    testCounter += 1;
+    document.body.innerHTML = '';
+    setGamepads([DUALSENSE]);
+  });
+
+  afterEach(() => {
+    manager?.destroy();
+    manager = null;
+  });
+
+  function pressKeyOnWindow(code) {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code, key: code, bubbles: true, cancelable: true }));
+  }
+
+  it('returns focus to the captured slot when refresh() rebuilt the modal during the capture (m1)', () => {
+    createManager();
+    manager.open();
+    document.querySelector('.bm-bind-btn[data-action-id="back"][data-slot="1"][data-device="keyboard"]').click();
+    expect(document.querySelector('.bm-capture-modal').contains(document.activeElement)).toBe(true);
+
+    // Registering an action while capturing rebuilds the modal
+    manager.registerAction({ id: 'crouch', label: 'Crouch', group: 'Move', slots: 1, defaultBindings: ['KeyC'] });
+    pressKeyOnWindow('KeyZ');
+
+    expect(manager.getBinding('back')[1]).toBe('KeyZ');
+    const focused = document.activeElement;
+    expect(overlay().contains(focused)).toBe(true);
+    expect(focused.dataset.actionId).toBe('back');
+    expect(focused.dataset.slot).toBe('1');
+    expect(focused.dataset.device).toBe('keyboard');
+
+    pressEscape();
+    expect(manager.isOpen()).toBe(false);
+  });
+
+  it('returns focus to the bind button after Escape cancels a refreshed capture (m1)', () => {
+    createManager();
+    manager.open();
+    document.querySelector('.bm-bind-btn[data-action-id="jump"][data-device="gamepad"]').click();
+    manager.registerAction({ id: 'crouch', label: 'Crouch', group: 'Move', slots: 1, defaultBindings: ['KeyC'] });
+
+    pressEscape();
+    expect(manager.isOpen()).toBe(true);
+    const focused = document.activeElement;
+    expect(focused.classList.contains('bm-bind-btn')).toBe(true);
+    expect(focused.dataset.actionId).toBe('jump');
+    expect(focused.dataset.device).toBe('gamepad');
+    pressEscape();
+    expect(manager.isOpen()).toBe(false);
+  });
+
+  it('cancels on pointerdown without letting the press move focus (M4)', () => {
+    createManager();
+    manager.open();
+    document.querySelector('.bm-bind-btn[data-action-id="forward"][data-slot="0"]').click();
+    const cancel = document.querySelector('.bm-capture-cancel-btn');
+    const down = new Event('pointerdown', { bubbles: true, cancelable: true });
+    cancel.dispatchEvent(down);
+
+    // preventDefault on pointerdown suppresses the compatibility mousedown that would blur
+    expect(down.defaultPrevented).toBe(true);
+    expect(document.querySelector('.bm-capture-overlay').getAttribute('aria-hidden')).toBe('true');
+    expect(document.activeElement.dataset.actionId).toBe('forward');
+  });
+
+  it('open() while already open keeps focus and scroll (m8)', () => {
+    createManager();
+    manager.open();
+    modalBody().scrollTop = 64;
+    const btn = document.querySelector('.bm-bind-btn[data-action-id="back"][data-slot="0"]');
+    btn.focus();
+
+    manager.open();
+    expect(document.activeElement).toBe(btn);
+    expect(modalBody().scrollTop).toBe(64);
+  });
+
+  it('gives the action label a title with the full text (m4)', () => {
+    createManager();
+    manager.registerAction({ id: 'long', label: 'A very long action label that will be ellipsized', slots: 1 });
+    manager.open();
+    const label = document.querySelector('.bm-action-row[data-action-id="long"] .bm-action-label');
+    expect(label.getAttribute('title')).toBe('A very long action label that will be ellipsized');
+  });
+
+  it('puts the full conflict text in the warning title (m5)', () => {
+    createManager();
+    manager.open();
+    document.querySelector('.bm-bind-btn[data-action-id="back"][data-slot="0"]').click();
+    pressKeyOnWindow('KeyW');
+    const warning = document.querySelector('.bm-conflict-warning');
+    expect(warning.classList.contains('bm-hidden')).toBe(false);
+    expect(warning.textContent).toContain('"Forward"');
+    expect(warning.getAttribute('title')).toBe(warning.textContent);
+  });
+});

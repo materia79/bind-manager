@@ -149,6 +149,10 @@ export class CaptureModalController {
   _handleCancelClick(event) {
     // Pointer users cancel on pointerdown; keyboard activation arrives as a click with detail 0
     if (event?.type === 'click' && event.detail !== 0) return;
+    // The dialog hides on pointerdown. Suppressing the compatibility mousedown keeps it from
+    // landing on whatever is underneath, which would blur the focus restored to the bindings
+    // modal, and from being recorded by a mouse capture.
+    if (event?.type === 'pointerdown' && event.cancelable) event.preventDefault();
     this._onCancel?.();
   }
 }

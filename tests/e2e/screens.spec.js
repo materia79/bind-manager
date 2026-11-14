@@ -275,3 +275,37 @@ test.describe('screens: Controller Tester with an in-memory edit (real manager)'
     await shoot(page, 'tester-family', 'xbox-edited', { name: '1920x1080' });
   });
 });
+test.describe('screens: demo page', () => {
+  for (const screen of [{ name: '1920x1080', width: 1920, height: 1080 }, { name: '1280x720', width: 1280, height: 720 }]) {
+    test(`demo HUD ${screen.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: screen.width, height: screen.height });
+      await page.goto('/demo/');
+      await page.waitForSelector('#open-btn');
+      await shoot(page, 'demo', 'hud', screen);
+    });
+  }
+
+  test('Input Remap with the simulated standard DualSense (note)', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto('/demo/');
+    await page.waitForSelector('#open-remap-btn');
+    await page.locator('#fake-select').selectOption('dualsense');
+    await page.locator('#open-remap-btn').click();
+    await expect(page.locator('.bm-debug-layout-note')).toBeVisible();
+    await shoot(page, 'demo', 'remap-standard-note', { name: '1920x1080' });
+  });
+
+  test('Controller Test with Debug and Profile editor on', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto('/demo/');
+    await page.waitForSelector('#open-tester-btn');
+    await page.locator('#fake-select').selectOption('dualsense');
+    await page.locator('#open-tester-btn').click();
+    const panel = page.locator('.bm-tester-modal.bm-tester-open .bm-tester-panel');
+    await expect(panel).toBeVisible();
+    await panel.locator('.bm-tester-debug-btn').click();
+    await panel.locator('.bm-tester-editor-btn').click();
+    await expect(panel.locator('.bm-tester-editor')).toBeVisible();
+    await shoot(page, 'demo', 'tester-debug-editor', { name: '1920x1080' });
+  });
+});

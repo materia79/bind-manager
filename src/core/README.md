@@ -24,7 +24,7 @@ If you want to understand how the library works end to end, this folder is the b
 The core layer is made of three pieces:
 
 1. `action-registry.js`
-	 Stores immutable action definitions.
+	 Stores action definitions (plain objects; they are not frozen, but treat them as read-only).
 2. `binding-store.js`
 	 Stores the current bindings for those actions and emits change events.
 3. `bind-manager.js`
@@ -36,14 +36,14 @@ In practice, the flow looks like this:
 2. The manager loads saved bindings and saved gamepad profile overrides.
 3. Your app registers actions.
 4. The store creates keyboard and gamepad slots for each action using saved values or defaults.
-5. Keyboard and gamepad runtimes listen for browser input.
+5. Keyboard, mouse and gamepad runtimes listen for browser input.
 6. When a code is pressed, the runtimes ask the store which action IDs are bound to that code.
 7. The manager and UI react to those action events.
 8. When bindings change, the store emits an event and the manager persists the new state.
 
 That means `/src/core` owns the application-facing behavior, while the neighboring folders provide support:
 
-- `/src/input` translates browser keyboard and gamepad signals into logical codes.
+- `/src/input` translates browser keyboard, mouse and gamepad signals into logical codes.
 - `/src/storage` persists bindings and gamepad profile overrides.
 - `/src/ui` renders the binding modal, capture overlay, hints, and built-in debugging tools.
 
@@ -70,7 +70,8 @@ Important behavior:
 
 - Registration order is preserved because actions are stored in a `Map`.
 - Duplicate IDs throw immediately.
-- Missing or invalid fields are normalized to sensible defaults.
+- A missing id, a duplicate id, or a `slots` / `gamepadSlots` value that is not a positive integer throws (`undefined` / `null` mean the default).
+- Default bindings beyond the slot count are dropped with a console warning; other missing fields get defaults.
 - Actions are treated as definitions, not state. The registry does not track what the current binding is.
 
 Conceptually, the registry answers the question:
@@ -95,9 +96,10 @@ Its responsibilities are:
 - read current bindings
 - set and clear individual slots
 - reset one action or all actions to defaults
-- return all bindings in a serializable structure
+- return all bindings in a serializable structure (`getAll()`, registered actions only)
+- return what is persisted (`getAllForStorage()`: the registered snapshot plus the saved entries of actions not registered yet, carried through unchanged)
 - find which actions are bound to a given code
-- emit events when bindings change
+- emit events when bindings change, and one commit per change for persistence
 
 One subtle but important design detail is startup ordering.
 
@@ -125,7 +127,9 @@ It constructs and connects all major subsystems:
 - `ActionRegistry`
 - `BindingStore`
 - `KeyboardRuntime`
+- `MouseRuntime`
 - `GamepadRuntime`
+- `BrowserShortcutGuard` (inert until enabled)
 - `LocalStorageAdapter` or a custom storage adapter
 - `ModalController`
 - `CaptureModalController`
@@ -152,7 +156,7 @@ This file also owns several important lifecycle rules:
 
 - persisted bindings are loaded before action registration
 - runtimes are started immediately after manager creation
-- binding changes are automatically saved through the storage adapter
+- binding changes are automatically saved through the storage adapter, once per commit; a failed save is retried on the next change and reported by `getStorageStatus()`
 - optional debug mode binds a keyboard shortcut that toggles the modal
 - the UI is mounted into `options.container` or `document.body`
 
@@ -162,13 +166,13 @@ This file also owns several important lifecycle rules:
 
 When `createBindManager(options)` is called, the following happens:
 
-1. A namespace, storage adapter, and runtime thresholds are resolved.
+1. A namespace, storage adapter, and runtime thresholds (`deadband` 0.12, `analogThreshold` 0.5 unless given) are resolved.
 2. `ActionRegistry` and `BindingStore` are created.
 3. The storage adapter loads saved bindings.
 4. The storage adapter loads saved gamepad profile overrides if supported.
-5. `KeyboardRuntime` and `GamepadRuntime` are created.
-6. Both runtimes are started.
-7. The store is subscribed so every binding change triggers persistence.
+5. `KeyboardRuntime`, `GamepadRuntime`, `MouseRuntime` and the `BrowserShortcutGuard` are created.
+6. All four are started (the guard stays inert until enabled).
+7. The store's commit hook is subscribed so every committed change triggers persistence.
 8. UI controllers are created and mounted.
 9. A manager object with the public API is returned.
 
@@ -221,13 +225,17 @@ When a keyboard code is detected, the runtime asks the binding store:
 
 For every matching action ID, it fires listeners registered for that action and listeners registered for any action.
 
+#### Mouse path
+
+`MouseRuntime` turns mouse buttons into `MouseButton0`–`MouseButton4` and wheel notches into `MouseWheelUp` / `MouseWheelDown` (one `pressed` + `released` pulse per notch), combined with held keyboard modifiers (`ControlLeft+MouseWheelUp`). It releases every held button on window blur or when the page goes hidden, and dispatches nothing for a right press inside a text field or the bind-manager UI. Its bindings live in the keyboard slots.
+
 #### Gamepad path
 
 `GamepadRuntime` polls the Web Gamepad API on every animation frame.
 
 It converts raw controller state into logical Bind Manager codes such as:
 
-- `GP_B0` through `GP_B16` for buttons
+- `GP_B0` through `GP_B23` for buttons (`GP_B17` and up are the extra buttons some pads report)
 - `GP_A0N`, `GP_A0P`, `GP_A1N`, `GP_A1P`, and so on for axis directions
 
 It then resolves which actions are bound to those codes by calling the binding store with the `gamepad` device.
@@ -238,6 +246,7 @@ Gamepad dispatch has additional rules that matter to the core layer:
 - it uses a threshold to convert analog axes into digital press/hold/release events
 - it can also emit continuous `analog` events for actions marked `analog: true`
 - it respects `action.playerIndex`, so an action can be restricted to one controller index
+- suppressing gameplay (the modal opens) and a disconnect fire `released` for every pressed code and one final analog 0; inputs still held when gameplay resumes stay silent until released and pressed anew (latches)
 
 ### 4. UI capture and rebinding
 
@@ -255,7 +264,7 @@ When a user chooses to rebind an input in the modal:
 
 Cancellation rules are deliberate:
 
-- Escape cancels keyboard capture
+- Escape cancels either capture, keyboard or gamepad
 - the UI cancel button cancels either capture type
 - starting a new gamepad capture cancels the previous one with `null`
 - disconnecting a controller during capture also cancels the capture
@@ -264,7 +273,9 @@ Cancellation rules are deliberate:
 
 Persistence is intentionally simple.
 
-The core layer subscribes to every store event and calls `storageAdapter.save(store.getAll())`.
+The core layer subscribes to the store's commit hook (one commit per change; `resetAll()` is one commit) and calls `storageAdapter.save(store.getAllForStorage())`. That snapshot includes the saved entries of actions that are not registered yet, so a lazily registered action keeps its saved bindings.
+
+A save that throws or returns `false` counts as failed: the manager warns once, keeps trying on every later commit, and exposes `getStorageStatus()` → `{ ok, failedSaves, lastError, lastFailure }`.
 
 The default implementation is `LocalStorageAdapter` in `/src/storage`, which stores:
 
@@ -292,14 +303,15 @@ The current exported binding payload format from the manager is version `2`:
 Import supports two modes:
 
 - `merge`: only imported actions are changed
-- `replace`: imported actions are applied and missing known actions are cleared
+- `replace`: imported actions are applied; registered actions missing from the payload are cleared (keyboard, and gamepad for v2 payloads); in a v2 entry a missing device field clears that device; the saved entries of unregistered actions are made to match the payload
 
 Import is defensive:
 
-- invalid payloads return a report instead of crashing
-- unknown action IDs are skipped and reported
-- slot value type errors are reported in `invalidEntries`
-- v1 payloads are normalized into the v2 shape
+- invalid payloads return a report instead of crashing; an invalid `mode` throws
+- merge mode skips unknown action IDs and reports them in `skippedUnknownActions`
+- replace mode stores valid entries of unregistered IDs (`storedUnregisteredActions`) and drops what exceeds the caps (`droppedUnregisteredActions`): ids up to 128 characters, at most 512 ids per import, 16 slots per device
+- unknown codes keep the slot and slot value type errors clear it; both are reported in `invalidEntries`
+- v1 payloads are normalized into the v2 shape and never touch gamepad slots
 
 ## How `/src/core` depends on the rest of `/src`
 
@@ -312,9 +324,13 @@ This is the package entry point.
 It re-exports:
 
 - `createBindManager` from this folder
-- keyboard label helpers
-- gamepad code constants and helpers
-- gamepad profile helpers and resolvers
+- keyboard label and combo helpers, the wheel notch counter
+- the browser guard's default lists and pattern helpers
+- gamepad code constants and helpers (`GP_B0`..`GP_B23`, `GP_BUTTON_COUNT`, `GP_AXIS_COUNT`)
+- the gamepad family tables, label helpers and `parseGamepadId`
+- profile resolvers (`resolveGamepadProfile`, `isControllerProfileApplicable`, …) and the hat/mapping helpers
+
+The full list is in the root README's "Exports" section.
 
 So while `/src/core` implements the system, `/src/index.js` is what consumers import from.
 
@@ -346,9 +362,9 @@ Without these codes, the store and manager would have no device-independent way 
 
 #### `gamepad-profiles.js`
 
-Defines family-level label sets for `xbox`, `dualsense`, and `generic` controllers.
+Defines family-level label sets for eight families (`xbox`, `xbox360`, `dualshock4`, `dualsense`, `switch-pro`, `steam`, `stadia`, `generic`), the Xbox Elite label variant, the hardware-unverified label list, and family detection by vendor/product id (`parseGamepadId`, `detectGamepadProfile`).
 
-These are the fallback labels shown when no exact controller definition is available.
+These are the labels shown when no exact controller definition applies.
 
 #### `gamepad-profile-resolver.js`
 
@@ -360,7 +376,8 @@ It supports:
 - family fallback
 - generic fallback
 - manual override by exact profile or family
-- stable identity keys derived from vendor/product ID or the raw gamepad ID
+- stable identity keys: `vendor-product` parsed from Chrome or Firefox ids, else `id:<lowercased id>` (also read as a legacy key for stored overrides)
+- the applicability check of exact profiles (`mapping !== 'standard'` and equal raw button/axis counts)
 
 This matters to `/src/core` because the modal and hints need human-friendly labels for gamepad bindings.
 
@@ -376,15 +393,16 @@ Important behaviors:
 - supports capture mode with haptic feedback
 - dispatches custom window events when controllers connect, disconnect, or change profile
 - applies exact controller mapping definitions when available
-- allows temporary in-memory edits to the active profile definition
+- allows temporary in-memory edits to the active profile definition (per controller model, kept across reconnects, never persisted; remove restores the base entry, reset drops all edits)
+- exposes the dispatch thresholds and the logical state of a pad (`getThresholds()`, `getLogicalState()`) for the Controller Test
 
 #### `/src/input/controller_definitions`
 
 This folder provides generated exact controller profiles.
 
-Today it includes a generated DualSense profile built from a captured JSON input sample. The generated files map physical buttons and axes to logical Bind Manager codes and provide exact labels.
+Today it includes a generated DualSense profile built from a captured JSON input sample of the raw (unmapped) layout. The generated files map physical buttons and axes to logical Bind Manager codes and provide exact labels.
 
-The controller-definition pipeline matters to `/src/core` because the manager's gamepad labeling quality depends on it. When the modal shows `Cross` instead of `Btn 0`, it is because this pipeline resolved a more specific profile.
+An exact profile matters where the browser does not remap the pad: it corrects the raw layout. Most labels the modal shows (`Cross` instead of `Btn 0`) come from the family label sets, which apply whenever no exact profile fits the pad.
 
 ### `/src/storage`
 
@@ -393,12 +411,12 @@ The controller-definition pipeline matters to `/src/core` because the manager's 
 The core layer depends on its contract:
 
 - `load()`
-- `save(bindings)`
-- `clear()`
-- `loadGamepadProfileOverrides()`
-- `saveGamepadProfileOverrides(overrides)`
+- `save(bindings)`: returns `true`, or `false` on failure (keeping the error in `lastSaveError`); it never throws
+- `clear()` (optional for custom adapters; `clearStorage()` returns `false` without it)
+- `loadGamepadProfileOverrides()` (optional)
+- `saveGamepadProfileOverrides(overrides)` (optional)
 
-If you provide a custom storage adapter through `createBindManager({ storage })`, it must behave like this adapter.
+If you provide a custom storage adapter through `createBindManager({ storage })`, it must provide `load()` and `save()`. A `save()` that throws or returns `false` is counted as a failed save; one that returns nothing counts as a success.
 
 ### `/src/ui`
 
@@ -414,10 +432,10 @@ It shows:
 - keyboard slots
 - gamepad slots
 - reset buttons
-- a gamepad profile selection panel
+- a one-line gamepad profile panel (device name, source chip, profile select with "Auto detect", a note when a saved exact profile does not fit)
 - optional footer actions such as built-in tools
 
-It also manages capture initiation, warning messages, and gameplay suppression while open.
+It also manages capture initiation, warning messages, gameplay suppression while open, the Tab trap and focus return, and the row layout (`bm-layout-inline`, `-stacked` or `-narrow`, chosen from the body's measured width in `--bm-u` and the widest slot counts).
 
 #### `capture-modal-controller.js`
 
@@ -437,14 +455,20 @@ Provides optional built-in tools that the manager can mount into the modal foote
 
 From the current code, these tools include:
 
-- `Input Remap`
-- `Controller Test`
+- `Input Remap` (guided capture into the capture JSON, `src/ui/tools/input-debugger.js`)
+- `Controller Test` (live SVG controller view, Debug panel, Profile editor, `src/ui/tools/controller-tester.js`)
+
+Only one is open at a time; while one is open, Escape and Tab are handled at window capture for the topmost tool dialog (`src/ui/tools/focus.js`). The modules under `src/ui/tools/` hold the markup, CSS, shared context, signal helpers and the capture payload format.
 
 These tools are not part of the minimal binding loop, but they are part of the complete runtime environment created by `bind-manager.js`.
 
 #### `styles.js`
 
-Injects the shared stylesheet once.
+Injects the shared stylesheet once, into `<head>`, when the first UI controller mounts. Every length is a multiple of `--bm-u`, every text size a font token; see "Sizing and Theming" in the root README. The built-in tools inject a second stylesheet when they mount.
+
+<!-- STATUS AT THIS VERSION: being changed; replace this note when it is. -->
+Status at this version: the built-in tools' text follows only a `--bm-u` set on `:root` and ignores `--bm-font-*` and an ancestor's `--bm-u` (their lengths do follow an ancestor's `--bm-u`).
+<!-- END STATUS -->
 
 This matters because the core-created UI controllers assume the styles have been injected before rendering.
 
@@ -499,7 +523,9 @@ The manager returned by `createBindManager(...)` currently covers these responsi
 - export and import bindings
 - inspect connected gamepads and resolved profiles
 - override gamepad profile resolution
-- edit mapping entries in the active gamepad profile definition
+- edit mapping entries in the active gamepad profile definition, and reset those edits
+- read the gamepad dispatch thresholds and a pad's logical state
+- report the storage status
 - cancel browser shortcuts while the game owns input, enter fullscreen with Keyboard Lock, and arm a leave-site prompt (`browserGuard`, opt-in)
 - tear everything down with `destroy()`
 
@@ -511,7 +537,7 @@ These rules are easy to miss but are essential to correct usage.
 
 ### Actions must be registered before their bindings can matter
 
-Saved data is only materialized when an action is registered. Unknown or never-registered action IDs are not active.
+Saved data is only materialized when an action is registered. Unknown or never-registered action IDs are not active, but their saved entries are kept in storage until they register (or `clearStorage()` / a replace import drops them).
 
 ### Conflicts are allowed
 
@@ -531,7 +557,7 @@ If an action sets `playerIndex`, only that controller index will trigger it. If 
 
 ### Modal suppression prevents accidental gameplay input
 
-When the binding modal opens, gameplay dispatch is suppressed. On keyboard, currently pressed keys are also released so the game does not get stuck in a pressed state.
+When the binding modal opens, gameplay dispatch is suppressed. Currently pressed keys are released; on gamepads every pressed code gets `released` and every moved axis one final analog 0, and inputs still held when the modal closes stay silent until released and pressed anew. Held mouse buttons are released too (`released` events), when the modal opens and when the window loses focus.
 
 ### Capture behaves differently from gameplay dispatch
 
@@ -541,13 +567,15 @@ While capture is active, the next input is consumed by rebinding logic instead o
 
 The label shown for a gamepad binding is resolved in this order:
 
-1. exact label from a generated or edited controller definition
-2. family fallback label
-3. generic label
+1. exact label from an edited definition, or from a generated definition that applies to the pad
+2. the label variant of the pad (Xbox Elite paddles)
+3. the family label (a family without the code returns the code itself)
+
+A pad with no family match resolves to the `generic` family (`Btn 0`, …).
 
 ### Built-in profile edits are in memory
 
-`GamepadRuntime` can edit mapping entries in the active profile definition in memory. That affects label resolution and logical mapping during the current session, but it is separate from the normal binding persistence model.
+`GamepadRuntime` can edit mapping entries in the active profile definition in memory. That affects label resolution and logical mapping during the current session, but it is separate from the normal binding persistence model. Edits apply to every pad of the same model, survive a reconnect, start from the pad's standard layout when it has no exact profile, and are gone on reload. `removeGamepadProfileMappingEntry()` restores a code's base entry; `resetGamepadProfileMapping()` drops all edits.
 
 ## Recommended reading order
 

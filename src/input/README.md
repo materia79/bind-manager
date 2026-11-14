@@ -2,7 +2,7 @@
 
 This folder contains the runtime input layer for Bind Manager.
 
-It is responsible for turning raw browser keyboard and gamepad signals into the logical input codes and action events that the core layer consumes.
+It is responsible for turning raw browser keyboard, mouse and gamepad signals into the logical input codes and action events that the core layer consumes.
 
 Related docs:
 
@@ -33,7 +33,7 @@ Instead, this folder answers questions like:
 
 The full input path looks like this:
 
-1. `/src/core/bind-manager.js` creates `KeyboardRuntime` and `GamepadRuntime`.
+1. `/src/core/bind-manager.js` creates `KeyboardRuntime`, `MouseRuntime`, `GamepadRuntime` and the `BrowserShortcutGuard`.
 2. The runtimes listen to browser input sources.
 3. The runtimes convert raw browser data into Bind Manager codes.
 4. The runtimes ask `/src/core/binding-store.js` which actions are bound to those codes.
@@ -68,8 +68,8 @@ Important behavior:
 - A first `keydown` becomes `pressed`.
 - A repeated `keydown` becomes `held`.
 - `keyup` becomes `released`.
-- During capture mode, the next key is consumed for rebinding instead of normal gameplay.
-- Pressing `Escape` during keyboard capture returns `null` to indicate cancellation.
+- During capture mode, keys are consumed for rebinding instead of normal gameplay. The binding commits when the non-modifier key is released, as a combo with the modifiers held when it was pressed (`ShiftLeft+KeyW`); a modifier pressed and released on its own binds that modifier.
+- Pressing `Escape` during keyboard capture cancels it at once (on keydown) and returns `null`.
 
 This file is the authoritative source for keyboard runtime semantics in the project.
 
@@ -87,8 +87,12 @@ Examples:
 It exports:
 
 - `KEY_DISPLAY_NAMES`
-- `getKeyLabel(code)`
-- `isKnownCode(code)`
+- `getKeyLabel(code)` (combo codes become "Left Shift + W")
+- `isKnownCode(code)` (a combo is known when every part is)
+- `MODIFIER_ORDER`, `MODIFIER_CODES`
+- `buildComboCode(modifiers, primaryCode)`: the canonical combo string, modifiers in `MODIFIER_ORDER`
+
+All of them are exported from `src/index.js`.
 
 The UI layer uses this file whenever it needs to render a keyboard binding label.
 
@@ -101,7 +105,10 @@ This file defines `MouseRuntime`, the mouse counterpart of `KeyboardRuntime`.
 - held keyboard modifiers (from `KeyboardRuntime.getHeldModifiers()`) form combos such as `ControlLeft+MouseWheelUp`
 - capture commits on mouseup for buttons and on the first full notch for the wheel
 - bound non-primary buttons cancel the browser default (back/forward, autoscroll)
-- the wheel listener is registered with `{ passive: false }` so capture can cancel scrolling
+- window blur and the page going hidden release every held button (`released` events) and reset the wheel notch counter
+- a right press inside a text field or the bind-manager UI dispatches nothing (the native context menu opens there and would swallow the release)
+- during gameplay the context menu is cancelled only for right clicks (`button === 2`) outside text fields and the bind-manager UI, and only while `MouseButton2` (bare or with the held modifiers) is bound; keyboard-opened menus are left alone
+- the window wheel listener is passive by default and becomes non-passive only while a capture runs, or while a wheel code is bound and gameplay is not suppressed (so capture and host handlers can cancel scrolling)
 
 ### `wheel-notches.js`
 
@@ -115,8 +122,8 @@ This file defines `MouseRuntime`, the mouse counterpart of `KeyboardRuntime`.
 
 `BrowserShortcutGuard` cancels browser shortcuts and default actions while the game owns input. It is opt-in through the `browserGuard` option and exposed as `manager.browserGuard`.
 
-- capture-phase `window` listeners for keydown/keyup, mousedown/mouseup/auxclick, wheel (non-passive) and contextmenu
-- engagement: enabled, bind-manager UI closed, no text field focused, and pointer lock / fullscreen / focus on the target, or `setGameOwnsInput(true)` (`when: 'auto'`)
+- capture-phase `window` listeners for keydown/keyup, mousedown/mouseup/auxclick, wheel and contextmenu; the non-passive wheel listener exists only while the guard is started and enabled
+- engagement: enabled, bind-manager UI closed (bindings modal, capture, built-in tools), no text field focused, and pointer lock / fullscreen / focus on the target, or `setGameOwnsInput(true)` (`when: 'auto'`)
 - patterns (`Mod+KeyR`, `Shift+MouseWheel`, `Alt`, …) match with *at least* their modifiers, `allow` wins over block, and bound actions are cancelled too (`blockBound`)
 - Keyboard Lock (`navigator.keyboard.lock`) while JS fullscreen is active, feature-detected, released on exit
 - optional `beforeunload` leave-site prompt
@@ -129,7 +136,8 @@ This file defines the logical code vocabulary for gamepad input.
 
 Buttons are represented as:
 
-- `GP_B0` through `GP_B16`
+- `GP_B0` through `GP_B16`: the standard layout
+- `GP_B17` through `GP_B23`: extra buttons reported after the standard 17 (Share, touchpad click, paddles, back grips)
 
 Axes are represented as split directional codes:
 
@@ -144,6 +152,7 @@ It exports:
 
 - every button and axis-direction constant
 - `GP_CODES`
+- `GP_BUTTON_COUNT` (24) and `GP_AXIS_COUNT` (4)
 - `isGamepadCode(code)`
 - `getGamepadCodeType(code)`
 
@@ -151,21 +160,21 @@ Every other gamepad-related file in the project assumes this code format.
 
 ### `gamepad-profiles.js`
 
-This file provides family-level label maps for three profile families:
-
-- `xbox`
-- `dualsense`
-- `generic`
+This file provides family-level label maps for eight families: `xbox`, `xbox360`, `dualshock4`, `dualsense`, `switch-pro`, `steam`, `stadia` and `generic` (the label table is in the root README's "Gamepads" section).
 
 It exports:
 
-- `GAMEPAD_PROFILES`
-- `detectGamepadProfile(gamepadId)`
-- `getGamepadLabel(code, profile)`
+- `GAMEPAD_PROFILES`, `GAMEPAD_FAMILIES` (display order, generic last), `GAMEPAD_FAMILY_NAMES`, `getGamepadFamilyName(family)`
+- `GAMEPAD_LABEL_VARIANTS` and `getGamepadLabelVariant(family, vendorId, productId)`: the Xbox Elite variant labels `GP_B17`..`GP_B20` Paddle 1..4 for `045e-02e3`, `045e-0b00`, `045e-0b05`, `045e-0b22`
+- `GAMEPAD_UNVERIFIED_LABELS` and `isGamepadLabelUnverified(code, family)`: entries not verified on hardware (Xbox `GP_B17`, Steam `GP_B17`..`GP_B23`, Stadia `GP_B17`/`GP_B18`)
+- `parseGamepadId(id)` → `{ vendorId, productId, key, name }` for Chrome (`… (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)`) and Firefox (`054c-0ce6-…`, also with leading zeros dropped) ids
+- `GAMEPAD_DEVICE_FAMILIES`: the `vendor-product` → family table
+- `detectGamepadProfile(gamepadId)`: with a vendor/product pair only the table decides (an unknown pair is `generic`); without one, name patterns apply (`XInput` → `xbox`, "Xbox 360", "DualSense", "DualShock", a bare "Wireless Controller" → `dualshock4`, "Pro Controller", "Steam Deck", "Stadia", …)
+- `getGamepadLabel(code, profile = 'generic', variant = null)`: a family without a label for the code returns the code itself, which is how the UI knows the pad lacks that button
 
 These are not exact device mappings.
 
-They are fallback label sets used when the runtime knows the controller family but does not have an exact generated controller definition. For example, `GP_B0` can be shown as `A` on Xbox or `Cross` on PlayStation-family pads.
+They are the label sets used when no exact generated controller definition applies to the pad. For example, `GP_B0` can be shown as `A` on Xbox, `Cross` on PlayStation pads or `B` on a Switch Pro (positional).
 
 ### `gamepad-profile-resolver.js`
 
@@ -173,22 +182,25 @@ This file decides how a connected controller should be interpreted for labeling 
 
 It exports helpers such as:
 
-- `getGamepadIdentityKey(gamepadId)`
+- `getGamepadIdentityKey(gamepadId)` / `getGamepadIdentityKeys(gamepadId)`: `vendor-product` when the id carries the pair, else `id:<lowercased id>`; the legacy `id:` key is kept as a fallback so overrides stored by 0.1.0 for Chrome ids still apply
 - `normaliseGamepadProfileOverride(override)`
 - `getControllerFamily(profile, gamepadId)`
-- `resolveGamepadProfile(gamepadId, options)`
-- `getAvailableGamepadProfileOptions(gamepadId)`
+- `isControllerProfileApplicable(profile, gamepad)`: an exact profile fits only a pad the browser did not remap (`mapping !== 'standard'`) whose raw button and axis counts equal the profile's `sourceButtons` / `sourceAxes`
+- `resolveGamepadProfile(gamepadOrId, options)`: pass the Gamepad itself; with a bare id string exact profiles never apply
+- `getAvailableGamepadProfileOptions(gamepadOrId)`: only exact profiles that fit, and every named family with its display name
 - `getResolvedGamepadLabel(code, resolvedProfile)`
 
 Its job is to layer multiple resolution strategies in a predictable order.
 
 The current resolution order is:
 
-1. Manual exact profile override.
+1. Manual exact profile override, if it fits the pad (otherwise it is kept, reported in `ignoredOverride`, and resolution continues).
 2. Manual family override.
-3. Exact generated controller profile matched from the browser gamepad ID.
-4. Family detection fallback such as `xbox` or `dualsense`.
+3. Exact generated controller profile matched by vendor/product, if it fits the pad (no vendor-only fallback).
+4. Detected family such as `xbox` or `dualshock4`.
 5. Generic fallback.
+
+In-memory mapping edits replace the result (`source: 'memory-edit'`). The result also carries `displayName`, `vendorId`, `productId` and `labelVariant`.
 
 This file is the bridge between raw browser `Gamepad.id` strings, generated controller profiles, family label maps, and the UI labels users see.
 
@@ -210,14 +222,18 @@ It handles:
 - gamepad input capture for rebinding
 - optional haptic feedback on successful capture
 - profile resolution and manual overrides
-- exact controller mapping from generated controller definitions
+- exact controller mapping from generated controller definitions, with hat D-pad decoding
 - temporary in-memory edits to the resolved profile definition
+- the dispatch thresholds and a pad's logical state for the Controller Test (`getThresholds()`, `getLogicalState(index)`)
 
 Important runtime rules:
 
-- Small axis drift is ignored using a deadband.
-- Axis directions become digital `pressed`, `held`, and `released` events only after crossing an analog threshold.
-- Analog events are emitted independently of digital threshold crossings for actions that opt in.
+- Small axis drift is ignored using a deadband (default 0.12).
+- Axis directions become digital `pressed`, `held`, and `released` events only after crossing an analog threshold (default 0.5).
+- A raw button is pressed when the browser reports `pressed: true` or its value is above 0.5 (`BUTTON_PRESS_THRESHOLD`), mapped or not; an axis mapped to a button uses the analog threshold.
+- Analog events are emitted independently of digital threshold crossings for actions that opt in, plus exactly one analog 0 when an axis returns into the deadband.
+- `held` fires on every polled frame while a code stays pressed.
+- Suppressing gameplay (`setGameplaySuppressed(true)`, the modal opening) and a disconnect fire `released` for every code that fired `pressed` and a final analog 0 for moved axes. Inputs still active when gameplay resumes, and a code just captured, are latched: they fire nothing until released and pressed anew.
 - `playerIndex` filtering is respected before dispatching to an action.
 - Capture mode consumes the next meaningful input and prevents normal action dispatch.
 - Custom DOM events are emitted so the UI can react to controller connect, disconnect, and profile changes.
@@ -267,15 +283,16 @@ For a bound keyboard code, the runtime emits:
 
 If the window loses focus, all currently pressed keys are released internally and `released` events are fired for them. This avoids the classic stuck-key problem when users alt-tab away from the page.
 
-### Capture behavior
+### Keyboard capture
 
 Keyboard capture is a one-shot mode.
 
 While active:
 
-- normal gameplay action dispatch is bypassed for the captured key
-- the next non-repeated key becomes the new binding code
-- `Escape` cancels capture and returns `null`
+- normal gameplay action dispatch is bypassed
+- pressing a non-modifier key records it with the modifiers held at that moment; the binding commits when that key is released (capture-on-release), as a combo such as `ControlLeft+KeyS`
+- a modifier pressed and released with no other key binds the modifier itself
+- `Escape` cancels capture on keydown and returns `null`
 
 ## Gamepad behavior in detail
 
@@ -285,7 +302,7 @@ Gamepad handling is more layered because different controllers can expose differ
 
 The runtime always tries to translate the raw device into the same logical code set:
 
-- 17 logical buttons
+- 24 logical buttons (`GP_B0`..`GP_B23`)
 - 4 logical axes, each split into negative and positive direction codes
 
 That normalization is what allows the rest of the system to remain stable even when raw controllers differ.
@@ -294,9 +311,11 @@ That normalization is what allows the rest of the system to remain stable even w
 
 For each connected gamepad, the runtime tries to build a logical state using this order:
 
-1. Exact generated controller definition if available.
-2. Edited in-memory definition if the user has remapped profile entries in the current session.
-3. Raw standard-layout fallback if no exact mapping exists.
+1. Edited in-memory definition if the user has remapped profile entries in the current session (it starts from the exact definition, or from the identity mapping of the pad's standard layout).
+2. Exact generated controller definition if one fits the pad.
+3. Raw standard-layout fallback otherwise (button index = logical button, axis index = logical axis).
+
+Hat entries (a D-pad on one axis) are decoded on the 2/7 grid when a profile's four hat entries sit on the four cardinal positions (`isHatGridLayout`): a cardinal entry is also active on its two neighbouring diagonals, and an off-grid value (the resting value) is neutral. Other hat entries match `value` ± `tolerance`. `decodeHatValue`, `isHatEntryActive`, `isHatGridLayout` and `readMappingEntryMagnitude` are exported for other callers.
 
 ### Digital and analog dispatch
 
@@ -312,7 +331,7 @@ This lets the same stick support both:
 - digital-style bindings such as `Left Stick Left`
 - analog gameplay callbacks such as move speed or aim magnitude
 
-### Capture behavior
+### Gamepad capture
 
 Gamepad capture waits for the first new meaningful input:
 
@@ -332,7 +351,7 @@ They depend on the currently resolved profile, which may come from:
 - a family fallback
 - generic fallback
 
-This is why the same logical code can be shown as `A`, `Cross`, or `Btn 0` depending on the connected controller and resolved profile.
+This is why the same logical code can be shown as `A`, `Cross`, or `Btn 0` depending on the connected controller and resolved profile. `getLabelForCode(code)` without an index uses the first connected pad.
 
 ## How `/src/input` supports the UI
 
@@ -341,7 +360,7 @@ The input folder does not render UI itself, but UI behavior depends heavily on i
 The bindings modal uses:
 
 - `getKeyLabel(...)` for keyboard slots
-- `getLabelForCode(...)` via `GamepadRuntime` for gamepad slots
+- `getLabelForCode(...)` via `GamepadRuntime` for gamepad slots (variant-aware, first connected pad by default)
 - capture methods from `KeyboardRuntime` and `GamepadRuntime`
 - profile option helpers for the gamepad profile dropdown
 
@@ -350,7 +369,7 @@ The hints bar uses:
 - keyboard labels from `key-names.js`
 - resolved gamepad labels from the active profile
 
-The built-in input remap and controller test tools also depend on these modules to interpret, label, and validate raw input.
+The built-in Input Remap and Controller Test tools also depend on these modules to interpret, label, and validate raw input. The Controller Test lights a control exactly when the runtime's logical state says it is pressed, and evaluates mappings (hats, magnitudes) with the runtime's own helpers.
 
 ## Important invariants and edge cases
 

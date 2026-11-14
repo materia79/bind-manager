@@ -2,284 +2,155 @@
 
 This folder contains the exact controller-profile layer for Bind Manager.
 
-It exists to make gamepad input more accurate and more readable than family-only or generic fallback labeling can provide.
+It exists for controllers whose raw browser layout does not match the standard gamepad layout: an exact profile maps their raw buttons, axes and hat D-pad onto Bind Manager's logical codes and brings its own labels.
 
 Related docs:
 
-- [../../../README.md](../../../README.md) for package-level usage.
+- [../../../README.md](../../../README.md) for package-level usage (the "Gamepads" and "Built-in Tools" sections).
 - [../README.md](../README.md) for the full input-layer architecture.
 - [../../core/README.md](../../core/README.md) for how the manager and UI consume these profiles.
 - [../../../scripts/README.md](../../../scripts/README.md) for the `process_controller_defs` generation pipeline.
 
 ## What this folder is for
 
-The rest of the input system works with logical gamepad codes such as:
+The rest of the input system works with logical gamepad codes such as `GP_B0`, `GP_B12`, `GP_A0N` or `GP_A3P`. When the browser recognises a pad, it reports it with `mapping: 'standard'` and already arranges buttons and axes in the standard layout; then the family labels in `../gamepad-profiles.js` are all that is needed.
 
-- `GP_B0`
-- `GP_B12`
-- `GP_A0N`
-- `GP_A3P`
-
-Those codes are stable across the project, but real controllers do not always expose raw browser button and axis data in a way that lines up cleanly with the standard mapping assumptions.
-
-This folder solves that problem by storing exact per-device controller definitions that can map:
+When the browser does not remap a pad (for example a DualSense in Firefox, reported with `mapping: ''`, 14 buttons and 12 axes), raw button 0 may be Square and the D-pad may be one hat axis. An exact profile from this folder maps:
 
 - raw button indices
-- raw axis indices
-- hat-axis directions
+- raw axis indices and directions
+- hat-axis values
 
-into Bind Manager's logical gamepad code system.
-
-That improves two things:
-
-1. Mapping correctness
-	The runtime can translate unusual raw device layouts into the expected logical code set.
-2. UI label quality
-	The modal, hints, and controller tester can show labels such as `Cross`, `Circle`, or `D-Pad Up` instead of generic labels like `Btn 0`.
+into the logical codes, so bindings and labels stay the same as on a remapped pad.
 
 ## Folder contents
 
 ### `captures/`
 
-This folder contains raw JSON captures produced by the demo tooling.
+Raw capture JSON files produced by the built-in **Input Remap** tool (`builtInTools: { inputRemap: true }`, opened from the bindings modal's footer or with `manager.openInputRemap()`).
 
-These files are the source material for exact controller definitions. They are not loaded directly by the browser runtime.
-
-Instead, they are processed into generated JavaScript modules so the runtime can import them.
+They are the source material for exact profiles. They are not loaded by the browser runtime, and they are excluded from the npm package (`package.json` `files`).
 
 ### `profiles/`
 
-This folder contains generated controller definition modules such as `054c-0ce6.js`.
-
-Each generated file exports a `controllerDefinition` object and a default export with the same value.
-
-These generated files are the exact profiles the runtime uses when a connected controller matches their device identity.
+Generated controller definition modules such as `054c-0ce6.js`. Each exports a `controllerDefinition` object and a default export with the same value. Do not edit them by hand: the generator rewrites them, and deletes any `.js` file here that no capture produces.
 
 ### `index.js`
 
-This is a generated registry file that imports every generated profile and exposes helpers for looking them up.
-
-It provides functions such as:
+The generated registry. It imports every generated profile and exposes lookup helpers:
 
 - `getControllerProfiles()`
 - `getControllerProfile(key)`
 - `findControllerProfilesByFamily(family)`
 - `findControllerProfile(vendorId, productId)`
-- `findControllerProfileByGamepadId(gamepadId)`
+- `findControllerProfileByGamepadId(gamepadId)` (exact vendor/product match through `parseGamepadId`, Chrome and Firefox id forms; there is no vendor-only fallback)
 
-This registry is what `gamepad-profile-resolver.js` uses to find an exact match for a connected controller.
+`../gamepad-profile-resolver.js` uses it to find an exact profile for a connected controller.
 
 ### `TODO.md`
 
-This file tracks known issues and follow-up tasks for controller capture quality, processor hardening, validation, and hardware verification.
+Known gaps and follow-up work for captures, the generator and hardware verification.
 
-At the time of writing, the TODO file highlights an important current issue with the DualSense capture data: the sequence metadata and capture metadata can disagree on `expectedCode`, and the processor currently uses the capture entries for generation.
+## When an exact profile applies
 
-## How exact controller profiles are used at runtime
+A profile found by vendor/product applies only when `isControllerProfileApplicable(profile, gamepad)` holds:
 
-When a gamepad is connected, Bind Manager resolves labels and mapping using a layered approach.
+- the browser did not remap the pad: `gamepad.mapping !== 'standard'`, and
+- the pad's raw button and axis counts equal the profile's `sourceButtons` and `sourceAxes`.
+
+The same check gates a manual exact override chosen in the profile select. An override that does not fit is kept (the pad may report a raw layout later), reported in `ignoredOverride`, and shown in the UI as "saved profile does not fit this controller's layout". Setting such an override through `manager.setGamepadProfileOverride()` (or the profile select) warns once in the console; an override loaded from storage that does not fit is reported in `ignoredOverride` without a warning. With only an id string (no Gamepad object), an exact profile never applies.
 
 The resolution order is:
 
-1. Manual exact profile override selected by the user.
-2. Manual family override selected by the user.
-3. Exact generated profile matched from the browser `Gamepad.id`.
-4. Family fallback such as `xbox` or `dualsense`.
-5. Generic fallback.
+1. Manual exact profile override that fits the pad.
+2. Manual family override.
+3. Exact generated profile that fits the pad.
+4. Detected family such as `xbox` or `dualshock4`.
+5. Generic.
 
-This folder is responsible for step 3.
+In-memory mapping edits (the Controller Test's Profile editor, `setGamepadProfileMappingEntry()`) replace the result for that controller model until reload (`source: 'memory-edit'`).
 
-If an exact match exists, the runtime can use:
+When a profile applies, it provides:
 
-- exact labels from `definition.labels`
-- exact raw-to-logical mappings from `definition.mapping`
+- labels from `definition.labels`
+- raw-to-logical mappings from `definition.mapping`
 
-That profile data then flows into:
-
-- `GamepadRuntime` for logical state translation
-- `gamepad-profile-resolver.js` for resolution metadata
-- the bindings modal for gamepad slot labels
-- the hints bar for gamepad prompts
-- the built-in controller tester for visualization and debugging
+which flow into `GamepadRuntime` (logical state and dispatch), the bindings modal, the hint bar and the Controller Test.
 
 ## Controller definition structure
 
-Each generated controller definition is plain serializable data.
+Each generated definition is plain serialisable data with these fields:
 
-A typical definition includes:
+| Field | Meaning |
+| --- | --- |
+| `key` | `vendorId-productId`, lowercase |
+| `vendorId`, `productId` | from the capture's `targetController.id`, else from the capture file name |
+| `sourceName` | the device name from the id, else "Unknown Controller" |
+| `sourceId` | the browser's `Gamepad.id` at capture time |
+| `sourceButtons`, `sourceAxes` | the raw button and axis counts at capture time; the applicability check compares them |
+| `capturedAt` | the capture's `generatedAt` |
+| `profileHint`, `family` | the label family (`dualsense` for every capture of the current preset) |
+| `labels` | logical code → label, from the capture's step labels (`Cross`, `L2 (digital)`, `Left Stick Left`, …) |
+| `mapping` | logical code → raw entry |
 
-- `key`
-- `vendorId`
-- `productId`
-- `sourceName`
-- `sourceId`
-- `sourceButtons`
-- `sourceAxes`
-- `capturedAt`
-- `profileHint`
-- `family`
-- `labels`
-- `mapping`
+Mapping entries:
 
-### Identity fields
+- `{ kind: 'button', index }`
+- `{ kind: 'axis', index, direction: 'negative' | 'positive' }`
+- `{ kind: 'hat', index, value, tolerance }`
 
-These fields help identify which controller the definition belongs to:
+The runtime compiles `GP_B0`..`GP_B23` and `GP_A0N`..`GP_A3P`. The analog trigger codes of the capture (`GP_B6A`, `GP_B7A`) end up in the profile too; only the Controller Test reads them (for its trigger bars).
 
-- `key`: usually `vendorId-productId`
-- `vendorId`
-- `productId`
-- `sourceId`: the original browser-reported gamepad ID string or related capture identifier
-
-### Label fields
-
-The `labels` object maps logical Bind Manager codes to the text the UI should display.
-
-Examples:
-
-- `GP_B0 -> Cross`
-- `GP_B1 -> Circle`
-- `GP_B12 -> D-Pad Up`
-- `GP_A0N -> Left Stick Left`
-
-### Mapping fields
-
-The `mapping` object maps logical Bind Manager codes to physical controller inputs.
-
-Supported entry kinds in the generated data include:
-
-- `button`
-- `axis`
-- `hat`
-
-Examples:
-
-- button mapping: logical code reads a physical button index
-- axis mapping: logical code reads a specific axis in a positive or negative direction
-- hat mapping: logical code reads a hat-style D-pad value from a shared axis with a tolerance
-
-This is what lets the runtime reconstruct a normalized 17-button, 4-axis logical state from device-specific raw browser data.
+**Hat D-pads.** When all four D-pad captures land on the same axis and direction, the generator writes four `hat` entries with the grid values up -1, right -0.428571, down 0.142857, left 0.714286 and tolerance 0.2. The runtime recognises such a set as a 2/7 grid: a cardinal entry is also active on its two neighbouring diagonals, and an off-grid value (the hat's resting value) is neutral.
 
 ## Generation pipeline
 
-The generation pipeline is driven by:
+`npm run process_controller_defs` (`node scripts/process-controller-defs.js`) reads every `.json` file in `captures/`, validates it, converts it into a definition, writes `profiles/<key>.js` per device and regenerates `index.js`. Any error in any capture stops the run before anything is written; warnings are printed and do not stop it. Several captures of one device are deduplicated (the newest `generatedAt` wins), and a new capture is merged over the existing profile of that device. Details: [../../../scripts/README.md](../../../scripts/README.md#2-process-controller-defsjs).
 
-- `npm run process_controller_defs`
-- `node scripts/process-controller-defs.js`
+## Adding a controller profile
 
-The script reads capture JSON files from `captures/`, validates them, converts them into normalized controller definitions, writes generated profile files into `profiles/`, and regenerates `index.js`.
+This workflow was run end to end with a simulated raw DualSense (a test fake pad reporting `mapping: ''`; the demo's Fake controller cannot be used for this, its pads are all standard-mapped): a full 27-step capture, the generator, and the applicability check of the result.
 
-The pipeline exists because:
+1. Use a browser that reports the controller **without** remapping it (`mapping` is not `'standard'`). Open the Controller Test and look at the raw table in its Debug panel: a pad the browser remapped has exactly the standard layout and its id contains `STANDARD GAMEPAD` in Chrome. For captures from a remapped pad, see the status note below.
+2. Open **Input Remap** (bindings modal footer, or `manager.openInputRemap()`), keep the preset "DualSense / PlayStation Layout", release every control and press **Start Debug** (2 s baseline).
+3. For each of the 27 steps, hold the named input and press **Capture** (5 s window, the strongest stable input wins), then **Next**. **Back** and **Redo** fix a step.
+4. Check the validation line. "D-Pad mappings are not distinct enough yet for reliable processing." is expected for a hat D-pad (all four directions on one axis); the generator turns that case into hat entries.
+5. **Download JSON** (the file is named `<vendor>-<product>_dualsense.json`) and put it into `src/input/controller_definitions/captures/`.
+6. Run `npm run process_controller_defs` and check its warnings. The run writes `profiles/<vendor>-<product>.js` and `index.js`.
+7. Reload the page with the controller connected. The profile chip reads "Exact · …" when the profile applies; verify the controls in the Controller Test.
 
-- capture data is produced as JSON
-- the runtime imports JavaScript modules in the browser
-- the generation step is where validation, normalization, and code generation happen
+<!-- STATUS AT THIS VERSION: this note describes a gap that is being fixed; replace it when it is. -->
+**Status at this version: remapped pads produce dead profiles.** The capture does not record `gamepad.mapping`, and neither the tool nor the generator checks it. A capture from a pad with `mapping: 'standard'` (most pads in Chrome) gives a profile whose `sourceButtons`/`sourceAxes` come from the remapped pad; it never applies, automatically or by manual override. If that capture is the newest for an existing device key, it also replaces that profile's counts, so the raw profile stops applying. Verified: the standard-mapped capture produced `sourceButtons: 18, sourceAxes: 4` and applied to neither the standard nor the raw pad; the raw capture produced `sourceButtons: 14, sourceAxes: 10` with hat entries and applied to the raw pad.
+<!-- END STATUS -->
 
-The current high-level pipeline is:
+What else to know before relying on it:
 
-1. Discover `.json` capture files.
-2. Parse them and run sanity validation.
-3. Derive device identity metadata.
-4. Build `labels` and `mapping` data.
-5. Merge with existing generated profile data when appropriate.
-6. Deduplicate by device key.
-7. Write generated profile modules.
-8. Regenerate `index.js`.
-
-See [../../../scripts/README.md](../../../scripts/README.md) for the full processing details.
-
-## Typical workflow for adding or updating a controller profile
-
-The current operator workflow is:
-
-1. Open the demo and launch the `Input Remap` or related controller capture flow.
-2. Capture the controller inputs and review the generated JSON and validation output.
-3. Download the JSON and place it into `src/input/controller_definitions/captures/`.
-4. Run `npm run process_controller_defs`.
-5. Verify that `profiles/` and `index.js` were regenerated correctly.
-6. Reconnect the controller and verify labels and mappings in the bindings modal, hints, and controller tester.
-
-## Validation and quality rules
-
-The processor performs sanity checks before generation.
-
-From the current script documentation, validation includes checks for:
-
-- expected capture structure
-- usable target controller metadata
-- D-pad presence
-- valid mapping entry kinds and indices
-- duplicate expected codes
-- multiple logical codes resolving to the same physical input
-- sequence/capture expected-code mismatch
-
-Warnings do not necessarily stop generation, but they should be treated as real quality signals.
-
-The current TODO list also makes it clear that capture QA still matters, especially for ambiguous triggers, the PS button, and D-pad/hat mappings.
+- **One preset.** The guided capture knows only the DualSense layout, tags every capture `family: 'dualsense'` and uses the step labels ("L2 (digital)") as exact labels. There is no step for `GP_B17` or above, so a touchpad, Share or paddles cannot be captured.
+- **The tool's validation is weaker than the generator's.** A step without a detected input is skipped by the tool's check, so "ready to export" can show for an incomplete run that the generator then rejects (`<code>: detected mapping is missing`).
+- **Without `targetController`** (a hand-edited capture), the vendor/product comes from the file name and the counts are `null`, so the profile never applies; nothing warns.
+- **The Controller Test's Download JSON is not a capture.** It exports the current (exact or edited) profile definition; the generator cannot read it (it expects `captures`), and there is no supported path from that file to a shipped profile.
+- **Profiles are generated assets.** Hand edits in `profiles/` are overwritten or deleted on the next run.
 
 ## Current generated profile coverage
 
-At the moment, this repository includes a generated exact profile for a DualSense controller:
+The repository ships one exact profile:
 
-- `054c-0ce6`
+- `054c-0ce6` (DualSense), captured from the raw layout Firefox reports: `sourceButtons: 14`, `sourceAxes: 12`. Face buttons are remapped (raw 1 is Cross, raw 0 is Square), PS is raw button 12, the D-pad is a hat on axis 9, the right stick is on axes 2 (X) and 5 (Y), the analog triggers are axes 3 and 4.
 
-That generated profile includes:
-
-- exact labels for face buttons, shoulders, D-pad, sticks, and guide button
-- mappings for button-backed controls
-- mappings for axis-backed controls
-- hat mappings for D-pad directions
-
-This provides a concrete example of the data shape expected by the runtime.
-
-## How this folder interacts with the rest of the system
-
-### With `/src/input/gamepad-profile-resolver.js`
-
-The resolver asks the generated registry for exact matches and then combines that with manual overrides and family fallback logic.
-
-### With `/src/input/gamepad-runtime.js`
-
-The runtime uses exact profile mappings to build a normalized logical gamepad state before dispatching action events.
-
-### With `/src/ui`
-
-The UI uses the resolved profile's labels so users see familiar controller terminology in the binding modal, hint bar, and tester tools.
-
-### With `/src/core`
-
-The core manager does not need to know raw hardware details. It relies on this folder to provide a stable, normalized view of controller identity, labels, and mappings.
+It has no touchpad mapping (`GP_B17`): its capture had no such step, so on a raw DualSense the touchpad click is not mapped. A DualSense that Chrome remaps (`mapping: 'standard'`) does not use this profile; the `dualsense` family labels apply there, including Touchpad for `GP_B17`.
 
 ## Important invariants and caveats
 
-### These files are generated assets, not hand-maintained runtime logic
-
-The files in `profiles/` and `index.js` should be treated as outputs of the processing pipeline.
-
-### Exact profiles are optional but valuable
-
-Bind Manager still works without an exact profile because it can fall back to family or generic behavior. Exact profiles mainly improve correctness and user-facing clarity.
-
-### Capture quality directly affects runtime quality
-
-If a capture is ambiguous or mislabeled, the generated profile can be wrong even if the runtime code is correct.
-
-### Family fallback is not the same as exact mapping
-
-Family-level labels help readability, but only exact profiles can fully correct non-standard raw button and axis arrangements.
+- `profiles/` and `index.js` are outputs of the generator, not hand-maintained logic.
+- Exact profiles are optional: without one, a pad uses its family (or generic) labels and the standard layout.
+- Capture quality directly affects runtime quality: an ambiguous or mislabelled capture gives a wrong profile even when the runtime is correct.
+- Family labels are not exact mappings: only an exact profile corrects a non-standard raw layout, and only on a pad it fits.
 
 ## Recommended reading order
 
-If you want to understand this folder in the order data flows, read:
-
-1. `captures/` sample files
+1. `captures/` sample file
 2. [../../../scripts/README.md](../../../scripts/README.md)
 3. `profiles/` generated modules
 4. `index.js`
 5. [../gamepad-profile-resolver.js](../gamepad-profile-resolver.js)
 6. [../gamepad-runtime.js](../gamepad-runtime.js)
-
-## Summary
-
-This folder is the exact-profile layer for gamepad support in Bind Manager.
-
-It turns captured controller data into generated runtime modules so the rest of the system can resolve controllers more precisely, display accurate labels, and normalize hardware-specific layouts into Bind Manager's stable logical code model.

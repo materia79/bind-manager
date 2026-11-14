@@ -10,7 +10,11 @@
  * - Wheel events dispatch a pressed+released pulse (no held state), one pulse
  *   per notch: raw deltas are normalised by WheelNotchCounter (pixel/line/page
  *   deltaMode, high-resolution wheels and trackpads accumulate)
- * - The wheel listener is non-passive so capture can cancel page scrolling
+ * - The wheel listener is passive (the browser never waits for it before
+ *   scrolling the page) and switches to non-passive only while a capture runs
+ *   (capture cancels scrolling) or while a wheel code is bound and gameplay is
+ *   active (so a host handler can still cancel via originalEvent). The runtime
+ *   itself never cancels the wheel in gameplay; that is the browser guard's job.
  * - Capture fires on mouse release so modifier combos are captured correctly
  * - During capture, context menu is suppressed to avoid interference
  * - Bound non-primary buttons suppress the browser default action
@@ -26,6 +30,8 @@
  */
 import { buildComboCode } from './key-names.js';
 import { WheelNotchCounter } from './wheel-notches.js';
+
+const WHEEL_CODE = /(^|\+)MouseWheel(Up|Down)$/;
 
 export class MouseRuntime {
   /**
@@ -53,6 +59,12 @@ export class MouseRuntime {
     this._swallowRelease = new Set();
     /** @type {ReturnType<typeof setTimeout> | null} pending deferred contextmenu-listener removal */
     this._contextMenuTimer = null;
+    /** @type {boolean | null} passive flag of the registered wheel listener, null when none */
+    this._wheelPassive = null;
+    /** True while a wheel code (bare or combo) is bound to an action */
+    this._hasWheelBinding = false;
+    /** @type {Function | null} */
+    this._unsubStore = null;
 
     this._onMouseDown = this._onMouseDown.bind(this);
     this._onMouseUp = this._onMouseUp.bind(this);
@@ -73,9 +85,8 @@ export class MouseRuntime {
     window.addEventListener('contextmenu', this._onGameplayContextMenu);
     window.addEventListener('blur', this._onBlur);
     document.addEventListener('visibilitychange', this._onVisibilityChange);
-    // Window-level wheel listeners default to passive in Chromium, which would
-    // make preventDefault during capture a no-op.
-    window.addEventListener('wheel', this._onWheel, { passive: false });
+    this._unsubStore = this._store.subscribe(() => this.refreshBindings());
+    this.refreshBindings();
   }
 
   stop() {
@@ -90,16 +101,30 @@ export class MouseRuntime {
     window.removeEventListener('mousedown', this._onMouseDown);
     window.removeEventListener('mouseup', this._onMouseUp);
     window.removeEventListener('auxclick', this._onAuxClick);
-    window.removeEventListener('wheel', this._onWheel);
+    this._syncWheelListener();
     window.removeEventListener('contextmenu', this._onGameplayContextMenu);
     window.removeEventListener('blur', this._onBlur);
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    this._unsubStore?.();
+    this._unsubStore = null;
   }
 
   setGameplaySuppressed(suppressed) {
     this._suppressGameplay = suppressed;
     this._wheelNotches.reset();
     if (suppressed) this._releaseAll();
+    this._syncWheelListener();
+  }
+
+  /**
+   * Re-read whether any wheel code is bound. Binding changes are followed via
+   * the store; call this after an action registers (registration emits no
+   * change event). The manager does.
+   */
+  refreshBindings() {
+    this._hasWheelBinding = Object.values(this._store.getAll())
+      .some(({ keyboard }) => keyboard.some(code => typeof code === 'string' && WHEEL_CODE.test(code)));
+    this._syncWheelListener();
   }
 
   /**
@@ -113,6 +138,7 @@ export class MouseRuntime {
     // A removal deferred by the previous capture must not strip this capture's listener
     this._clearContextMenuTimer();
     this._wheelNotches.reset();
+    this._syncWheelListener();
     // Suppress context menu during capture so right-click can be bound
     window.addEventListener('contextmenu', this._onContextMenu);
   }
@@ -121,6 +147,7 @@ export class MouseRuntime {
     const pending = this._capturePending;
     this._captureCallback = null;
     this._capturePending = null;
+    this._syncWheelListener();
     if (pending) {
       // The button is still held: swallow its mouseup (it never dispatched 'pressed')
       // and keep the context menu suppressed until that release has happened.
@@ -192,6 +219,7 @@ export class MouseRuntime {
       this._captureCallback = null;
       const pending = this._capturePending;
       this._capturePending = null;
+      this._syncWheelListener();
       // Defer removal so the handler survives the mouseup → contextmenu gap
       this._detachContextMenu(true);
       const modifiers = this._keyboardRuntime.getHeldModifiers();
@@ -244,6 +272,7 @@ export class MouseRuntime {
       const cb = this._captureCallback;
       this._captureCallback = null;
       this._capturePending = null;
+      this._syncWheelListener();
       this._detachContextMenu(true);
       const modifiers = this._keyboardRuntime.getHeldModifiers();
       const comboCode = buildComboCode(modifiers, rawCode);
@@ -278,6 +307,26 @@ export class MouseRuntime {
       this._contextMenuTimer = null;
       window.removeEventListener('contextmenu', this._onContextMenu);
     }, 0);
+  }
+
+  /**
+   * A non-passive window wheel listener makes the browser wait for JS before
+   * scrolling the host page, so the listener is passive unless something may
+   * cancel the wheel: a capture (cancels scrolling itself), or gameplay with a
+   * wheel code bound (a host action handler may call
+   * originalEvent.preventDefault()). Chromium treats an unspecified window
+   * wheel listener as passive, so the flag is always explicit. Removed while
+   * the runtime is stopped.
+   * @private
+   */
+  _syncWheelListener() {
+    const mayCancel = !!this._captureCallback || (!this._suppressGameplay && this._hasWheelBinding);
+    const passive = this._active ? !mayCancel : null;
+    if (passive === this._wheelPassive) return;
+    // The passive flag of a registered listener cannot change: remove, then re-add
+    if (this._wheelPassive !== null) window.removeEventListener('wheel', this._onWheel);
+    this._wheelPassive = passive;
+    if (passive !== null) window.addEventListener('wheel', this._onWheel, { passive });
   }
 
   /** @private */

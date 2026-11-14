@@ -123,6 +123,8 @@ export function createBindManager(options = {}) {
     registerAction(def) {
       const action = registry.register(def);
       store.initAction(action);
+      // Registration emits no change event; a wheel default needs a non-passive listener
+      mouseRuntime.refreshBindings();
       // Refresh UI to include the newly registered action
       if (modal.isOpen()) modal.refresh();
       hints.refresh();

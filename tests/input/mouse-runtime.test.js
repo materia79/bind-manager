@@ -621,3 +621,118 @@ describe('MouseRuntime focus loss and the gameplay context menu', () => {
     mouseRuntime.stop();
   });
 });
+
+/**
+ * Replays the spied window add/removeEventListener calls for `type` (a repeated
+ * add of the same listener + capture flag is a no-op, like the DOM) and returns
+ * the registrations still live.
+ */
+function trackWindowListeners() {
+  const add = vi.spyOn(window, 'addEventListener');
+  const remove = vi.spyOn(window, 'removeEventListener');
+  const captureOf = (opts) => (typeof opts === 'boolean' ? opts : !!opts?.capture);
+  return (type) => {
+    const calls = [
+      ...add.mock.calls.map((args, i) => ({ isAdd: true, args, order: add.mock.invocationCallOrder[i] })),
+      ...remove.mock.calls.map((args, i) => ({ isAdd: false, args, order: remove.mock.invocationCallOrder[i] })),
+    ].filter(({ args }) => args[0] === type).sort((a, b) => a.order - b.order);
+    const live = [];
+    for (const { isAdd, args: [, fn, opts] } of calls) {
+      const i = live.findIndex((l) => l.fn === fn && l.capture === captureOf(opts));
+      if (isAdd && i === -1) live.push({ fn, capture: captureOf(opts), passive: !(opts && opts.passive === false) });
+      else if (!isAdd && i !== -1) live.splice(i, 1);
+    }
+    return live;
+  };
+}
+
+describe('MouseRuntime wheel listener passivity', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function wheelListener(live, mouseRuntime) {
+    const own = live('wheel').filter((l) => l.fn === mouseRuntime._onWheel);
+    expect(own.length).toBeLessThanOrEqual(1);
+    if (own.length === 0) return 'none';
+    return own[0].passive ? 'passive' : 'non-passive';
+  }
+
+  it('is passive by default and non-passive only while a wheel code is bound during gameplay', () => {
+    const live = trackWindowListeners();
+    const { registry, store, kbRuntime, mouseRuntime } = setup();
+    registerAction(registry, store, 'fire', ['MouseButton0']);
+    mouseRuntime.refreshBindings();
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    // Registration emits no change event: the manager calls refreshBindings()
+    registerAction(registry, store, 'next', ['MouseWheelDown']);
+    mouseRuntime.refreshBindings();
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+
+    // A host handler can still cancel the scroll through originalEvent; the runtime itself does not
+    const seen = [];
+    mouseRuntime.onAction('next', (e) => { if (e.type === 'pressed') seen.push(e); });
+    const event = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(seen).toHaveLength(1);
+    expect(event.defaultPrevented).toBe(false);
+    mouseRuntime.onAction('next', (e) => e.originalEvent.preventDefault());
+    const cancelled = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true });
+    window.dispatchEvent(cancelled);
+    expect(cancelled.defaultPrevented).toBe(true);
+
+    mouseRuntime.setGameplaySuppressed(true);
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+    mouseRuntime.setGameplaySuppressed(false);
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+
+    // Followed through store change events
+    store.clear('next', 0);
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+    store.set('fire', 1, 'ShiftLeft+MouseWheelUp');
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+    store.reset('fire');
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.stop();
+    kbRuntime.stop();
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+    store.set('next', 0, 'MouseWheelUp'); // no longer followed once stopped
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+  });
+
+  it('is non-passive while a capture runs and passive again after cancel or commit', () => {
+    const live = trackWindowListeners();
+    const { kbRuntime, mouseRuntime } = setup();
+
+    mouseRuntime.startCapture(() => {});
+    expect(wheelListener(live, mouseRuntime)).toBe('non-passive');
+    mouseRuntime.cancelCapture();
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.startCapture(() => {});
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }));
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.startCapture(() => {});
+    mousedown(2);
+    mouseup(2);
+    expect(wheelListener(live, mouseRuntime)).toBe('passive');
+
+    mouseRuntime.startCapture(() => {});
+    mouseRuntime.stop();
+    kbRuntime.stop();
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+  });
+
+  it('adds no wheel listener for a capture on a runtime that was never started', () => {
+    const live = trackWindowListeners();
+    const registry = new ActionRegistry();
+    const store = new BindingStore(registry);
+    const mouseRuntime = new MouseRuntime(store, new KeyboardRuntime(store));
+    mouseRuntime.startCapture(() => {});
+    expect(wheelListener(live, mouseRuntime)).toBe('none');
+    mouseRuntime.stop();
+  });
+});

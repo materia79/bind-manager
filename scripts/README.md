@@ -300,6 +300,16 @@ npm run process_controller_defs
 
 ---
 
+## 3) The push guard scripts
+
+Three scripts guard pushes to the public repository; how to install and use them is in the root README, section ["Contributing / pushing"](../README.md#contributing--pushing), and the release flow in [docs/RELEASING.md](../docs/RELEASING.md).
+
+- `pre-push.mjs`: the pre-push hook and its CLI (`--scan-tree`, `--scan-range`, `--scan-path`); scans what would be pushed and refuses private names, secrets and unlisted binaries.
+- `hygiene-patterns.mjs`: the pattern set the hook and the hygiene tests use (`npm run hygiene`).
+- `setup-git.mjs`: `npm run setup:git` installs and checks the guard for this clone (`-- --check` only reports).
+
+---
+
 ## Script Maintenance Notes
 
 - `build.js` is build-system focused and intentionally small.

@@ -233,7 +233,7 @@ Important runtime rules:
 - A raw button is pressed when the browser reports `pressed: true` or its value is above 0.5 (`BUTTON_PRESS_THRESHOLD`), mapped or not; an axis mapped to a button uses the analog threshold.
 - Analog events are emitted independently of digital threshold crossings for actions that opt in. An action bound to one half of an axis (`GP_A0N` or `GP_A0P`) gets only that half (the signed value clamped to `[-1, 0]` or `[0, 1]`, with `code` naming the half), an action bound to both halves the full value; each action gets exactly one analog 0 when its value returns to 0 (the axis back in the deadband, or the stick on the other half).
 - `held` fires on every polled frame while a code stays pressed.
-- Suppressing gameplay (`setGameplaySuppressed(true)`, the modal opening) and a disconnect fire `released` for every code that fired `pressed` and a final analog 0 for moved axes. Inputs still active when gameplay resumes, and a code just captured, are latched: they fire nothing until released and pressed anew.
+- Suppressing gameplay (`setGameplaySuppressed(true)`, the modal opening) and a disconnect fire `released` for every code that fired `pressed` and a final analog 0 to every analog action whose value (its half of the axis, or the whole axis) was non-zero. Inputs still active when gameplay resumes, and a code just captured, are latched: they fire nothing until released and pressed anew.
 - `playerIndex` filtering is respected before dispatching to an action.
 - Capture mode consumes the next meaningful input and prevents normal action dispatch.
 - Custom DOM events are emitted so the UI can react to controller connect, disconnect, and profile changes.

@@ -551,7 +551,7 @@ The hint bar is a centred pill near the bottom edge (`min(16u, 2vh)` above it), 
 Styles written for 0.1.0 against these no longer match:
 
 - Bindings modal: `bm-with-gamepad` (CSS only), `bm-profile-summary`, `bm-profile-meta`, `bm-profile-subtitle` (now `bm-profile-name` with the raw id in its `title`, and `bm-profile-chip` with `bm-profile-chip--exact|family|generic|manual|memory-edit`), `bm-profile-controls`, and the **Auto** button `bm-profile-auto-btn` (use the select's "Auto detect" option). New: `bm-profile-note`, `bm-empty`, `bm-device-row--keyboard` / `--gamepad`, `bm-layout-*`.
-- Built-in tools: the card classes `bm-debug-card` / `bm-tester-card` (now `bm-tool-section`), `bm-debug-small` / `bm-tester-help` (now `bm-tool-note`), `bm-debug-actions` / `bm-tester-actions`, the profile status lines and Auto buttons (now `bm-tool-device`, `bm-tool-chip`, `bm-tool-select`), the DOM controller view (`bm-tester-controller`, `bm-tester-node`, `bm-tester-stick`, `bm-tester-stick-dot`, `bm-tester-trigger-meter`, `bm-tester-trigger-fill`, `bm-tester-l2-fill`, `bm-tester-r2-fill`, `bm-tester-edit-mode`; now one SVG `bm-tester-pad` with `bm-pad-*` classes; `bm-tester-trigger-edit` still exists), the raw-input toggle (`bm-tester-raw-toggle-btn`, `bm-tester-raw-pre`; now the Debug panel's `bm-tester-raw`), `bm-tester-last-signal`, `bm-tester-detail`.
+- Built-in tools: the card classes `bm-debug-card` / `bm-tester-card` (now `bm-tool-section`), `bm-debug-small` / `bm-tester-help` (now `bm-tool-note`), `bm-debug-actions` / `bm-tester-actions`, the profile status lines and Auto buttons (now `bm-tool-device`, `bm-tool-chip`, `bm-tool-select`), the DOM controller view (`bm-tester-controller`, `bm-tester-node` with its `bm-wide` modifier, `bm-tester-stick`, `bm-tester-stick-dot` with `bm-tester-left-stick-dot` / `bm-tester-right-stick-dot`, `bm-tester-trigger-meter`, `bm-tester-trigger-fill`, `bm-tester-l2-fill`, `bm-tester-r2-fill`, `bm-tester-edit-mode`; now one SVG `bm-tester-pad` with `bm-pad-*` classes; `bm-tester-trigger-edit` still exists), the raw-input toggle and its section (`bm-tester-raw-section`, `bm-tester-raw-toggle-btn`, `bm-tester-raw-pre`; now the Debug panel's `bm-tester-raw`), `bm-tester-last-signal`, `bm-tester-detail`.
 
 ## Built-in Tools
 
@@ -644,6 +644,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - `analog` events of an action bound to one half of an axis now carry `code` (`GP_A0N` / `GP_A0P`, the same string as that half's `pressed`/`held`/`released`; for an action bound to both halves `code` is present but `undefined`), and within one poll they come before the `pressed`/`held` of the same axis. A manager-wide `onAnyAction` handler that treats every type other than `pressed`/`held` as "up" and keys its state by `e.code` (or `e.code ?? e.actionId`) therefore sees that half go up and down again on every frame the stick is past the threshold — also for a non-analog action bound to the same code. Skip `type === 'analog'` in such a handler and read analog values with `onAnalog()`. A handler keyed by `actionId` already saw this for analog actions in 0.1.0.
 - Hat D-pad diagonals now press both directions (up-right = `GP_B12` and `GP_B15`); a hat value between grid positions (the resting value) is neutral.
 - A button in an exact or edited mapping counts as pressed by the same rule as an unmapped one (`pressed` or value above 0.5); 0.1.0 used the analog threshold for mapped buttons and ignored `pressed`.
+- `destroy()` fires `released` (with `originalEvent: null`) for every keyboard and mouse binding still held; 0.1.0's teardown released nothing. Gamepad bindings still get no `released` from `destroy()`.
 
 **Gamepad families and labels**
 
@@ -652,7 +653,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - Xbox 360-era ids (`045e-028e`, `028f`, `0291`, `02a1`, `02a9`, `0719`, Logitech F310/F510/F710 in X mode, the Steam virtual pad `28de-11ff`, Amazon Luna `1949-041a`) get the `xbox360` family (Back, Start, Guide). XInput ids without vendor/product stay `xbox`.
 - An unknown Microsoft or Sony vendor/product pair is now `generic` (`Btn 0`, …); 0.1.0 labelled every Microsoft id Xbox and every Sony id DualSense.
 - Xbox labels changed: `GP_B8` Back → View, `GP_B9` Start → Menu, `GP_B10` L3 → LS, `GP_B11` R3 → RS; `GP_B17` is Share. Elite controllers label `GP_B17`..`GP_B20` Paddle 1..4. DualSense and DualShock 4 label `GP_B17` Touchpad; generic labels go up to `Btn 23`.
-- `GP_B17`..`GP_B23` exist: the runtime reads, captures and dispatches 24 buttons.
+- `GP_B17`..`GP_B23` exist: the runtime reads, captures and dispatches 24 buttons. `GP_CODES` lists 32 codes (0.1.0: 25) and `isGamepadCode('GP_B17')` is `true`; `GAMEPAD_PROFILES` has 8 families (0.1.0: 3). Code that iterates them sees the new entries.
 - `manager.getGamepadLabel(code)` without an index uses the first connected pad; 0.1.0 used pad 0, so with pad 0 unplugged every label fell back to generic.
 - New: `getGamepadThresholds()` and `getGamepadLogicalState(index)` (what the runtime dispatches with and reads).
 
@@ -660,12 +661,14 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 
 - An exact profile applies only to a pad it fits (`mapping !== 'standard'` and equal raw button/axis counts). 0.1.0 also handed the DualSense raw profile to any Sony pad (vendor-only fallback) and applied it to remapped pads. A manual exact override saved by 0.1.0 that does not fit is now ignored (reported in `ignoredOverride`, no warning on load) and the pad uses its family.
 - `getAvailableGamepadProfileOptions()` lists only exact profiles that fit the pad, and every named family with its display name.
+- The resolved profile (`getResolvedGamepadProfile()`, `resolveGamepadProfile()`) has new fields: `displayName`, `vendorId`, `productId`, `labelVariant` and `ignoredOverride`.
 - `removeGamepadProfileMappingEntry()` restores the code's base entry; 0.1.0 left the code mapped to nothing. An edit on a pad without an exact profile no longer unmaps the rest of the pad. Edits survive a reconnect. New: `resetGamepadProfileMapping()`.
 - Profile overrides are stored per controller model under a `vendor-product` key now, also for Chrome-form ids (0.1.0 used `id:<lowercased id>` for those). Overrides saved by 0.1.0 are still read and are rewritten under the new key on their next change. **Downgrade:** overrides set or changed by this version for Chrome-form ids do not apply in 0.1.0 (the localStorage key is the same, the key inside it is not), overrides naming a new family show generic labels there, and saved `GP_B17`+ bindings never fire there.
 
 **Import and storage**
 
-- Replace-mode import clears the gamepad slots of missing actions (version 2 payloads) and the device fields missing from an entry, and makes the saved entries of unregistered actions match the payload (stored, dropped, capped at ids of 128 characters, 512 ids per import, 16 slots per device). The report has two new fields, `storedUnregisteredActions` and `droppedUnregisteredActions`. See [JSON Export and Import](#json-export-and-import).
+- Replace-mode import clears the gamepad slots of missing actions (version 2 payloads) and the device fields missing from an entry, and makes the saved entries of unregistered actions match the payload (stored, dropped, capped at ids of 128 characters, 512 ids per import, 16 slots per device). The report has two new fields, `storedUnregisteredActions` and `droppedUnregisteredActions`, and in replace mode an unregistered id is listed in one of them instead of `skippedUnknownActions` (0.1.0 listed every unregistered id there; merge mode still does). See [JSON Export and Import](#json-export-and-import).
+- Merge-mode import no longer clears a device whose field is missing from an entry (an entry with only `keyboard` leaves the gamepad slots alone), nor the gamepad slots of a version 1 array entry; 0.1.0 read a missing field as an empty list and cleared that device.
 - Saved bindings of unregistered actions are kept; 0.1.0 wiped them on the first save before the action registered.
 - Failed saves are visible: one console warning and `getStorageStatus()`. `LocalStorageAdapter.save()` returns `true`/`false`; a custom adapter whose `save()` throws or returns `false` is counted as failing.
 
@@ -674,7 +677,11 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - Window blur and the page going hidden release every held mouse button (`released` events) and reset the wheel notch counter.
 - During gameplay, the context menu is cancelled for right clicks while `MouseButton2` (bare or as a combo with the held modifiers) is bound, except in text fields and the bind-manager UI; keyboard-opened menus are left alone. Without the browser guard, 0.1.0 never cancelled it, so the menu could open on the press and swallow the release.
 - A right press inside a text field or the bind-manager UI dispatches nothing.
-- The window wheel listener is passive unless a capture runs or a wheel code is bound during gameplay; the browser guard's non-passive wheel listener exists only while the guard is enabled. 0.1.0 always registered non-passive listeners, which made the browser wait for JavaScript on every scroll.
+- 0.1.0 registered the window wheel listener without options (passive in Chromium for window targets), so `originalEvent.preventDefault()` in a wheel action had no effect there; now the listener is non-passive while a wheel code is bound during gameplay. It is also non-passive while a capture runs and passive otherwise; the browser guard's non-passive wheel listener exists only while the guard is enabled.
+
+**Packaging**
+
+- `package.json` declares `files` (`src/` without the raw controller captures), `sideEffects: false` and `engines` (`node` `^20.19.0 || >=22.12.0`); 0.1.0 declared none of them.
 
 **Built-in tools**
 
@@ -689,7 +696,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 **Look and layout**
 
 - Every size is on `--bm-u`. The bindings modal is 1080u wide (1080px at 1920x1080; 0.1.0: 660px) and picks one of three row layouts; the hint bar is a centred pill capped at three rows (0.1.0: a full-width bar at the bottom edge). See [Sizing and Theming](#sizing-and-theming).
-- `--bm-modal-width`, `--bm-modal-max-h` and `--bm-modal-radius` are no longer declared on `:root` and have new defaults: 1080u (was 660px), 880u (was 80vh) and 12u (was 10px); `--bm-text-secondary` and `--bm-text-desc` have new defaults; borders are box-shadows, so `border-color` overrides no longer apply; several classes were removed (listed under [Removed classes and markup](#removed-classes-and-markup)). Focused controls in the bindings modal and the capture dialog get a 2u accent outline.
+- `--bm-modal-width`, `--bm-modal-max-h` and `--bm-modal-radius` are no longer declared on `:root` and have new defaults: 1080u (was 660px), 880u (was 80vh) and 12u (was 10px); `--bm-text-secondary` and `--bm-text-desc` have new defaults; borders are box-shadows, so `border-color` overrides no longer apply; several classes were removed (listed under [Removed classes and markup](#removed-classes-and-markup)), among them the tools classes `bm-wide`, `bm-tester-raw-section`, `bm-tester-left-stick-dot` and `bm-tester-right-stick-dot`. Focused controls in the bindings modal and the capture dialog get a 2u accent outline.
 - `bind-manager.min.js` grew from 134,734 bytes in 0.1.0 to 203,968 bytes (gzip -9: 34,486 bytes → about 56.7 kB), mostly the rebuilt tools, the families, the stylesheet and the browser guard.
 
 **Also new since 0.1.0 (made before the UI round)**

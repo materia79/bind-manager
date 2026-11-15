@@ -813,7 +813,8 @@ What the pre-push guard checks, for pushes to the public remote only:
 - only `main` and tags may be pushed; other branches, deleting `main` and rewriting `main` (a push that is not a fast-forward) are refused (a release is `git push origin <branch>:main`);
 - tag and branch names are scanned too;
 - the author and committer e-mail of every new commit must be in `hygiene.allowedEmail`;
-- what is already public is asked from the remote at push time (`git ls-remote`), not taken from local tracking refs; so a public push needs the network, and without an answer from the remote it is refused;
+- what is already public is asked from the remote at push time (`git ls-remote`), not taken from local tracking refs; so a public push needs the network, and without an answer from the remote it is refused (also when a `url.*.insteadOf` rule would send that question to another repository than the push goes to);
+- an installed guard (version 5 or later) older than the checkout's refuses public pushes; before the first public push of a release, re-run `npm run setup:git` in every clone; `npm run setup:git -- --check` must report the guard as current;
 - every commit that would become public is scanned: its message, every added line, every file path (merges and annotated tag messages included; binary, `-diff` and UTF-16 content too), for secrets (private-key blocks; GitHub, Anthropic, OpenAI, AWS, Google, Stripe, Slack and npm keys; JWTs; bearer and basic auth; credentials in URLs; password, secret, token and api-key assignments, quoted or in env/YAML files), home, worktree and UNC paths, private IPv4 addresses, and private names.
 
 Some checks run everywhere, some only on your machine:

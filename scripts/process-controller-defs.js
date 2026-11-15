@@ -457,21 +457,29 @@ export function toControllerDefinition(capture, fileName, defsDir = DEFS_DIR) {
   };
 }
 
+/**
+ * The definition object of an existing generated profile (renderProfileFile's
+ * layout): the JSON between the line that starts `export const
+ * controllerDefinition = ` and the `;` that closes it right before the final
+ * `export default controllerDefinition;`. JSON strings hold no raw line break,
+ * so neither marker can occur inside the data, whatever the id or the names
+ * hold (`;`, quotes, backslashes, braces, `*\/`). A file that exists but cannot
+ * be read this way is an error: skipping it would skip the layout guard.
+ * @returns {object | null} null when there is no such file
+ */
 function readExistingProfileDefinition(key, defsDir) {
   const filePath = path.join(defsDir, `${key}.js`);
   if (!fs.existsSync(filePath)) return null;
   const text = fs.readFileSync(filePath, 'utf8');
-  const marker = 'export const controllerDefinition = ';
-  const start = text.indexOf(marker);
-  if (start < 0) return null;
-  const end = text.indexOf(';', start + marker.length);
-  if (end < 0) return null;
-  const rawObject = text.slice(start + marker.length, end).trim();
-  try {
-    return JSON.parse(rawObject);
-  } catch {
-    return null;
+  const m = text.match(/^export const controllerDefinition = ([^]*?);[ \t]*\r?\n\s*export default controllerDefinition;\s*$/m);
+  let parsed = null;
+  if (m) {
+    try { parsed = JSON.parse(m[1]); } catch { parsed = null; }
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`the existing profile ${key}.js could not be read; delete it to generate the profile from the capture alone`);
+  }
+  return parsed;
 }
 
 function parseControllerIdFromFileName(fileName) {

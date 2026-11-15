@@ -55,6 +55,11 @@ export function createInputDebugger(ctx) {
     activeGamepadIndex: null,
     selectedPreset: DEFAULT_CAPTURE_PRESET,
     baseline: null,
+    // The pad a run (Start Debug) works on, { index, id }; its baseline and
+    // steps are only valid for that pad.
+    runPad: null,
+    // The pad the JSON was last rendered for (index and id, or 'none').
+    renderedPadKey: null,
     captures: [],
     currentStepIndex: 0,
     liveTimer: null,
@@ -70,11 +75,60 @@ export function createInputDebugger(ctx) {
 
   const refreshProfileUi = () => {
     if (!state.isOpen) return;
-    const activeIndex = resolvePreferredGamepadIndex(state.activeGamepadIndex);
+    // During a run the tool stays on the run's index, connected or not.
+    const activeIndex = state.runPad ? state.runPad.index : resolvePreferredGamepadIndex(state.activeGamepadIndex);
     state.activeGamepadIndex = activeIndex;
     state.lastProfileSignature = null;
     refreshProfileControls(profileControls, activeIndex);
+    syncPad();
   };
+
+  /** The pad the tool works on: during a run only the one at the run's index. */
+  function currentPad() {
+    if (state.runPad) return getGamepadByIndex(state.runPad.index);
+    return getGamepadByIndex(state.activeGamepadIndex) || pickGamepad();
+  }
+
+  const padKey = (gp) => (gp ? `${gp.index}\n${gp.id}` : 'none');
+
+  /**
+   * Re-render the JSON when the tool's pad connects, disconnects or changes
+   * id. Another pad than the run's makes its baseline and steps stale: they
+   * are discarded, with a status line saying so, and Start Debug is needed
+   * again. The same pad gone for a while keeps them.
+   */
+  function syncPad() {
+    if (!state.isOpen) return;
+    const gp = currentPad();
+    const key = padKey(gp);
+    if (key === state.renderedPadKey) return;
+    const run = state.runPad;
+    if (run && gp && gp.id !== run.id) {
+      const steps = state.captures.filter((row) => !!row?.detected).length;
+      discardRun(`The controller changed from "${run.id}" to "${gp.id}". The previous controller's baseline and ${steps} captured step(s) were discarded; press Start Debug to take a new baseline.`);
+    } else if (run && !gp) {
+      setStatus('The controller was disconnected. Reconnect the same controller to continue, or press Start Debug to start over with another one.');
+    } else if (run && gp && state.baseline) {
+      updateCurrentStepUi();
+    }
+    renderOutput();
+    updateLayoutNote(gp);
+    updateButtonState();
+  }
+
+  function discardRun(message) {
+    state.task?.cancel();
+    state.task = null;
+    state.isRunning = false;
+    state.baseline = null;
+    state.runPad = null;
+    state.captures = [];
+    state.currentStepIndex = 0;
+    ensureCaptureScaffold(getCapturePreset(state.selectedPreset));
+    setCountdown('');
+    setProgress('No active step. Press Start Debug to initialize baseline and step navigation.');
+    setStatus(message);
+  }
 
   els.presetSelect.innerHTML = Object.values(CAPTURE_PRESETS)
     .map((preset) => `<option value="${_esc(preset.id)}">${_esc(preset.label)}</option>`)
@@ -198,14 +252,22 @@ export function createInputDebugger(ctx) {
       return;
     }
 
+    // Steps captured on another controller do not belong to this run.
+    const previous = state.runPad;
+    const stale = previous && previous.id !== gp.id ? state.captures.filter((row) => !!row?.detected).length : 0;
+    if (previous && previous.id !== gp.id) state.captures = [];
+
     state.isRunning = true;
     state.cancel = false;
     state.activeGamepadIndex = gp.index;
+    state.runPad = { index: gp.index, id: gp.id };
+    state.baseline = null;
     state.currentStepIndex = 0;
     ensureCaptureScaffold(preset);
+    renderOutput();
     updateButtonState();
 
-    setStatus('Release all buttons and sticks now. Capturing baseline in 2 seconds...');
+    setStatus(`${stale ? `The previous controller's ${stale} captured step(s) were discarded. ` : ''}Release all buttons and sticks now. Capturing baseline in 2 seconds...`);
     setProgress('Normalization');
     setCountdown('');
 
@@ -220,6 +282,8 @@ export function createInputDebugger(ctx) {
     if (task.cancelled) return;
     if (!state.baseline || state.cancel) {
       setStatus('Debug cancelled during normalization.');
+      state.baseline = null;
+      state.runPad = null;
       state.isRunning = false;
       updateButtonState();
       return;
@@ -276,7 +340,8 @@ export function createInputDebugger(ctx) {
     const preset = getCapturePreset(state.selectedPreset);
     ensureCaptureScaffold(preset);
     if (!preset.steps.length) return;
-    const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
+    syncPad(); // a pad changed since the last frame drops the run first
+    const gp = currentPad();
     if (!gp) {
       setStatus('No controller detected. Connect a controller first.');
       return;
@@ -318,7 +383,8 @@ export function createInputDebugger(ctx) {
 
   function renderOutput() {
     const preset = getCapturePreset(state.selectedPreset);
-    const gp = getGamepadByIndex(state.activeGamepadIndex) || pickGamepad();
+    const gp = currentPad();
+    state.renderedPadKey = padKey(gp);
     const byExpected = {};
     const controllerDefinition = {
       sourceControllerId: gp?.id || null,
@@ -394,7 +460,8 @@ export function createInputDebugger(ctx) {
   }
 
   function updateLiveView() {
-    const gp = state.activeGamepadIndex == null ? pickGamepad() : getGamepadByIndex(state.activeGamepadIndex);
+    syncPad();
+    const gp = currentPad();
     const index = gp?.index ?? state.activeGamepadIndex;
     const signature = gp ? `${gp.index}:${profileSignature(manager.getResolvedGamepadProfile(gp.index))}` : 'none';
     if (signature !== state.lastProfileSignature) {

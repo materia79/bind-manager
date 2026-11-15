@@ -757,9 +757,43 @@ export function gitLsRemoteGetUrl(target, cwd) {
 /** `git ls-remote <target>`: the remote's current refs, bounded by LS_REMOTE_TIMEOUT_MS. */
 export function gitLsRemote(target, cwd) {
   if (!target || String(target).startsWith('-')) throw new Error('no remote to ask');
-  return execFileSync('git', ['ls-remote', target], {
-    cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true, timeout: LS_REMOTE_TIMEOUT_MS,
-    stdio: ['ignore', 'pipe', 'pipe'],
+  return runBounded('git', ['ls-remote', target], { cwd, timeoutMs: LS_REMOTE_TIMEOUT_MS });
+}
+
+/**
+ * Run a command, resolve with its stdout (exit 0) or reject. At `timeoutMs`,
+ * or past `maxBytes` of output, the whole process tree is ended, not only the
+ * direct child (git's transport helper, ssh): `taskkill /T /F` on Windows, the
+ * process group elsewhere. A timeout rejects with `code: 'ETIMEDOUT'`.
+ */
+export function runBounded(command, args, { cwd, timeoutMs, maxBytes = 256 * 1024 * 1024 }) {
+  return new Promise((resolve, reject) => {
+    const windows = process.platform === 'win32';
+    const child = spawn(command, args, { cwd, windowsHide: true, detached: !windows, stdio: ['ignore', 'pipe', 'ignore'] });
+    const chunks = [];
+    let bytes = 0;
+    let failure = null;
+    const endTree = (error) => {
+      if (failure) return;
+      failure = error;
+      try {
+        if (windows) execFileSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true, stdio: 'ignore' });
+        else process.kill(-child.pid, 'SIGKILL');
+      } catch { /* already gone */ }
+    };
+    const timer = setTimeout(() => endTree(Object.assign(new Error(`${command} timed out`), { code: 'ETIMEDOUT' })), timeoutMs);
+    child.stdout.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) endTree(Object.assign(new Error(`${command} gave too much output`), { code: 'ENOBUFS' }));
+      else chunks.push(chunk);
+    });
+    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (failure) reject(failure);
+      else if (code !== 0) reject(Object.assign(new Error(`${command} exited with ${code}`), { status: code }));
+      else resolve(Buffer.concat(chunks).toString('utf8'));
+    });
   });
 }
 

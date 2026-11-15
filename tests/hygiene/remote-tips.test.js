@@ -447,3 +447,32 @@ describe.skipIf(!HAS_GIT)('the guard asks only the repository that receives the 
     expect(refused.out).toContain('pl2.txt:1  [aws-access-key-id]');
   });
 });
+
+// Reviewer item: at the time bound the whole process tree of the remote
+// question ends (git's transport helper, ssh), not only the direct child.
+const SH = findSh();
+describe.skipIf(!SH)('the time bound ends the whole process tree', () => {
+  it('a child (sh, like git) that started a grandchild which never exits: both are gone after the bound', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-bounded-'));
+    try {
+      // The grandchild writes its own pid (msys `$!` is not a Windows pid).
+      const pidFile = path.join(dir, 'grandchild.pid').split(path.sep).join('/');
+      const node = process.execPath.split(path.sep).join('/');
+      const grandchild = `"${node}" -e "require('fs').writeFileSync('${pidFile}', String(process.pid)); setInterval(() => {}, 1e9)"`;
+      const started = Date.now();
+      await expect(pp.runBounded(SH, ['-c', `${grandchild} & wait`], { cwd: dir, timeoutMs: 2500 })).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+      expect(Date.now() - started).toBeLessThan(10_000);
+      const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+      const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      for (let i = 0; i < 20 && alive(); i += 1) await new Promise((r) => setTimeout(r, 100));
+      const survived = alive();
+      if (survived) process.kill(pid);
+      expect(survived).toBe(false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('resolves with the output of a command that exits 0, rejects on another exit code', async () => {
+    await expect(pp.runBounded(process.execPath, ['-e', "process.stdout.write('ok')"], { cwd: os.tmpdir(), timeoutMs: 10_000 })).resolves.toBe('ok');
+    await expect(pp.runBounded(process.execPath, ['-e', 'process.exit(3)'], { cwd: os.tmpdir(), timeoutMs: 10_000 })).rejects.toMatchObject({ status: 3 });
+  });
+});

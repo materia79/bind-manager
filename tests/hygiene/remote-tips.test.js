@@ -448,6 +448,39 @@ describe.skipIf(!HAS_GIT)('the guard asks only the repository that receives the 
   });
 });
 
+// Guard re-check m2: a public tip this clone does not have is dropped from the
+// negatives, so more is scanned; the refusal then says to fetch first.
+describe.skipIf(!HAS_GIT)('a public remote with commits this clone has not fetched', () => {
+  let s;
+  beforeAll(() => {
+    s = makeScratch('unfetched');
+    for (let i = 0; i < 3; i += 1) s.commit(`old public ${i}`, { [`old${i}.txt`]: `${i}\n` }, { env: OTHER_EMAIL });
+    s.git(['push', '-q', 'origin', 'main']); // before the guard is installed
+    s.base = s.git(['rev-parse', 'HEAD']);
+    expect(s.setup().report.ok).toBe(true);
+    // someone else's commit on public main, made inside the bare repository
+    const tree = s.git(['rev-parse', `${s.base}^{tree}`], s.pub);
+    const foreign = s.git(['commit-tree', tree, '-p', s.base, '-m', 'someone else'], s.pub, IDENT);
+    s.git(['update-ref', 'refs/heads/main', foreign], s.pub);
+  });
+  afterAll(() => s?.cleanup());
+
+  it('a tag on an old public commit: refused with the fetch hint before and after the findings; after a fetch it passes', () => {
+    s.git(['tag', 'v-unfetched', s.base]);
+    const res = s.realPush(['origin', 'refs/tags/v-unfetched']);
+    expect(res.code).not.toBe(0);
+    const hint = 'pre-push: the public remote has commits this clone does not have (1 of its tips are unknown here); run git fetch origin and push again.';
+    const lines = res.out.split(/\r?\n/).filter((line) => line.startsWith('pre-push:') || line.startsWith('  '));
+    expect(lines.filter((line) => line === hint)).toHaveLength(2);
+    expect(lines.indexOf(hint)).toBeLessThan(lines.findIndex((line) => /e-mail not allowed/.test(line)));
+    expect(lines.filter((line) => line.startsWith('pre-push:')).at(-1)).toBe(hint);
+    s.git(['fetch', '-q', 'origin']);
+    const ok = s.realPush(['origin', 'refs/tags/v-unfetched']);
+    expect({ code: ok.code, out: ok.out }).toEqual({ code: 0, out: expect.stringContaining('clean (0 new commit(s)') });
+    expect(ok.out).not.toContain('this clone does not have');
+  });
+});
+
 // Reviewer item: at the time bound the whole process tree of the remote
 // question ends (git's transport helper, ssh), not only the direct child.
 const SH = findSh();

@@ -833,9 +833,20 @@ export function pushRevArgs(refs, { cwd, remoteTips = [] }) {
     positives.push(`${ref.localSha}^{commit}`);
     if (!ZERO_SHA_RE.test(String(ref.remoteSha || ''))) known.push(ref.remoteSha);
   }
-  if (!positives.length) return { revArgs: [], problems };
+  if (!positives.length) return { revArgs: [], problems, unknownTips: 0 };
   const negatives = localCommits(known.filter((sha) => /^[0-9a-f]{40,64}$/.test(String(sha))), cwd).map((sha) => `^${sha}`);
-  return { revArgs: [...positives, ...negatives], problems };
+  return { revArgs: [...positives, ...negatives], problems, unknownTips: missingObjects(remoteTips, cwd) };
+}
+
+/** How many of `shas` this repository does not have at all, in one `git cat-file --batch-check`. */
+function missingObjects(shas, cwd) {
+  const valid = [...new Set(shas)].filter((sha) => /^[0-9a-f]{40,64}$/.test(String(sha)));
+  if (!valid.length) return 0;
+  const out = execFileSync('git', ['cat-file', '--batch-check'], {
+    cwd, input: valid.map((sha) => `${sha}\n`).join(''), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  return out.split('\n').filter((line) => / missing$/.test(line)).length;
 }
 
 export function formatHit(hit) {
@@ -953,7 +964,12 @@ export async function runPrePush({
         return 2;
       }
     }
-    const { revArgs, problems } = pushRevArgs(refs, { cwd, remoteTips });
+    const { revArgs, problems, unknownTips } = pushRevArgs(refs, { cwd, remoteTips });
+    // Tips this clone does not have are not negatives, so more is scanned:
+    // old public commits may then be refused; fetching first avoids that.
+    const fetchHint = unknownTips
+      ? `pre-push: the public remote has commits this clone does not have (${unknownTips} of its tips are unknown here); run git fetch ${maskUrl(remoteName)} and push again.`
+      : null;
     if (problems.length) {
       log('pre-push: refusing to push to the public remote:');
       for (const problem of problems) log(`  - ${problem}`);
@@ -982,10 +998,12 @@ export async function runPrePush({
     }
     for (const note of new Set(notes)) log(`pre-push: ${note}`);
     if (hits.length) {
+      if (fetchHint) log(fetchHint);
       log(`pre-push: refusing to push to the public remote "${remoteName}": private or secret-looking text in what would be published:`);
       reportHits(hits, log);
       log('Fix the commits (amend, or rebuild the branch) before publishing. For a deliberate false positive,');
       log('add "hygiene-allow: <pattern-name>" on that line. See docs/RELEASING.md.');
+      if (fetchHint) log(fetchHint);
       return 1;
     }
     log(`pre-push: hygiene scan clean (${commits} new commit(s) for the public remote).`);

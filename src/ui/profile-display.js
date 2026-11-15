@@ -3,6 +3,7 @@
  * the device's own name and the profile chip. One place, so both read alike.
  */
 import { parseGamepadId, getGamepadFamilyName } from '../input/gamepad-profiles.js';
+import { getControllerProfile } from '../input/controller_definitions/index.js';
 
 /**
  * The device's own name from a Gamepad.id: without the browser's mapping tag
@@ -39,3 +40,15 @@ export function profileChip(resolved) {
 
 /** Note shown next to the profile select when a saved exact profile does not apply to the pad. */
 export const IGNORED_OVERRIDE_NOTE = "saved profile does not fit this controller's layout";
+/** The same, when the saved exact profile does not exist at all (no profile with that key). */
+export const UNAVAILABLE_OVERRIDE_NOTE = 'saved profile is not available for this controller';
+
+/**
+ * The note for a resolved profile's `ignoredOverride`, or '' when there is none.
+ * @param {{ type?: string, key?: string } | null | undefined} ignoredOverride
+ * @returns {string}
+ */
+export function ignoredOverrideNote(ignoredOverride) {
+  if (!ignoredOverride) return '';
+  return ignoredOverride.type === 'profile' && !getControllerProfile(ignoredOverride.key) ? UNAVAILABLE_OVERRIDE_NOTE : IGNORED_OVERRIDE_NOTE;
+}

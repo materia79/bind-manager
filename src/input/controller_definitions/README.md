@@ -58,7 +58,7 @@ A profile found by vendor/product applies only when `isControllerProfileApplicab
 - the browser did not remap the pad: `gamepad.mapping !== 'standard'`, and
 - the pad's raw button and axis counts equal the profile's `sourceButtons` and `sourceAxes`.
 
-The same check gates a manual exact override chosen in the profile select. An override that does not fit is kept (the pad may report a raw layout later), reported in `ignoredOverride`, and shown in the UI as "saved profile does not fit this controller's layout". Setting such an override through `manager.setGamepadProfileOverride()` (or the profile select) warns once in the console; an override loaded from storage that does not fit is reported in `ignoredOverride` without a warning. With only an id string (no Gamepad object), an exact profile never applies.
+The same check gates a manual exact override chosen in the profile select. An override that does not fit is kept (the pad may report a raw layout later), reported in `ignoredOverride`, and shown in the UI as "saved profile does not fit this controller's layout" ("saved profile is not available for this controller" when no profile with that key exists). Setting such an override through `manager.setGamepadProfileOverride()` (or the profile select) warns once in the console; an override loaded from storage that does not fit is reported in `ignoredOverride` without a warning. With only an id string (no Gamepad object), an exact profile never applies.
 
 The resolution order is:
 

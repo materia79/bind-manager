@@ -10,6 +10,7 @@ import { PADS, installPad } from './tools/real-manager.js';
 import { installManualRaf } from './tools/helpers.js';
 
 const NOTE = "saved profile does not fit this controller's layout";
+const UNAVAILABLE = 'saved profile is not available for this controller';
 
 function mount(spec) {
   const raf = installManualRaf();
@@ -61,6 +62,24 @@ describe('ignored exact-profile override (F7)', () => {
     t.raf.step();
     expect(t.visibleText('.bm-profile-note')).toBeNull();
     expect(t.visibleText('.bm-tester-profile-note')).toBeNull();
+  });
+
+  it('a saved exact profile that does not exist at all says it is not available (final check m8)', () => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    t = mount(PADS.dualsenseRaw);
+    expect(t.manager.setGamepadProfileOverride(0, { type: 'profile', key: 'dead-beef' })).toBe(true);
+    t.raf.step();
+    expect(t.manager.getResolvedGamepadProfile(0).ignoredOverride).toEqual({ type: 'profile', key: 'dead-beef' });
+    expect(t.visibleText('.bm-profile-note')).toBe(UNAVAILABLE);
+    expect(t.visibleText('.bm-tester-profile-note')).toBe(UNAVAILABLE);
+    // an existing profile that does not fit keeps the layout wording
+    t.manager.destroy();
+    document.body.innerHTML = '';
+    t = mount(PADS.dualsense);
+    t.manager.setGamepadProfileOverride(0, { type: 'profile', key: '054c-0ce6' });
+    t.raf.step();
+    expect(t.visibleText('.bm-profile-note')).toBe(NOTE);
+    expect(t.visibleText('.bm-tester-profile-note')).toBe(NOTE);
   });
 
   it('a fitting exact profile shows no note and does not warn', () => {

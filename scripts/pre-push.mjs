@@ -14,6 +14,9 @@
 //     (merges: what they add relative to their first parent). Annotated tag
 //     messages are scanned as well. A hit prints the commit, `file:line` and
 //     the pattern name, never the matched text, and the push is refused.
+//     What the remote already has is asked at push time (`git ls-remote`,
+//     plus the remote shas on stdin); local tracking refs are not trusted.
+//     When the remote cannot be asked, the push is refused.
 //
 // git calls the hook with `<remote name> <remote url>` and feeds one line per
 // ref on stdin: `<local ref> <local sha> <remote ref> <remote sha>`.
@@ -49,7 +52,7 @@ const SKIP_DIRS = new Set(['node_modules', '.git']);
 
 // Bump when the guard's behaviour changes. setup:git refuses to replace a
 // newer installed guard with an older one (an old checkout) without --force.
-export const GUARD_VERSION = 3;
+export const GUARD_VERSION = 4;
 // The guard's source files, relative to scripts/; installed by basename.
 export const GUARD_FILES = Object.freeze({ script: 'pre-push.mjs', patterns: 'hygiene-patterns.mjs', wrapper: 'git-hooks/pre-push' });
 
@@ -169,6 +172,21 @@ function tryGit(args, cwd) {
 
 function objectType(sha, cwd) {
   return tryGit(['cat-file', '-t', sha], cwd);
+}
+
+/** The commits among `names` that this repository has, in one `git cat-file --batch-check`. */
+function localCommits(names, cwd) {
+  if (!names.length) return [];
+  const out = execFileSync('git', ['cat-file', '--batch-check'], {
+    cwd, input: names.map((name) => `${name}^{commit}\n`).join(''), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const shas = new Set();
+  for (const line of out.split('\n')) {
+    const m = line.match(/^([0-9a-f]{40,64}) commit \d+$/);
+    if (m) shas.add(m[1]);
+  }
+  return [...shas];
 }
 
 // ---- scanning ------------------------------------------------------------
@@ -510,7 +528,12 @@ function headerPath(rest) {
  */
 export async function scanCommits(revArgs, { cwd, patterns, allowedEmails = null, allowBinaries = null, notes = null }) {
   const collector = makeCollector(patterns);
-  const shas = git(['rev-list', ...revArgs, '--'], cwd).split('\n').filter(Boolean);
+  // The revisions go on stdin: a push can carry thousands of `^<sha>` (one per
+  // ref the remote reports), more than a command line holds.
+  const revInput = revArgs.map((arg) => `${arg}\n`).join('');
+  const shas = execFileSync('git', ['rev-list', '--stdin', '--'], {
+    cwd, input: revInput, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+  }).split('\n').filter(Boolean);
   for await (const object of catFileBatch(shas, cwd)) {
     scanObjectText(object, collector, { where: 'commit message', allowedEmails });
   }
@@ -519,9 +542,11 @@ export async function scanCommits(revArgs, { cwd, patterns, allowedEmails = null
   // --text: no attribute (-diff, binary) and no NUL byte can hide content.
   const args = [
     '-c', 'core.quotePath=false', 'log', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--text', '--full-index',
-    '-p', '-U0', '--diff-merges=first-parent', '--format=%x00%H', ...revArgs, '--',
+    '-p', '-U0', '--diff-merges=first-parent', '--format=%x00%H', '--stdin', '--',
   ];
-  const child = spawn('git', args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn('git', args, { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.on('error', () => {});
+  child.stdin.end(revInput);
   let stderr = '';
   child.stderr.on('data', (chunk) => { if (stderr.length < 4000) stderr += chunk; });
   const exited = new Promise((resolve) => {
@@ -661,15 +686,50 @@ export async function scanTree(rev, { cwd, patterns, allowBinaries = null, notes
 
 // ---- the push --------------------------------------------------------------
 
+// The remote is asked once per push (`git ls-remote`); no answer within this
+// time refuses the push.
+export const LS_REMOTE_TIMEOUT_MS = 60_000;
+
+/**
+ * The object names in `git ls-remote` output: one `<sha>\t<ref>` per line (a
+ * peeled tag line `<sha>\t<ref>^{}` and `HEAD` count like any other; a
+ * `ref: <target>\t<name>` symref line is skipped). Any other line throws: an
+ * answer that cannot be read is not trusted.
+ */
+export function parseLsRemote(text) {
+  if (typeof text !== 'string') throw new Error('git ls-remote gave no answer');
+  const shas = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    if (!line) continue;
+    if (/^ref: \S+\t\S+$/.test(line)) continue;
+    const m = line.match(/^([0-9a-f]{40}|[0-9a-f]{64})\t\S+$/);
+    if (!m) throw new Error('git ls-remote returned a line that could not be read');
+    shas.add(m[1]);
+  }
+  return [...shas];
+}
+
+/** `git ls-remote <target>`: the remote's current refs, bounded by LS_REMOTE_TIMEOUT_MS. */
+export function gitLsRemote(target, cwd) {
+  if (!target || String(target).startsWith('-')) throw new Error('no remote to ask');
+  return execFileSync('git', ['ls-remote', target], {
+    cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true, timeout: LS_REMOTE_TIMEOUT_MS,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
 /**
  * The commits a push would make new on the remote: the pushed tips, minus
- * every remote sha we know locally and everything the remote's tracking refs
- * already reach. A ref the remote does not have yet (zero sha) and a force
- * push both fall out of this; when in doubt it scans more, never less.
+ * what the remote already has, which is only (1) the remote shas git passed
+ * on stdin and (2) `remoteTips`, the tips `git ls-remote` reported at push
+ * time. Local tracking refs (refs/remotes/<remote>/*) are not used: they can
+ * be stale (the remote deleted the ref) or hand-made. A negative whose object
+ * this repository does not have is dropped, so the scan covers more, never
+ * less. A new ref (zero remote sha) and a force push fall out of this.
  */
-export function pushRevArgs(refs, { remoteName, cwd }) {
+export function pushRevArgs(refs, { cwd, remoteTips = [] }) {
   const positives = [];
-  const negatives = [];
+  const known = [...remoteTips];
   const problems = [];
   for (const ref of refs) {
     if (isDeletion(ref)) continue;
@@ -678,14 +738,11 @@ export function pushRevArgs(refs, { remoteName, cwd }) {
       continue;
     }
     positives.push(`${ref.localSha}^{commit}`);
-    if (!ZERO_SHA_RE.test(String(ref.remoteSha || '')) && objectType(`${ref.remoteSha}^{commit}`, cwd)) {
-      negatives.push(`^${ref.remoteSha}^{commit}`);
-    }
+    if (!ZERO_SHA_RE.test(String(ref.remoteSha || ''))) known.push(ref.remoteSha);
   }
-  const tracking = remoteName && tryGit(['config', '--get', `remote.${remoteName}.url`], cwd)
-    ? ['--not', `--remotes=${remoteName}`]
-    : [];
-  return { revArgs: positives.length ? [...positives, ...negatives, ...tracking] : [], problems };
+  if (!positives.length) return { revArgs: [], problems };
+  const negatives = localCommits(known.filter((sha) => /^[0-9a-f]{40,64}$/.test(String(sha))), cwd).map((sha) => `^${sha}`);
+  return { revArgs: [...positives, ...negatives], problems };
 }
 
 export function formatHit(hit) {
@@ -721,9 +778,9 @@ function denylistNote(repoRoot, log) {
 }
 
 /**
- * The hook. Returns the exit code. `publicRepo` and `patterns` are test seams
- * passed as parameters; the entry point below never sets them, and nothing
- * here reads the environment.
+ * The hook. Returns the exit code. `publicRepo`, `patterns` and `lsRemote`
+ * are test seams passed as parameters; the entry point below never sets them,
+ * and nothing here reads the environment.
  */
 export async function runPrePush({
   remoteName,
@@ -735,6 +792,7 @@ export async function runPrePush({
   refuseRewrite = REFUSE_PUBLIC_MAIN_REWRITE,
   allowedEmails = null,
   gitVersion = null,
+  lsRemote = gitLsRemote,
   log = (line) => process.stderr.write(`${line}\n`),
 } = {}) {
   if (!isPublicRemote(remoteUrl, publicRepo)) return 0;
@@ -771,7 +829,21 @@ export async function runPrePush({
       return 1;
     }
 
-    const { revArgs, problems } = pushRevArgs(refs, { remoteName, cwd });
+    // What the remote already has: asked now, once, not taken from local
+    // tracking refs. No readable answer, no public push. A push that only
+    // deletes publishes nothing and needs no answer.
+    let remoteTips = [];
+    if (refs.some((ref) => !isDeletion(ref))) {
+      try {
+        remoteTips = parseLsRemote(lsRemote(remoteUrl || remoteName, cwd));
+      } catch (error) {
+        const how = error?.code === 'ETIMEDOUT' ? `timed out after ${LS_REMOTE_TIMEOUT_MS / 1000} s` : 'failed or gave an answer that could not be read';
+        log(`pre-push: refusing: could not ask the public remote "${remoteName}" which commits it already has (git ls-remote ${how}).`);
+        log('  The scan needs that answer to know what is new, so a push to the public remote needs the network. Nothing was pushed.');
+        return 2;
+      }
+    }
+    const { revArgs, problems } = pushRevArgs(refs, { cwd, remoteTips });
     if (problems.length) {
       log('pre-push: refusing to push to the public remote:');
       for (const problem of problems) log(`  - ${problem}`);

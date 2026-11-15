@@ -54,7 +54,7 @@ const SKIP_DIRS = new Set(['node_modules', '.git']);
 
 // Bump when the guard's behaviour changes. setup:git refuses to replace a
 // newer installed guard with an older one (an old checkout) without --force.
-export const GUARD_VERSION = 4;
+export const GUARD_VERSION = 5;
 // The guard's source files, relative to scripts/; installed by basename.
 export const GUARD_FILES = Object.freeze({ script: 'pre-push.mjs', patterns: 'hygiene-patterns.mjs', wrapper: 'git-hooks/pre-push' });
 
@@ -92,6 +92,20 @@ export function compareWithCheckout({ installedDir, repoRoot }) {
   return checkout > installed
     ? `pre-push: the installed guard (v${installed}) is OLDER than this checkout's scripts/ (v${checkout}); scanning with the installed guard. Run npm run setup:git to update it.`
     : `pre-push: the installed guard (v${installed}) differs from this checkout's scripts/ (v${checkout}); scanning with the installed guard. Re-run npm run setup:git only if this checkout's guard is the one you want.`;
+}
+
+/**
+ * `{ installed, checkout }` when this is the installed copy (a manifest.json
+ * lies next to it) and the checkout's scripts/ holds a guard with a HIGHER
+ * version than this one; null otherwise (also when the checkout has no guard).
+ * A public push is then refused: the newer rules would not run.
+ */
+export function newerCheckoutGuard({ installedDir, repoRoot, installedVersion = GUARD_VERSION }) {
+  if (readLf(path.join(installedDir, 'manifest.json')) === null) return null;
+  const checkoutScript = readLf(path.join(repoRoot, 'scripts', GUARD_FILES.script));
+  if (checkoutScript === null) return null;
+  const checkout = guardVersionOf(checkoutScript);
+  return checkout > installedVersion ? { installed: installedVersion, checkout } : null;
 }
 
 // ---- git version ---------------------------------------------------------
@@ -1057,8 +1071,16 @@ if (invokedDirectly) {
     process.exitCode = await runCli(args, { cwd });
   } else {
     const [remoteName = '', remoteUrl = ''] = args;
-    const warning = compareWithCheckout({ installedDir: path.dirname(fileURLToPath(import.meta.url)), repoRoot: cwd });
-    if (warning) process.stderr.write(`${warning}\n`);
-    process.exitCode = await runPrePush({ remoteName, remoteUrl, stdin: await readStdin(), cwd });
+    const stdin = await readStdin();
+    const installedDir = path.dirname(fileURLToPath(import.meta.url));
+    const newer = newerCheckoutGuard({ installedDir, repoRoot: cwd });
+    if (newer && isPublicRemote(remoteUrl)) {
+      process.stderr.write(`pre-push: refusing: the installed guard (v${newer.installed}) is older than this checkout's (v${newer.checkout}); run npm run setup:git, then push again.\n`);
+      process.exitCode = 2;
+    } else {
+      const warning = compareWithCheckout({ installedDir, repoRoot: cwd });
+      if (warning) process.stderr.write(`${warning}\n`);
+      process.exitCode = await runPrePush({ remoteName, remoteUrl, stdin, cwd });
+    }
   }
 }

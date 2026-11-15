@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   DENYLIST_FILE, NOREPLY_GLOB, PUBLIC_REPO_PATH, buildHostPatterns, isPublicRemote, readHostIdentity, scanLine,
 } from './hygiene-patterns.mjs';
-import { GUARD_FILES, guardHash, guardVersionOf } from './pre-push.mjs';
+import { GUARD_FILES, GUARD_VERSION, guardHash, guardVersionOf } from './pre-push.mjs';
 
 export const INSTALL_DIR = 'hygiene-hooks';
 export const PRIVATE_REMOTE = 'private';
@@ -96,9 +96,11 @@ export function floodWarnings({ cwd, identity = readHostIdentity() }) {
 
 /**
  * Whether this clone, when its origin is the public repository, has a working
- * installed guard. git runs no hook at all when core.hooksPath is unset or
- * points at a missing directory, so this is the check `npm run setup:git --
- * --check`, npm test and npm run hygiene use to say so out loud.
+ * installed guard that is not older than this checkout's. git runs no hook at
+ * all when core.hooksPath is unset or points at a missing directory, and an
+ * older installed guard scans with its older rules, so this is the check
+ * `npm run setup:git -- --check`, npm test and npm run hygiene use to say so
+ * out loud.
  */
 export function checkGuard({ cwd }) {
   const git = (args) => {
@@ -127,6 +129,13 @@ export function checkGuard({ cwd }) {
       let current = '';
       try { current = hashLines(dir); } catch { /* a script is missing */ }
       if (!listed || listed !== current) reasons.push('the installed guard does not match its manifest (edited or damaged)');
+      // An older installed guard keeps scanning with its older rules.
+      const installed = readInstalledVersion(dir);
+      if (!Number.isInteger(installed)) {
+        reasons.push('the installed guard has no version (installed by an older setup:git); run npm run setup:git');
+      } else if (installed < GUARD_VERSION) {
+        reasons.push(`the installed guard (v${installed}) is older than this checkout's (v${GUARD_VERSION}); run npm run setup:git`);
+      }
     }
   }
   return { applies: true, ok: reasons.length === 0, reasons };
@@ -137,7 +146,7 @@ export function guardStatusWarning(cwd) {
   const status = checkGuard({ cwd });
   return status.ok
     ? null
-    : `WARNING: the pre-push guard is NOT active in this clone (${status.reasons.join('; ')}). Pushes to the public repository are unguarded; run npm run setup:git.`;
+    : `WARNING: the pre-push guard is NOT active or not current in this clone (${status.reasons.join('; ')}). Pushes to the public repository are unguarded or guarded by older rules; run npm run setup:git.`;
 }
 
 export function setupGit({ cwd, force = false, sourceDir = SCRIPTS_DIR, identity = readHostIdentity(), log = console.log } = {}) {

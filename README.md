@@ -88,7 +88,7 @@ npm run build
 
 Build output:
 - `dist/bind-manager.js` readable bundle (global `window.BindManager`)
-- `dist/bind-manager.min.js` minified bundle for hosting (203,968 bytes at this version)
+- `dist/bind-manager.min.js` minified bundle for hosting (205,235 bytes at this version)
 
 Watch mode for local build iteration:
 
@@ -697,7 +697,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 
 - Every size is on `--bm-u`. The bindings modal is 1080u wide (1080px at 1920x1080; 0.1.0: 660px) and picks one of three row layouts; the hint bar is a centred pill capped at three rows (0.1.0: a full-width bar at the bottom edge). See [Sizing and Theming](#sizing-and-theming).
 - `--bm-modal-width`, `--bm-modal-max-h` and `--bm-modal-radius` are no longer declared on `:root` and have new defaults: 1080u (was 660px), 880u (was 80vh) and 12u (was 10px); `--bm-text-secondary` and `--bm-text-desc` have new defaults; borders are box-shadows, so `border-color` overrides no longer apply; several classes were removed (listed under [Removed classes and markup](#removed-classes-and-markup)), among them the tools classes `bm-wide`, `bm-tester-raw-section`, `bm-tester-left-stick-dot` and `bm-tester-right-stick-dot`. Focused controls in the bindings modal and the capture dialog get a 2u accent outline.
-- `bind-manager.min.js` grew from 134,734 bytes in 0.1.0 to 203,968 bytes (gzip -9: 34,486 bytes → about 56.7 kB), mostly the rebuilt tools, the families, the stylesheet and the browser guard.
+- `bind-manager.min.js` grew from 134,734 bytes in 0.1.0 to 205,235 bytes (with `gzip -9`: 34,471 bytes → about 56.8 kB), mostly the rebuilt tools, the families, the stylesheet and the browser guard.
 
 **Also new since 0.1.0 (made before the UI round)**
 

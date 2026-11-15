@@ -7,12 +7,13 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import * as hp from '../../scripts/hygiene-patterns.mjs';
 import * as pp from '../../scripts/pre-push.mjs';
-import { FAKE, HAS_GIT, ZERO, makeScratch, secretPart } from './helpers.js';
+import { FAKE, HAS_GIT, ZERO, findSh, j, makeScratch, secretPart } from './helpers.js';
 
 const SECRET = FAKE['aws-access-key-id'];
 const OTHER_EMAIL = { GIT_AUTHOR_EMAIL: 'someone@corp-internal.example', GIT_COMMITTER_EMAIL: 'someone@corp-internal.example' };
@@ -259,5 +260,190 @@ describe.skipIf(!HAS_GIT)('fail closed when the remote cannot be asked', () => {
     const res = await s.seamPush({ refs: [['refs/heads/wip', s.base, ZERO]], url: s.priv, remoteName: 'private', lsRemote: () => { calls += 1; return ''; } });
     expect(res).toEqual({ code: 0, out: '' });
     expect(calls).toBe(0);
+  });
+});
+
+// Guard re-check B1: `git ls-remote <push url>` applies fetch rewriting
+// (url.<base>.insteadOf) to the URL git handed the hook, so it can ask another
+// repository than the one receiving the push. The guard asks only when
+// `git ls-remote --get-url` names the same repository; otherwise it refuses.
+
+const OWNER = hp.PUBLIC_REPO.owner;
+const NAME = hp.PUBLIC_REPO.name;
+
+describe('the repository a remote URL names', () => {
+  it('one identity for the public repository however it is spelled', () => {
+    const forms = [
+      `https://github.com/${OWNER}/${NAME}`,
+      `https://github.com/${OWNER}/${NAME}.git`,
+      `https://github.com/${OWNER}/${NAME}/`,
+      `https://${j('user', ':', 'pw')}@github.com/${OWNER.toUpperCase()}/${NAME}.git`,
+      `https://www.github.com/${OWNER}/${NAME}`,
+      `https://github.com:443/${OWNER}/${NAME}`,
+      `https://GitHub.com./${OWNER}/${NAME}`,
+      `git@github.com:${OWNER}/${NAME}.git`,
+      `ssh://git@github.com/${OWNER}/${NAME}.git`,
+      `ssh://git@ssh.github.com:443/${OWNER}/${NAME}.git`,
+      `git://github.com/${OWNER}/${NAME}.git`,
+    ];
+    expect(new Set(forms.map((url) => pp.remoteIdentity(url))).size).toBe(1);
+  });
+
+  it('another repository is another identity', () => {
+    const pub = pp.remoteIdentity(`https://github.com/${OWNER}/${NAME}`);
+    for (const other of [
+      `https://github.com/${OWNER}/${NAME}-private`,
+      `https://github.com/someone-else/${NAME}`,
+      `https://gitlab.com/${OWNER}/${NAME}`,
+      `/srv/mirror/${OWNER}/${NAME}.git`,
+    ]) expect(pp.remoteIdentity(other), other).not.toBe(pub);
+  });
+
+  it('local paths: relative, absolute, file:// and a trailing .git or slash name one directory', () => {
+    const base = path.resolve('scratch-root');
+    const abs = path.join(base, 'pub', OWNER, `${NAME}.git`);
+    const id = pp.remoteIdentity(abs, base);
+    expect(pp.remoteIdentity(`pub/${OWNER}/${NAME}.git`, base)).toBe(id);
+    expect(pp.remoteIdentity(`${abs}${path.sep}`, base)).toBe(id);
+    expect(pp.remoteIdentity(path.join(base, 'pub', OWNER, NAME), base)).toBe(id);
+    expect(pp.remoteIdentity(`file:///${abs.split(path.sep).join('/').replace(/^\//, '')}`, base)).toBe(id);
+    expect(pp.remoteIdentity(path.join(base, 'priv', `${NAME}.git`), base)).not.toBe(id);
+  });
+
+  it('masks credentials and an scp user other than git, nothing else', () => {
+    expect(pp.maskUrl(`https://${j('user', ':', 'pw')}@github.com/a/b`)).toBe('https://***@github.com/a/b');
+    expect(pp.maskUrl('alice@build-host:a/b')).toBe('***@build-host:a/b');
+    expect(pp.maskUrl('git@github.com:a/b')).toBe('git@github.com:a/b');
+    expect(pp.maskUrl('https://github.com/a/b')).toBe('https://github.com/a/b');
+    expect(pp.maskUrl('origin')).toBe('origin');
+  });
+});
+
+describe.skipIf(!HAS_GIT)('the guard asks only the repository that receives the push (real pushes)', () => {
+  let s;
+  const mainOf = (repo) => s.git(['rev-parse', 'refs/heads/main'], repo);
+  const withConfig = (pairs, fn) => {
+    for (const [key, value] of pairs) s.git(['config', key, value]);
+    try { return fn(); } finally { for (const [key] of pairs) s.git(['config', '--unset-all', key]); }
+  };
+  // A commit with a planted line that is a branch tip on the private repository.
+  const secretOnPrivate = (branch, file) => {
+    s.branchFromBase(branch);
+    const sha = s.commit(`private ${branch}`, { [file]: `${SECRET}\n` });
+    expect(s.realPush(['private', `${branch}:refs/heads/${branch}`]).code).toBe(0);
+    return sha;
+  };
+
+  beforeAll(() => {
+    s = makeScratch('asked');
+    expect(s.setup().report.ok).toBe(true);
+  });
+  afterAll(() => s?.cleanup());
+
+  it('N09: fetches of the public URL rewritten to the private mirror, pushes left public: refused, nothing published', () => {
+    const before = mainOf(s.pub);
+    const sha = secretOnPrivate('secretbr', 'p.txt');
+    const res = withConfig([[`url.${s.priv}.insteadOf`, s.pub], [`url.${s.pub}.pushInsteadOf`, s.pub]],
+      () => s.realPush(['origin', 'secretbr:main']));
+    expect(res.code).not.toBe(0);
+    expect(res.out).toMatch(/could not ask the public remote "origin"/);
+    expect(res.out).toMatch(/url\.\*\.insteadOf/);
+    expect(res.out).not.toMatch(/hygiene scan clean/);
+    expect(mainOf(s.pub)).toBe(before);
+    expect(spawnSync('git', ['cat-file', '-e', sha], { cwd: s.pub, windowsHide: true }).status).not.toBe(0);
+  });
+
+  it('the hook exits 2 for it, and the message names both URLs without credentials', async () => {
+    const pubUrl = `https://${j('user', ':', 'pw')}@github.com/${OWNER}/${NAME}`;
+    const res = await s.seamPush({
+      refs: [['refs/heads/main', s.base, s.base]],
+      url: pubUrl,
+      lsRemoteGetUrl: () => `https://${j('user', ':', 'pw')}@mirror.example/${OWNER}/${NAME}`,
+      lsRemote: () => { throw new Error('must not be asked'); },
+    });
+    expect(res.code).toBe(2);
+    expect(res.out).toContain(`https://***@github.com/${OWNER}/${NAME}`);
+    expect(res.out).toContain('mirror.example');
+    expect(res.out).not.toContain(j('user', ':', 'pw'));
+  });
+
+  it('git ls-remote --get-url failing refuses (exit 2)', async () => {
+    const res = await s.seamPush({ refs: [['refs/heads/main', s.base, s.base]], lsRemoteGetUrl: () => { throw new Error('boom'); } });
+    expect(res.code).toBe(2);
+    expect(res.out).toMatch(/could not ask the public remote/);
+  });
+
+  it('the same repository spelled another way (push rewritten to one spelling, fetch to another): asked and scanned as normal', () => {
+    // A local stand-in for ssh vs https: the plain path for pushes, the file:// URL for fetches.
+    const fileUrl = `file:///${s.pub.split(path.sep).join('/').replace(/^\//, '')}`;
+    withConfig([[`url.${fileUrl}.insteadOf`, s.pub], [`url.${s.pub}.pushInsteadOf`, s.pub]], () => {
+      expect(s.git(['ls-remote', '--get-url', s.pub])).toBe(fileUrl);
+      s.branchFromBase('t-spelling');
+      const clean = s.commit('clean', { 'sp.txt': 's\n' });
+      const ok = s.realPush(['origin', `${clean}:refs/heads/main`]);
+      expect({ code: ok.code, out: ok.out }).toEqual({ code: 0, out: expect.stringContaining('clean (1 new commit(s)') });
+      s.base = clean;
+      const dirty = s.commit('dirty', { 'sp2.txt': `${SECRET}\n` });
+      const refused = s.realPush(['origin', `${dirty}:refs/heads/main`]);
+      expect(refused.code).not.toBe(0);
+      expect(refused.out).toContain('sp2.txt:1  [aws-access-key-id]');
+    });
+  });
+
+  it('an explicit pushurl rewritten to the private repository: the push goes private, the hook does nothing', () => {
+    const before = mainOf(s.pub);
+    s.git(['config', 'remote.origin.pushurl', s.pub]);
+    try {
+      const sha = secretOnPrivate('t-pushurl-src', 'pu.txt');
+      const res = withConfig([[`url.${s.priv}.insteadOf`, s.pub]], () => s.realPush(['origin', `${sha}:refs/heads/pushed-here`]));
+      expect({ code: res.code, out: res.out }).toEqual({ code: 0, out: expect.not.stringContaining('pre-push') });
+      expect(s.git(['rev-parse', 'refs/heads/pushed-here'], s.priv)).toBe(sha);
+      expect(mainOf(s.pub)).toBe(before);
+    } finally { s.git(['config', '--unset', 'remote.origin.pushurl']); }
+  });
+
+  it('a remote whose pushurl (public) differs from its url (private): the push URL is asked', () => {
+    const sha = secretOnPrivate('t-split', 'split.txt');
+    s.git(['remote', 'add', 'split', s.priv]);
+    s.git(['config', 'remote.split.pushurl', s.pub]);
+    try {
+      s.git(['fetch', '-q', 'split']);
+      expect(s.git(['ls-remote', '--get-url', s.pub])).toBe(s.pub);
+      const res = s.realPush(['split', `${sha}:refs/heads/main`]);
+      expect(res.code).not.toBe(0);
+      expect(res.out).toContain('split.txt:1  [aws-access-key-id]');
+    } finally { s.git(['remote', 'remove', 'split']); }
+  });
+
+  it('a relative URL pushed from a subdirectory behaves as before', () => {
+    const rel = path.relative(s.work, s.pub);
+    s.git(['remote', 'add', 'rel', rel]);
+    try {
+      fs.mkdirSync(path.join(s.work, 'sub'), { recursive: true });
+      s.branchFromBase('t-rel');
+      const clean = s.commit('clean rel', { 'rel.txt': 'r\n' });
+      const sub = path.join(s.work, 'sub');
+      fs.mkdirSync(sub, { recursive: true });
+      const ok = s.realPush(['rel', `${clean}:refs/heads/main`], sub);
+      expect({ code: ok.code, out: ok.out }).toEqual({ code: 0, out: expect.stringContaining('clean (1 new commit(s)') });
+      s.base = clean;
+      const dirty = s.commit('dirty rel', { 'rel2.txt': `${SECRET}\n` });
+      fs.mkdirSync(sub, { recursive: true });
+      const refused = s.realPush(['rel', `${dirty}:refs/heads/main`], sub);
+      expect(refused.code).not.toBe(0);
+      expect(refused.out).toContain('rel2.txt:1  [aws-access-key-id]');
+    } finally { s.git(['remote', 'remove', 'rel']); }
+  });
+
+  it('a plain public remote with no rewrites behaves as before', () => {
+    s.branchFromBase('t-plain');
+    const clean = s.commit('clean plain', { 'pl.txt': 'p\n' });
+    const ok = s.realPush(['origin', `${clean}:refs/heads/main`]);
+    expect({ code: ok.code, out: ok.out }).toEqual({ code: 0, out: expect.stringContaining('clean (1 new commit(s)') });
+    s.base = clean;
+    const dirty = s.commit('dirty plain', { 'pl2.txt': `${SECRET}\n` });
+    const refused = s.realPush(['origin', `${dirty}:refs/heads/main`]);
+    expect(refused.code).not.toBe(0);
+    expect(refused.out).toContain('pl2.txt:1  [aws-access-key-id]');
   });
 });

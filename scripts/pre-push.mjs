@@ -16,7 +16,9 @@
 //     the pattern name, never the matched text, and the push is refused.
 //     What the remote already has is asked at push time (`git ls-remote`,
 //     plus the remote shas on stdin); local tracking refs are not trusted.
-//     When the remote cannot be asked, the push is refused.
+//     When the remote cannot be asked, or url.*.insteadOf would make
+//     `git ls-remote` ask another repository than the push goes to, the push
+//     is refused.
 //
 // git calls the hook with `<remote name> <remote url>` and feeds one line per
 // ref on stdin: `<local ref> <local sha> <remote ref> <remote sha>`.
@@ -40,8 +42,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
-  NOREPLY_GLOB, buildPatterns, emailAllowed, isPublicRemote, loadDenylist, maskPath, maskText, PUBLIC_REPO_PATH, readAllowedEmails,
-  scanLine,
+  NOREPLY_GLOB, buildPatterns, emailAllowed, isPublicRemote, loadDenylist, maskPath, maskText, parseRemoteUrl, PUBLIC_REPO_PATH,
+  readAllowedEmails, resolveSshHostname, scanLine,
 } from './hygiene-patterns.mjs';
 
 const ZERO_SHA_RE = /^0+$/;
@@ -709,6 +711,49 @@ export function parseLsRemote(text) {
   return [...shas];
 }
 
+/** A remote URL with its credentials (between `//` and `@`) and an scp user other than `git` masked. */
+export function maskUrl(url) {
+  const value = String(url ?? '');
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, '$1***@');
+  return value.replace(/^([^@/\\\s:]+)@(?=[^:/\\\s]+:)/, (m, user) => (user === 'git' ? m : '***@'));
+}
+
+const GITHUB_HOST_NAMES = new Set(['github.com', 'www.github.com', 'ssh.github.com']);
+
+/**
+ * Which repository a remote URL names, as one comparable string. Scheme, user,
+ * credentials, port, host case, a trailing dot or `www.`, GitHub's
+ * `ssh.github.com`, a resolvable ssh alias, a trailing `.git` or slash and the
+ * case of the path do not count. Local paths and file:// URLs: the absolute
+ * path (relative to `cwd`; case-insensitive on Windows).
+ */
+export function remoteIdentity(url, cwd = process.cwd()) {
+  const raw = String(url ?? '').trim();
+  const r = parseRemoteUrl(raw);
+  if (r.kind === 'local') {
+    const file = raw.match(/^file:\/\/[^/]*(\/.*)$/i);
+    let p = raw;
+    if (file) {
+      try { p = decodeURIComponent(file[1]); } catch { p = file[1]; }
+      p = p.replace(/^\/([a-z]:)/i, '$1');
+    }
+    p = path.resolve(cwd, p).replace(/\\/g, '/').replace(/\/+$/, '').replace(/(\/\.git|\.git)$/i, '');
+    return `local:${process.platform === 'win32' ? p.toLowerCase() : p}`;
+  }
+  let host = r.host;
+  if (r.kind === 'ssh' && !GITHUB_HOST_NAMES.has(host)) host = resolveSshHostname(r.rawHost) || host;
+  host = GITHUB_HOST_NAMES.has(host) ? 'github.com' : host.replace(/^www\./, '');
+  return `${host}/${r.segments.join('/')}`;
+}
+
+/** `git ls-remote --get-url <target>`: the URL `git ls-remote <target>` would contact (fetch rewriting applied). */
+export function gitLsRemoteGetUrl(target, cwd) {
+  if (!target || String(target).startsWith('-')) throw new Error('no remote to ask');
+  return execFileSync('git', ['ls-remote', '--get-url', target], {
+    cwd, encoding: 'utf8', windowsHide: true, timeout: LS_REMOTE_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
 /** `git ls-remote <target>`: the remote's current refs, bounded by LS_REMOTE_TIMEOUT_MS. */
 export function gitLsRemote(target, cwd) {
   if (!target || String(target).startsWith('-')) throw new Error('no remote to ask');
@@ -778,9 +823,9 @@ function denylistNote(repoRoot, log) {
 }
 
 /**
- * The hook. Returns the exit code. `publicRepo`, `patterns` and `lsRemote`
- * are test seams passed as parameters; the entry point below never sets them,
- * and nothing here reads the environment.
+ * The hook. Returns the exit code. `publicRepo`, `patterns`, `lsRemote` and
+ * `lsRemoteGetUrl` are test seams passed as parameters; the entry point below
+ * never sets them, and nothing here reads the environment.
  */
 export async function runPrePush({
   remoteName,
@@ -793,6 +838,7 @@ export async function runPrePush({
   allowedEmails = null,
   gitVersion = null,
   lsRemote = gitLsRemote,
+  lsRemoteGetUrl = gitLsRemoteGetUrl,
   log = (line) => process.stderr.write(`${line}\n`),
 } = {}) {
   if (!isPublicRemote(remoteUrl, publicRepo)) return 0;
@@ -834,11 +880,27 @@ export async function runPrePush({
     // deletes publishes nothing and needs no answer.
     let remoteTips = [];
     if (refs.some((ref) => !isDeletion(ref))) {
+      const target = remoteUrl || remoteName;
+      // git hands the hook the push URL after push rewriting; `git ls-remote`
+      // applies fetch rewriting (url.<base>.insteadOf) to it again. Ask only
+      // when that still names the repository that receives this push.
       try {
-        remoteTips = parseLsRemote(lsRemote(remoteUrl || remoteName, cwd));
+        const asked = lsRemoteGetUrl(target, cwd);
+        if (remoteIdentity(asked, cwd) !== remoteIdentity(target, cwd)) {
+          log(`pre-push: refusing: could not ask the public remote "${maskUrl(remoteName)}" which commits it already has: fetches from `
+            + `${maskUrl(target)} are rewritten by url.*.insteadOf to ${maskUrl(asked)}, another repository than the one this push goes to.`);
+          log('  Remove or narrow that url.*.insteadOf rule, or push from a clone without it. Nothing was pushed.');
+          return 2;
+        }
+      } catch {
+        log(`pre-push: refusing: could not ask the public remote "${maskUrl(remoteName)}" which commits it already has (git ls-remote --get-url failed). Nothing was pushed.`);
+        return 2;
+      }
+      try {
+        remoteTips = parseLsRemote(await lsRemote(target, cwd));
       } catch (error) {
         const how = error?.code === 'ETIMEDOUT' ? `timed out after ${LS_REMOTE_TIMEOUT_MS / 1000} s` : 'failed or gave an answer that could not be read';
-        log(`pre-push: refusing: could not ask the public remote "${remoteName}" which commits it already has (git ls-remote ${how}).`);
+        log(`pre-push: refusing: could not ask the public remote "${maskUrl(remoteName)}" which commits it already has (git ls-remote ${how}).`);
         log('  The scan needs that answer to know what is new, so a push to the public remote needs the network. Nothing was pushed.');
         return 2;
       }

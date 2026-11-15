@@ -290,7 +290,7 @@ See [Browser Shortcut Guard](#browser-shortcut-guard) for the guide.
 
 ### Runtime input and subscriptions
 
-- `onAnyAction(callback)`
+- `onAnyAction(callback)` — every action event of every device: `pressed`, `held`, `released`, and the gamepad's `analog` events too (with `code` naming the half for an action bound to one half of an axis). Skip `type === 'analog'` in a handler that tracks up/down state; read analog values with the action handle's `onAnalog()`.
 - `isActionPressed(actionId)` — `true` while a bound key, mouse button or gamepad input is held. Gamepad bindings only count on the action's `playerIndex` controller when one is set. Mouse wheel bindings always read `false` here: the wheel has no held state and fires a pressed+released pulse, so listen with `onPressed` instead.
 - `subscribe(callback)` for binding-change events (`binding-changed` with `device`, `actionId`, `slot`, `oldCode`, `newCode`, `conflicts`; `reset`)
 
@@ -641,6 +641,7 @@ Everything a host will notice, in one list. Nothing was removed from the public 
 - Opening the bindings modal (gameplay suppressed) and disconnecting a pad now fire `released` for every gamepad code that fired `pressed`, and one final `analog` event with value 0 to every analog action whose value (its half of the axis, or the whole axis) was non-zero. 0.1.0 left them pressed.
 - An input still held when gameplay resumes (modal closed) or after a capture is *latched*: it stays silent until it is released and pressed anew, so no `held` arrives without a `pressed`. Analog events are not latched. A code released while the modal was open is unlatched at once.
 - An analog action whose value returns to 0 (the axis back in the deadband, or the stick on its other half) gets exactly one `analog` event with value 0; 0.1.0 left the last non-zero value standing.
+- `analog` events of an action bound to one half of an axis now carry `code` (`GP_A0N` / `GP_A0P`, the same string as that half's `pressed`/`held`/`released`; for an action bound to both halves `code` is present but `undefined`), and within one poll they come before the `pressed`/`held` of the same axis. A manager-wide `onAnyAction` handler that treats every type other than `pressed`/`held` as "up" and keys its state by `e.code` (or `e.code ?? e.actionId`) therefore sees that half go up and down again on every frame the stick is past the threshold — also for a non-analog action bound to the same code. Skip `type === 'analog'` in such a handler and read analog values with `onAnalog()`. A handler keyed by `actionId` already saw this for analog actions in 0.1.0.
 - Hat D-pad diagonals now press both directions (up-right = `GP_B12` and `GP_B15`); a hat value between grid positions (the resting value) is neutral.
 - A button in an exact or edited mapping counts as pressed by the same rule as an unmapped one (`pressed` or value above 0.5); 0.1.0 used the analog threshold for mapped buttons and ignored `pressed`.
 

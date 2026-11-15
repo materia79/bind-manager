@@ -651,7 +651,11 @@ export function createBindManager(options = {}) {
     // ── Runtime input events ──────────────────────────────────────────────────
 
     /**
-     * Listen for any action event (pressed / held / released) across all actions.
+     * Listen for any action event across all actions and devices: `pressed`,
+     * `held` and `released`, and the gamepad's `analog` events (analog actions;
+     * an action bound to one half of an axis gets `code` set to that half). A
+     * handler that tracks up/down state should skip `type === 'analog'` and read
+     * analog values with the action handle's `onAnalog()`.
      * @param {(event: import('../input/keyboard-runtime.js').ActionEvent) => void} listener
      * @returns {() => void} unsubscribe
      */

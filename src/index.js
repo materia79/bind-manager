@@ -16,6 +16,7 @@ export {
 } from './input/browser-shortcut-guard.js';
 export { WheelNotchCounter, DEFAULT_WHEEL_PIXEL_THRESHOLD } from './input/wheel-notches.js';
 export { getKeyLabel, isKnownCode, KEY_DISPLAY_NAMES, MODIFIER_ORDER, MODIFIER_CODES, buildComboCode } from './input/key-names.js';
+export { getReservedInfo, isReservedCode } from './input/reserved-codes.js';
 export {
 	GP_CODES,
 	GP_B0, GP_B1, GP_B2, GP_B3, GP_B4, GP_B5, GP_B6, GP_B7,

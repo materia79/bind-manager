@@ -1,4 +1,5 @@
 import { getKeyLabel } from '../input/key-names.js';
+import { getReservedInfo } from '../input/reserved-codes.js';
 import { injectStyles } from './styles.js';
 import { getGamepadLabel } from '../input/gamepad-profiles.js';
 import { gamepadDeviceName, profileChip, ignoredOverrideNote } from './profile-display.js';
@@ -23,7 +24,11 @@ export class ModalController {
    * @param {import('../core/action-registry.js').ActionRegistry} registry
    * @param {import('../input/keyboard-runtime.js').KeyboardRuntime} keyboardRuntime
    */
-  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = [], mouseRuntime = null) {
+  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = [], mouseRuntime = null, options = {}) {
+    /** Warn when a captured key is one the browser or OS keeps for itself. */
+    this._reservedKeyWarnings = options.reservedKeyWarnings !== false;
+    /** @type {() => boolean} host tells us whether Keyboard Lock is active */
+    this._isKeyboardLocked = typeof options.isKeyboardLocked === 'function' ? options.isKeyboardLocked : () => false;
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
@@ -608,7 +613,13 @@ export class ModalController {
         this._endCapture(actionId, slot, 'keyboard');
         if (code === null) { this._updateBindButtons(); return; }
         const result = this._store.set(actionId, slot, code, 'keyboard');
-        if (result.conflicts.length > 0) {
+        const reserved = this._reservedKeyWarnings
+          ? getReservedInfo(code, { keyboardLocked: this._isKeyboardLocked() })
+          : null;
+        if (reserved) {
+          // A key the browser keeps matters more than a shared binding.
+          this._showReservedWarning(code, reserved);
+        } else if (result.conflicts.length > 0) {
           this._showConflictWarning(result.conflicts, code, 'keyboard');
         } else {
           this._hideConflictWarning();
@@ -724,6 +735,22 @@ export class ModalController {
     warningEl.classList.remove('bm-hidden');
     clearTimeout(this._warningTimeout);
     this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 5000);
+  }
+
+  /**
+   * @param {string} code
+   * @param {import('../input/reserved-codes.js').ReservedInfo} info
+   */
+  _showReservedWarning(code, info) {
+    const warningEl = this._overlay?.querySelector('.bm-conflict-warning');
+    if (!warningEl) return;
+    const lead = info.level === 'blocked'
+      ? `${getKeyLabel(code)} will not work in the browser.`
+      : `${getKeyLabel(code)} may not work in every browser.`;
+    warningEl.textContent = `${lead} ${info.reason}`;
+    warningEl.classList.remove('bm-hidden');
+    clearTimeout(this._warningTimeout);
+    this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 8000);
   }
 
   _showWarning(message) {

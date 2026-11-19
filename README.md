@@ -281,6 +281,15 @@ See [Browser Shortcut Guard](#browser-shortcut-guard) for the guide.
 - `setGamepadProfileOverride(gamepadIndex, override)` / `clearGamepadProfileOverride(gamepadIndex)` — persisted manual override `{ type: 'family', family }` or `{ type: 'profile', key }`
 - `setGamepadProfileMappingEntry(gamepadIndex, code, entry, options?)`, `removeGamepadProfileMappingEntry(gamepadIndex, code)`, `resetGamepadProfileMapping(gamepadIndex)`, `getGamepadProfileDefinition(gamepadIndex)` — in-memory mapping edits, see [In-memory mapping edits](#in-memory-mapping-edits)
 
+### Reserved keys
+
+Some keys never reach a web page, or only in some browsers: `Ctrl+W`, `Ctrl+T`, `Ctrl+N`, `Ctrl+Tab`, `Alt+F4`, the Windows / Command key, `F11`, `Escape` in fullscreen and a few more.
+
+- The rebind dialog warns when the player binds one of them. Binding is still allowed.
+- `getReservedInfo(code, { keyboardLocked })` returns `{ level: 'blocked' | 'unreliable', reason, lockable }` or `null`.
+- `manager.getReservedBindings()` lists current bindings that are affected, for example to check your defaults.
+- Options: `reservedKeyWarnings` (default `true`) and `isKeyboardLocked: () => boolean`. Return `true` from it while the [Keyboard Lock API](https://developer.mozilla.org/docs/Web/API/Keyboard/lock) is active in fullscreen; browser shortcuts the lock frees are then no longer reported.
+
 ### Hint controls
 
 - `showHint(actionId)`

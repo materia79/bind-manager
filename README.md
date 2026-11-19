@@ -632,7 +632,7 @@ An unknown code keeps the slot's current value and is reported in `invalidEntrie
 
 ## Upgrading from 0.1.0
 
-The baseline is the last public build: the `main-latest` bundle of the public `main` branch as of 2026-08-10, package version 0.1.0. The version number of this release is set at release time. Below, "0.1.0" means that build.
+The baseline is the last public build: the `main-latest` bundle of the public `main` branch as of 2026-08-10, package version 0.1.0. This release is 0.2.0 (see [CHANGELOG.md](CHANGELOG.md)). Below, "0.1.0" means that build.
 
 Everything a host will notice, in one list. Nothing was removed from the public API.
 

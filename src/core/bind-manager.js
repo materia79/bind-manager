@@ -1,3 +1,4 @@
+import { getReservedInfo } from '../input/reserved-codes.js';
 import { ActionRegistry } from './action-registry.js';
 import { BindingStore } from './binding-store.js';
 import { KeyboardRuntime } from '../input/keyboard-runtime.js';
@@ -39,6 +40,8 @@ export function createBindManager(options = {}) {
     storage = null,
     footerActions = [],
     builtInTools = null,
+    reservedKeyWarnings = true,
+    isKeyboardLocked = null,
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -418,6 +421,24 @@ export function createBindManager(options = {}) {
     /** Reset all actions to their registered defaults. */
     resetAll() { store.resetAll(); },
 
+    /**
+     * Lists current keyboard/mouse bindings the browser or OS may keep for itself.
+     * Use it to check defaults at startup or to show a summary to the player.
+     * @param {{ keyboardLocked?: boolean }} [options] defaults to the isKeyboardLocked option
+     * @returns {{ actionId: string, slot: number, code: string, level: 'blocked' | 'unreliable', reason: string }[]}
+     */
+    getReservedBindings(options) {
+      const opts = options ?? { keyboardLocked: typeof isKeyboardLocked === 'function' ? isKeyboardLocked() : false };
+      const found = [];
+      for (const [actionId, bindings] of Object.entries(store.getAll())) {
+        bindings.keyboard.forEach((code, slot) => {
+          const info = getReservedInfo(code, opts);
+          if (info) found.push({ actionId, slot, code, level: info.level, reason: info.reason });
+        });
+      }
+      return found;
+    },
+
     // ── Change subscriptions ─────────────────────────────────────────────────
 
     /**
@@ -490,7 +511,10 @@ export function createBindManager(options = {}) {
   builtInToolsController = createBuiltInToolsController(manager, { builtInTools });
   const mergedFooterActions = [...footerActions, ...builtInToolsController.getFooterActions()];
   captureModal = new CaptureModalController();
-  modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime);
+  modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime, {
+    reservedKeyWarnings,
+    isKeyboardLocked,
+  });
   hints = new HintsController(store, registry, gamepadRuntime);
 
   // Wire active-change notifications around modal open/close
@@ -662,6 +686,8 @@ function _normaliseBindingEntry(incoming, payloadVersion) {
  * @property {object | null} [storage=null]         - Custom storage adapter (load/save/clear)
  * @property {number} [deadband=0.12]              - Gamepad axis deadband (ignore drift below this)
  * @property {number} [analogThreshold=0.50]       - Axis value threshold for digital events
+ * @property {boolean} [reservedKeyWarnings=true]  - Warn in the rebind dialog about keys the browser or OS keeps
+ * @property {(() => boolean) | null} [isKeyboardLocked=null] - Return true while Keyboard Lock is active (fullscreen, Chromium)
  *
  * @typedef {object} ActionDef
  * @property {string} id

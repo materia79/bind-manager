@@ -7,7 +7,22 @@ import { ModalController } from '../ui/modal-controller.js';
 import { CaptureModalController } from '../ui/capture-modal-controller.js';
 import { HintsController } from '../ui/hints-controller.js';
 import { GamepadRuntime } from '../input/gamepad-runtime.js';
+import { BrowserShortcutGuard } from '../input/browser-shortcut-guard.js';
 import { createBuiltInToolsController } from '../ui/built-in-tools-controller.js';
+import { isKnownCode } from '../input/key-names.js';
+import { isGamepadCode } from '../input/gamepad-codes.js';
+
+/** Sentinel: leave the current slot value untouched during import. */
+const KEEP_SLOT = Symbol('keep-slot');
+
+// Bounds for what a replace-mode import may store for actions not registered:
+// their slot counts are unknown, so without caps a payload could fill the storage.
+/** Slots kept per device of a stored entry; longer arrays are cut. */
+const MAX_SAVED_SLOTS = 16;
+/** Longest action id that is stored. */
+const MAX_SAVED_ID_LENGTH = 128;
+/** Unregistered ids stored per import. */
+const MAX_UNREGISTERED_IDS = 512;
 
 /**
  * Creates and returns a Bind Manager instance.
@@ -39,6 +54,8 @@ export function createBindManager(options = {}) {
     storage = null,
     footerActions = [],
     builtInTools = null,
+    browserGuard = false,
+    wheelPixelThreshold,
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -74,7 +91,14 @@ export function createBindManager(options = {}) {
   let builtInToolsController = null;
 
   // -- Mouse input layer --
-  const mouseRuntime = new MouseRuntime(store, runtime);
+  const mouseRuntime = new MouseRuntime(store, runtime, { wheelPixelThreshold });
+
+  // -- Browser shortcut guard (opt-in) --
+  const guard = new BrowserShortcutGuard(store, runtime, {
+    ..._normaliseBrowserGuardOption(browserGuard),
+    isUiActive: () => manager.active || !!builtInToolsController?.isAnyOpen?.(),
+  });
+  const guardApi = _makeBrowserGuardApi(guard);
 
   // -- Active state + cursor persistence --
   let _keepCursorAfterClose = false;
@@ -85,10 +109,37 @@ export function createBindManager(options = {}) {
   runtime.start();
   gamepadRuntime.start();
   mouseRuntime.start();
+  guard.start();
 
-  // Persist to storage on every binding change
-  const unsubPersist = store.subscribe(() => {
-    storageAdapter.save(store.getAll());
+  // Persist to storage once per committed change (resetAll() is a single commit).
+  // Saved entries of actions not registered yet are carried through. A failed
+  // save (quota, storage unavailable) never stops later saves: every commit
+  // tries again; the failure is warned once and readable via getStorageStatus().
+  const storageStatus = { ok: true, failedSaves: 0, lastError: null, lastFailure: null };
+  let warnedSaveFailure = false;
+  let warnedIgnoredOverride = false;
+  const unsubPersist = store.onCommit(() => {
+    let ok;
+    let error = null;
+    try {
+      ok = storageAdapter.save(store.getAllForStorage()) !== false;
+    } catch (err) {
+      ok = false;
+      error = err;
+    }
+    if (ok) {
+      storageStatus.ok = true;
+      storageStatus.lastError = null;
+      return;
+    }
+    storageStatus.ok = false;
+    storageStatus.failedSaves += 1;
+    storageStatus.lastError = error ?? storageAdapter.lastSaveError ?? null;
+    storageStatus.lastFailure = { error: storageStatus.lastError, at: Date.now() };
+    if (!warnedSaveFailure) {
+      warnedSaveFailure = true;
+      console.warn('[BindManager] Saving bindings failed; later changes will be saved again. See manager.getStorageStatus().', storageStatus.lastError);
+    }
   });
 
   // Debug toggle: F5 opens/closes the modal (prevents browser refresh in debug mode)
@@ -106,6 +157,8 @@ export function createBindManager(options = {}) {
     registerAction(def) {
       const action = registry.register(def);
       store.initAction(action);
+      // Registration emits no change event; a wheel default needs a non-passive listener
+      mouseRuntime.refreshBindings();
       // Refresh UI to include the newly registered action
       if (modal.isOpen()) modal.refresh();
       hints.refresh();
@@ -164,6 +217,16 @@ export function createBindManager(options = {}) {
       return () => _activeChangeListeners.delete(callback);
     },
 
+    // ── Browser shortcut guard ───────────────────────────────────────────────
+
+    /**
+     * Browser shortcut guard: cancels browser shortcuts / defaults while the game
+     * owns input, Keyboard Lock in fullscreen, optional leave-site prompt.
+     * Always present; inert until enabled via the `browserGuard` option or setEnabled(true).
+     * @type {BrowserGuardApi}
+     */
+    get browserGuard() { return guardApi; },
+
     // ── Binding queries ──────────────────────────────────────────────────────
 
     /**
@@ -180,7 +243,8 @@ export function createBindManager(options = {}) {
     getBindings() { return store.getAll(); },
 
     /**
-     * Get the detected profile ('xbox' | 'dualsense' | 'generic') for a connected gamepad.
+     * Get the resolved family ('xbox' | 'xbox360' | 'dualshock4' | 'dualsense' |
+     * 'switch-pro' | 'steam' | 'stadia' | 'generic') for a connected gamepad.
      * @param {number} [gamepadIndex=0]
      * @returns {string}
      */
@@ -189,9 +253,12 @@ export function createBindManager(options = {}) {
     },
 
     /**
-     * Get the resolved profile object for a connected gamepad.
+     * Get the resolved profile of a connected gamepad (or the generic one when
+     * no pad is at that index). `source` is 'manual', 'exact', 'family',
+     * 'generic' or 'memory-edit'; `ignoredOverride` names a stored exact
+     * override that does not fit the pad; `labelVariant` is e.g. 'xbox-elite'.
      * @param {number} [gamepadIndex=0]
-     * @returns {{ source: string, family: string, profileHint: string, profileKey: string | null, definition: any | null, gamepadId: string | null }}
+     * @returns {import('../input/gamepad-profile-resolver.js').ResolvedGamepadProfile}
      */
     getResolvedGamepadProfile(gamepadIndex = 0) {
       return gamepadRuntime.getResolvedProfile(gamepadIndex);
@@ -200,16 +267,36 @@ export function createBindManager(options = {}) {
     /**
      * Resolve a human-readable label for a gamepad code using the active profile.
      * @param {string | null} code
-     * @param {number} [gamepadIndex=0]
+     * @param {number | null} [gamepadIndex=null] - null = the first connected gamepad
      * @returns {string}
      */
-    getGamepadLabel(code, gamepadIndex = 0) {
+    getGamepadLabel(code, gamepadIndex = null) {
       return gamepadRuntime.getLabelForCode(code, gamepadIndex);
     },
 
     /**
-     * Get info about all currently connected gamepads.
-     * @returns {{ index: number, id: string, profile: string }[]}
+     * The thresholds gamepad input is dispatched with (read-only copy).
+     * @returns {{ deadband: number, analogThreshold: number, buttonThreshold: number }}
+     */
+    getGamepadThresholds() {
+      return gamepadRuntime.getThresholds();
+    },
+
+    /**
+     * The logical state of a connected gamepad right now, as the runtime reads
+     * it for dispatch: `buttons` (GP_B0..GP_B23, pressed or not) and `axes`
+     * (GP_A0..GP_A3 values; a direction is pressed past analogThreshold).
+     * @param {number} [gamepadIndex=0]
+     * @returns {{ buttons: boolean[], axes: number[] } | null}
+     */
+    getGamepadLogicalState(gamepadIndex = 0) {
+      return gamepadRuntime.getLogicalState(gamepadIndex);
+    },
+
+    /**
+     * Get info about all currently connected gamepads: index, raw `Gamepad.id`,
+     * the resolved family (`profile`) and the full resolved profile.
+     * @returns {{ index: number, id: string, profile: string, resolvedProfile: import('../input/gamepad-profile-resolver.js').ResolvedGamepadProfile }[]}
      */
     getConnectedGamepads() {
       return gamepadRuntime.getConnectedGamepads();
@@ -226,12 +313,21 @@ export function createBindManager(options = {}) {
 
     /**
      * Persist a manual profile override for a connected gamepad.
+     * An exact profile that does not fit the pad's layout is stored anyway (the
+     * pad may report a raw layout later) but not applied: the resolved profile
+     * reports it in `ignoredOverride`, and the first such case warns once.
      * @param {number} [gamepadIndex=0]
      * @param {{ type: 'profile', key: string } | { type: 'family', family: string } | null} override
-     * @returns {boolean}
+     * @returns {boolean} true when stored
      */
     setGamepadProfileOverride(gamepadIndex = 0, override = null) {
-      return gamepadRuntime.setProfileOverride(gamepadIndex, override);
+      const stored = gamepadRuntime.setProfileOverride(gamepadIndex, override);
+      const ignored = stored ? gamepadRuntime.getResolvedProfile(gamepadIndex).ignoredOverride : null;
+      if (ignored && !warnedIgnoredOverride) {
+        warnedIgnoredOverride = true;
+        console.warn(`[BindManager] The exact profile "${ignored.key}" does not fit the layout of the controller in slot ${gamepadIndex}; it is saved but not applied (see getResolvedGamepadProfile().ignoredOverride).`);
+      }
+      return stored;
     },
 
     /**
@@ -256,13 +352,25 @@ export function createBindManager(options = {}) {
     },
 
     /**
-     * Remove a logical mapping entry from the active gamepad profile in memory.
+     * Remove a logical mapping entry from the active gamepad profile in memory:
+     * the code gets its base entry back (the exact profile's, or the standard
+     * layout's on a pad without one). A mapping back to its base is no edit.
      * @param {number} [gamepadIndex=0]
      * @param {string} code
      * @returns {boolean}
      */
     removeGamepadProfileMappingEntry(gamepadIndex = 0, code) {
       return gamepadRuntime.removeProfileMappingEntry(gamepadIndex, code);
+    },
+
+    /**
+     * Discard every in-memory mapping edit of a connected gamepad; it maps by
+     * its exact profile, or its standard layout, again.
+     * @param {number} [gamepadIndex=0]
+     * @returns {boolean} true when there were edits
+     */
+    resetGamepadProfileMapping(gamepadIndex = 0) {
+      return gamepadRuntime.resetProfileMapping(gamepadIndex);
     },
 
     /**
@@ -299,7 +407,11 @@ export function createBindManager(options = {}) {
      *
      * Modes:
      * - merge   (default): apply only actions present in payload
-     * - replace: apply payload actions and clear missing known actions
+     * - replace: apply payload actions and clear missing known actions (keyboard
+     *   and, for v2 payloads, gamepad slots); in v2 a device field missing from
+     *   an entry clears that device too. v1 payloads leave gamepad slots alone.
+     *   Saved bindings of actions not registered yet are replaced by the
+     *   payload's (validated) entries for them, or dropped when it has none.
      *
      * @param {object | string} payload
      * @param {{ mode?: 'merge' | 'replace' }} [options]
@@ -316,6 +428,8 @@ export function createBindManager(options = {}) {
         appliedActions: 0,
         appliedSlots: 0,
         skippedUnknownActions: [],
+        storedUnregisteredActions: [],
+        droppedUnregisteredActions: [],
         invalidEntries: [],
         conflictCount: 0,
       };
@@ -327,54 +441,75 @@ export function createBindManager(options = {}) {
       }
 
       const bindingsObj = parsed.value.bindings;
-        const payloadVersion = parsed.value.version;
+      const payloadVersion = parsed.value.version;
       const knownActions = registry.getAll();
       const incomingActionIds = new Set(Object.keys(bindingsObj));
-
-      // Track unknown action ids present in import payload.
-      for (const actionId of incomingActionIds) {
-        if (!registry.has(actionId)) report.skippedUnknownActions.push(actionId);
-      }
+      const unknownActionIds = [...incomingActionIds].filter(id => !registry.has(id));
 
       for (const action of knownActions) {
-        const incoming = bindingsObj[action.id];
-        // Normalise to { keyboard: [...], gamepad: [...] }, handling v1 (array) and v2 ({keyboard, gamepad})
-        const entry = _normaliseBindingEntry(incoming, payloadVersion);
+        const incoming = _hasOwn(bindingsObj, action.id) ? bindingsObj[action.id] : undefined;
+        // Normalise to { keyboard: [...] | null, gamepad: [...] | null }, handling v1 (array) and v2 ({keyboard, gamepad})
+        // A null device array means "not provided / invalid" → that device's slots are left unchanged.
+        const entry = _normaliseBindingEntry(incoming, payloadVersion, action.id, report.invalidEntries);
         const hasEntry = entry != null;
         const shouldProcess = hasEntry || (mode === 'replace' && !incomingActionIds.has(action.id));
         if (!shouldProcess) continue;
 
+        // Per device: the slot values to apply, or null to leave the device untouched.
+        // Replace mode clears (empty source) a missing action and, in v2, a missing
+        // device field. v1 payloads and legacy array entries cannot express gamepad
+        // bindings, so those are kept.
+        const replace = mode === 'replace';
+        const kbSource = hasEntry
+          ? (entry.keyboard ?? (replace && entry.keyboardMissing ? [] : null))
+          : [];
+        const gpSource = payloadVersion < 2 ? null
+          : hasEntry
+            ? (entry.gamepad ?? (replace && entry.gamepadMissing ? [] : null))
+            : [];
+
         let actionChanged = false;
 
         // ── Keyboard slots ──────────────────────────────────────────────────
-        const kbTarget = Array.from({ length: action.slots }, (_, slot) => {
-          if (!hasEntry) return null;
-          const raw = entry.keyboard[slot];
-          if (raw === null || raw === undefined) return null;
-          if (typeof raw === 'string') return raw;
-          report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has invalid value type`);
-          return null;
-        });
-        for (let slot = 0; slot < kbTarget.length; slot++) {
-          const current = store.get(action.id, 'keyboard')?.[slot] ?? null;
-          const next = kbTarget[slot] ?? null;
-          if (current === next) continue;
-          const result = store.set(action.id, slot, next, 'keyboard');
-          actionChanged = true;
-          report.appliedSlots += 1;
-          report.conflictCount += result.conflicts.length;
+        if (kbSource) {
+          const kbTarget = Array.from({ length: action.slots }, (_, slot) => {
+            const raw = kbSource[slot];
+            if (raw === null || raw === undefined) return null;
+            if (typeof raw === 'string') {
+              if (isKnownCode(raw)) return raw;
+              report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has unknown code "${raw}"`);
+              return KEEP_SLOT;
+            }
+            report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has invalid value type`);
+            return null;
+          });
+          for (let slot = 0; slot < kbTarget.length; slot++) {
+            if (kbTarget[slot] === KEEP_SLOT) continue;
+            const current = store.get(action.id, 'keyboard')?.[slot] ?? null;
+            const next = kbTarget[slot] ?? null;
+            if (current === next) continue;
+            const result = store.set(action.id, slot, next, 'keyboard');
+            actionChanged = true;
+            report.appliedSlots += 1;
+            report.conflictCount += result.conflicts.length;
+          }
         }
 
         // ── Gamepad slots (v2 only) ─────────────────────────────────────────
-        if (payloadVersion >= 2 && hasEntry) {
+        if (gpSource) {
           const gpTarget = Array.from({ length: action.gamepadSlots }, (_, slot) => {
-            const raw = entry.gamepad[slot];
+            const raw = gpSource[slot];
             if (raw === null || raw === undefined) return null;
-            if (typeof raw === 'string') return raw;
+            if (typeof raw === 'string') {
+              if (isGamepadCode(raw)) return raw;
+              report.invalidEntries.push(`Action "${action.id}" gamepad slot ${slot} has unknown code "${raw}"`);
+              return KEEP_SLOT;
+            }
             report.invalidEntries.push(`Action "${action.id}" gamepad slot ${slot} has invalid value type`);
             return null;
           });
           for (let slot = 0; slot < gpTarget.length; slot++) {
+            if (gpTarget[slot] === KEEP_SLOT) continue;
             const current = store.get(action.id, 'gamepad')?.[slot] ?? null;
             const next = gpTarget[slot] ?? null;
             if (current === next) continue;
@@ -386,6 +521,51 @@ export function createBindManager(options = {}) {
         }
 
         if (actionChanged) report.appliedActions += 1;
+      }
+
+      // ── Actions not registered (yet) ─────────────────────────────────────
+      // Merge mode ignores them. Replace mode makes the saved entries of all
+      // unregistered actions match the payload: valid entries are stored (and
+      // apply when the action registers), saved ids missing from the payload
+      // are dropped, and an unrecognisable entry keeps the saved one.
+      // Bounded: ids up to MAX_SAVED_ID_LENGTH characters, at most
+      // MAX_UNREGISTERED_IDS entries, MAX_SAVED_SLOTS slots per device; what is
+      // cut or dropped is reported (invalidEntries, droppedUnregisteredActions).
+      const stored = new Set();
+      const dropped = new Set();
+      if (mode === 'replace') {
+        const entries = new Map();
+        let overLimit = 0;
+        for (const actionId of unknownActionIds) {
+          if (actionId.length > MAX_SAVED_ID_LENGTH) {
+            dropped.add(actionId);
+            report.invalidEntries.push(`Action id "${_reportId(actionId)}" is longer than ${MAX_SAVED_ID_LENGTH} characters and was not stored`);
+            continue;
+          }
+          if (entries.size >= MAX_UNREGISTERED_IDS) {
+            dropped.add(actionId);
+            overLimit += 1;
+            continue;
+          }
+          const saved = store.getSavedEntry(actionId);
+          const entry = _normaliseBindingEntry(bindingsObj[actionId], payloadVersion, actionId, report.invalidEntries);
+          if (!entry) {
+            if (saved !== undefined) entries.set(actionId, saved);
+            continue;
+          }
+          entries.set(actionId, _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, report.invalidEntries));
+          stored.add(actionId);
+        }
+        if (overLimit > 0) {
+          report.invalidEntries.push(`${overLimit} unregistered action ids beyond the first ${MAX_UNREGISTERED_IDS} were not stored`);
+        }
+        store.replaceUnregisteredSaved(entries);
+      }
+      for (const actionId of unknownActionIds) {
+        const list = stored.has(actionId) ? report.storedUnregisteredActions
+          : dropped.has(actionId) ? report.droppedUnregisteredActions
+            : report.skippedUnknownActions;
+        list.push(_reportId(actionId));
       }
 
       return report;
@@ -418,6 +598,35 @@ export function createBindManager(options = {}) {
     /** Reset all actions to their registered defaults. */
     resetAll() { store.resetAll(); },
 
+    /**
+     * Result of the most recent save. `ok` is false and `lastError` holds the
+     * error while the last save failed (quota exceeded, storage unavailable,
+     * or a custom adapter's save() threw or returned false); a successful
+     * save clears `lastError`. `lastFailure` keeps the most recent failure
+     * (`{ error, at }`, `at` a Date.now() timestamp). Every later change is
+     * saved again regardless.
+     * @returns {{ ok: boolean, failedSaves: number, lastError: unknown, lastFailure: { error: unknown, at: number } | null }}
+     */
+    getStorageStatus() {
+      return { ...storageStatus };
+    },
+
+    /**
+     * Delete everything persisted for this namespace (bindings and gamepad
+     * profile overrides) via the storage adapter's clear(). In-memory
+     * bindings are untouched; the next binding change is persisted again.
+     * Saved bindings of actions not registered yet are dropped as well, so
+     * those actions get their defaults when they register.
+     * Call resetAll() first to also return the live bindings to defaults.
+     * @returns {boolean} false when the storage adapter has no clear()
+     */
+    clearStorage() {
+      if (typeof storageAdapter.clear !== 'function') return false;
+      storageAdapter.clear();
+      store.clearSaved();
+      return true;
+    },
+
     // ── Change subscriptions ─────────────────────────────────────────────────
 
     /**
@@ -442,7 +651,11 @@ export function createBindManager(options = {}) {
     // ── Runtime input events ──────────────────────────────────────────────────
 
     /**
-     * Listen for any action event (pressed / held / released) across all actions.
+     * Listen for any action event across all actions and devices: `pressed`,
+     * `held` and `released`, and the gamepad's `analog` events (analog actions;
+     * an action bound to one half of an axis gets `code` set to that half). A
+     * handler that tracks up/down state should skip `type === 'analog'` and read
+     * analog values with the action handle's `onAnalog()`.
      * @param {(event: import('../input/keyboard-runtime.js').ActionEvent) => void} listener
      * @returns {() => void} unsubscribe
      */
@@ -457,14 +670,18 @@ export function createBindManager(options = {}) {
 
     /**
      * Check if the key(s) bound to an action are currently held down.
+     * Gamepad bindings honour the action's playerIndex, like action events do.
+     * Mouse wheel bindings are never "held": the wheel only emits a
+     * pressed+released pulse, so use onPressed() for wheel actions.
      * @param {string} actionId
      * @returns {boolean}
      */
     isActionPressed(actionId) {
         const kbBindings = store.get(actionId, 'keyboard') ?? [];
         const gpBindings = store.get(actionId, 'gamepad')  ?? [];
+        const playerIndex = registry.get(actionId)?.playerIndex ?? null;
         return kbBindings.some(code => code && (runtime.isPressed(code) || mouseRuntime.isPressed(code)))
-          || gpBindings.some(code => code && gamepadRuntime.isPressed(code));
+          || gpBindings.some(code => code && gamepadRuntime.isPressed(code, playerIndex));
     },
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -474,11 +691,14 @@ export function createBindManager(options = {}) {
      * Call this if you need to remove the Bind Manager from a running page.
      */
     destroy() {
+      // Close first so `active` drops to false and onActiveChange listeners hear it
+      modal.close();
       unsubPersist();
       if (_debugListener) window.removeEventListener('keydown', _debugListener);
       runtime.stop();
       gamepadRuntime.stop();
       mouseRuntime.stop();
+      guard.stop();
       builtInToolsController?.unmount();
       captureModal.unmount();
       modal.unmount();
@@ -522,8 +742,8 @@ export function createBindManager(options = {}) {
   if (debug && typeof window !== 'undefined') {
     _debugListener = (e) => {
       if (e.code === debugKey) {
-        e.preventDefault();
-        modal.toggle();
+        e.preventDefault();  // also on auto-repeat, so a held F5 never reloads the page
+        if (!e.repeat) modal.toggle();
       }
     };
     window.addEventListener('keydown', _debugListener);
@@ -597,6 +817,41 @@ export function createBindManager(options = {}) {
 }
 
 /**
+ * `browserGuard: true` → enabled with defaults; object → enabled unless `enabled: false`.
+ * @param {boolean | import('../input/browser-shortcut-guard.js').BrowserGuardOptions | null | undefined} value
+ */
+function _normaliseBrowserGuardOption(value) {
+  if (value === true) return { enabled: true };
+  if (value && typeof value === 'object') return { ...value, enabled: value.enabled ?? true };
+  return { enabled: false };
+}
+
+/**
+ * Public facade over BrowserShortcutGuard (keeps private state off the manager).
+ * @param {BrowserShortcutGuard} guard
+ * @returns {BrowserGuardApi}
+ */
+function _makeBrowserGuardApi(guard) {
+  return {
+    get enabled() { return guard.enabled; },
+    setEnabled(enabled) { guard.setEnabled(enabled); },
+    setTarget(target) { guard.setTarget(target); },
+    isEngaged() { return guard.isEngaged(); },
+    setGameOwnsInput(owned) { guard.setGameOwnsInput(owned); },
+    block(patterns) { guard.block(patterns); },
+    allow(patterns) { guard.allow(patterns); },
+    getShortcutPolicy() { return guard.getShortcutPolicy(); },
+    get keyboardLockSupported() { return guard.keyboardLockSupported; },
+    isKeyboardLocked() { return guard.isKeyboardLocked(); },
+    enterFullscreen(element) { return guard.enterFullscreen(element); },
+    exitFullscreen() { return guard.exitFullscreen(); },
+    armLeaveGuard() { guard.armLeaveGuard(); },
+    disarmLeaveGuard() { guard.disarmLeaveGuard(); },
+    isLeaveGuardArmed() { return guard.isLeaveGuardArmed(); },
+  };
+}
+
+/**
  * @param {object | string} payload
  * @returns {{ ok: true, value: { version: number, bindings: Record<string, unknown> } } | { ok: false, reason: string }}
  */
@@ -616,6 +871,9 @@ function _parseImportPayload(payload) {
   if (typeof parsed.version !== 'number') {
     return { ok: false, reason: 'Payload is missing numeric version' };
   }
+  if (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 2) {
+    return { ok: false, reason: `Unsupported payload version: ${parsed.version} (expected 1 or 2)` };
+  }
   if (!parsed.bindings || typeof parsed.bindings !== 'object') {
     return { ok: false, reason: 'Payload is missing bindings object' };
   }
@@ -631,26 +889,100 @@ function _parseImportPayload(payload) {
 
 /**
  * Normalise a raw binding entry from an import payload into { keyboard, gamepad }.
- * - v1 (array): treated as keyboard-only, gamepad gets empty array
- * - v2 (object with keyboard/gamepad): used directly
+ * - v1 (array): treated as keyboard-only, gamepad is not provided (null)
+ * - v2 (object with keyboard/gamepad): used directly; a missing device field
+ *   is treated as not provided (null, flagged `<device>Missing` so replace mode
+ *   can clear it) and a present non-array field is reported in `invalidEntries`
+ *   and also treated as not provided (but not flagged missing)
  * Returns null if the entry is missing or unrecognisable.
  * @param {unknown} incoming
  * @param {number} payloadVersion
- * @returns {{ keyboard: unknown[], gamepad: unknown[] } | null}
+ * @param {string} actionId
+ * @param {string[]} invalidEntries
+ * @returns {{ keyboard: unknown[] | null, gamepad: unknown[] | null, keyboardMissing: boolean, gamepadMissing: boolean } | null}
  */
-function _normaliseBindingEntry(incoming, payloadVersion) {
+function _normaliseBindingEntry(incoming, payloadVersion, actionId, invalidEntries) {
   if (incoming == null) return null;
   if (Array.isArray(incoming)) {
     // v1 format — keyboard only
-    return { keyboard: incoming, gamepad: [] };
+    return { keyboard: incoming, gamepad: null, keyboardMissing: false, gamepadMissing: false };
   }
   if (typeof incoming === 'object' && payloadVersion >= 2) {
+    const pickDevice = (device) => {
+      const value = _hasOwn(incoming, device) ? incoming[device] : undefined;
+      if (value === undefined) return null;
+      if (Array.isArray(value)) return value;
+      invalidEntries.push(`Action "${actionId}" ${device} must be an array`);
+      return null;
+    };
     return {
-      keyboard: Array.isArray(incoming.keyboard) ? incoming.keyboard : [],
-      gamepad:  Array.isArray(incoming.gamepad)  ? incoming.gamepad  : [],
+      keyboard: pickDevice('keyboard'),
+      gamepad:  pickDevice('gamepad'),
+      keyboardMissing: !_hasOwn(incoming, 'keyboard') || incoming.keyboard === undefined,
+      gamepadMissing:  !_hasOwn(incoming, 'gamepad')  || incoming.gamepad  === undefined,
     };
   }
   return null;
+}
+
+/**
+ * Validate a normalised import entry of an action that is not registered into
+ * a saved entry ({ keyboard?, gamepad? }), with the checks used for registered
+ * actions. Slot counts are unknown, so the payload's array length is kept.
+ * Per device: a provided array is validated (an unknown code keeps the saved
+ * slot, a non-string value becomes null); a v2 field that is missing clears
+ * the device ([]); otherwise (invalid field, v1 payload, legacy array entry)
+ * the saved device array is kept, or left out so defaults apply.
+ * @param {{ keyboard: unknown[] | null, gamepad: unknown[] | null, keyboardMissing: boolean, gamepadMissing: boolean }} entry
+ * @param {unknown} saved
+ * @param {number} payloadVersion
+ * @param {string} actionId
+ * @param {string[]} invalidEntries
+ * @returns {{ keyboard?: (string|null)[], gamepad?: (string|null)[] }}
+ */
+function _sanitiseSavedEntry(entry, saved, payloadVersion, actionId, invalidEntries) {
+  const savedKb = Array.isArray(saved) ? saved : (saved && Array.isArray(saved.keyboard) ? saved.keyboard : null);
+  const savedGp = saved && !Array.isArray(saved) && Array.isArray(saved.gamepad) ? saved.gamepad : null;
+
+  const device = (name, source, missing, savedSlots, isValid) => {
+    if (source) {
+      if (source.length > MAX_SAVED_SLOTS) {
+        invalidEntries.push(`Action "${actionId}" ${name} has ${source.length} slots; only the first ${MAX_SAVED_SLOTS} are stored`);
+        source = source.slice(0, MAX_SAVED_SLOTS);
+      }
+      return Array.from(source, (raw, slot) => {
+        if (raw === null || raw === undefined) return null;
+        if (typeof raw === 'string') {
+          if (isValid(raw)) return raw;
+          invalidEntries.push(`Action "${actionId}" ${name} slot ${slot} has unknown code "${raw}"`);
+          return typeof savedSlots?.[slot] === 'string' ? savedSlots[slot] : null;
+        }
+        invalidEntries.push(`Action "${actionId}" ${name} slot ${slot} has invalid value type`);
+        return null;
+      });
+    }
+    if (missing) return [];
+    return savedSlots ? savedSlots.slice(0, MAX_SAVED_SLOTS) : undefined;
+  };
+
+  const result = {};
+  const keyboard = device('keyboard', entry.keyboard, entry.keyboardMissing, savedKb, isKnownCode);
+  const gamepad = payloadVersion >= 2
+    ? device('gamepad', entry.gamepad, entry.gamepadMissing, savedGp, isGamepadCode)
+    : (savedGp ? savedGp.slice(0, MAX_SAVED_SLOTS) : undefined);
+  if (keyboard) result.keyboard = keyboard;
+  if (gamepad) result.gamepad = gamepad;
+  return result;
+}
+
+/** An action id as listed in an import report: cut to MAX_SAVED_ID_LENGTH characters plus an ellipsis. */
+function _reportId(actionId) {
+  return actionId.length > MAX_SAVED_ID_LENGTH ? `${actionId.slice(0, MAX_SAVED_ID_LENGTH)}…` : actionId;
+}
+
+/** Own-property check (ids like "constructor" must not match Object.prototype members). */
+function _hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
 /**
@@ -662,6 +994,26 @@ function _normaliseBindingEntry(incoming, payloadVersion) {
  * @property {object | null} [storage=null]         - Custom storage adapter (load/save/clear)
  * @property {number} [deadband=0.12]              - Gamepad axis deadband (ignore drift below this)
  * @property {number} [analogThreshold=0.50]       - Axis value threshold for digital events
+ * @property {boolean | import('../input/browser-shortcut-guard.js').BrowserGuardOptions} [browserGuard=false]
+ *           - Cancel browser shortcuts while the game owns input (opt-in)
+ * @property {number} [wheelPixelThreshold=30]     - Pixel delta that counts as one wheel notch
+ *
+ * @typedef {object} BrowserGuardApi
+ * @property {boolean} enabled
+ * @property {(enabled: boolean) => void} setEnabled
+ * @property {(target: HTMLElement | null) => void} setTarget
+ * @property {() => boolean} isEngaged
+ * @property {(owned: boolean) => void} setGameOwnsInput
+ * @property {(patterns: string | string[]) => void} block
+ * @property {(patterns: string | string[]) => void} allow
+ * @property {() => { shortcuts: string[], block: string[], allow: string[] }} getShortcutPolicy
+ * @property {boolean} keyboardLockSupported
+ * @property {() => boolean} isKeyboardLocked
+ * @property {(element?: HTMLElement) => Promise<{ fullscreen: boolean, keyboardLocked: boolean, error?: unknown }>} enterFullscreen
+ * @property {() => Promise<void>} exitFullscreen
+ * @property {() => void} armLeaveGuard
+ * @property {() => void} disarmLeaveGuard
+ * @property {() => boolean} isLeaveGuardArmed
  *
  * @typedef {object} ActionDef
  * @property {string} id
@@ -696,7 +1048,12 @@ function _normaliseBindingEntry(incoming, payloadVersion) {
  * @property {'merge' | 'replace'} mode
  * @property {number} appliedActions
  * @property {number} appliedSlots
- * @property {string[]} skippedUnknownActions
+ * @property {string[]} skippedUnknownActions     - ids not registered whose payload entry was ignored
+ * @property {string[]} storedUnregisteredActions - replace mode: ids not registered whose entry was
+ *           stored and applies when the action registers
+ * @property {string[]} droppedUnregisteredActions - replace mode: ids not registered that were not
+ *           stored because of a cap (id longer than 128 characters, cut in this list; or beyond the
+ *           first 512 stored ids of the import)
  * @property {string[]} invalidEntries
  * @property {number} conflictCount
  */

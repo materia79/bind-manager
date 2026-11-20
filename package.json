@@ -1,11 +1,19 @@
 {
   "name": "bind-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Universal key binding manager for browser games and applications",
   "type": "module",
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "!src/input/controller_definitions/captures"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
     "build": "node scripts/build.js",
@@ -14,11 +22,13 @@
     "process_controller_defs": "node scripts/process-controller-defs.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "hygiene": "vitest run tests/hygiene",
+    "setup:git": "node scripts/setup-git.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "esbuild": "^0.25.3",
+    "esbuild": "^0.28.0",
     "jsdom": "^24.1.1",
     "vitest": "^4.1.2"
   },

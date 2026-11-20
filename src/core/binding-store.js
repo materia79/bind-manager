@@ -10,10 +10,14 @@ export class BindingStore {
     this._keyboard = new Map();
     /** @type {Map<string, (string|null)[]>} actionId -> per-slot gamepad codes */
     this._gamepad = new Map();
-    /** @type {object} raw saved data from storage */
-    this._saved = {};
+    /** @type {Map<string, unknown>} raw saved data from storage, by action id (own keys only) */
+    this._saved = new Map();
     /** @type {Set<Function>} */
     this._listeners = new Set();
+    /** @type {Set<Function>} called once per committed mutation or batch (persistence) */
+    this._commitListeners = new Set();
+    this._batchDepth = 0;
+    this._batchDirty = false;
   }
 
   /**
@@ -26,7 +30,11 @@ export class BindingStore {
    * @param {object | null} savedBindings
    */
   init(savedBindings) {
-    this._saved = savedBindings != null && typeof savedBindings === 'object' ? savedBindings : {};
+    // A Map keyed by own properties only: ids like "constructor" or "__proto__"
+    // must not resolve to Object.prototype members.
+    this._saved = new Map(
+      savedBindings != null && typeof savedBindings === 'object' ? Object.entries(savedBindings) : [],
+    );
   }
 
   /**
@@ -35,7 +43,7 @@ export class BindingStore {
    * @param {import('./action-registry.js').ActionDefinition} action
    */
   initAction(action) {
-    const saved = this._saved[action.id];
+    const saved = this._saved.get(action.id);
 
     // ── Keyboard bindings ────────────────────────────────────────────────────
     // saved may be an array (v1 legacy) or { keyboard, gamepad } (v2)
@@ -43,22 +51,13 @@ export class BindingStore {
       ? saved
       : (saved && Array.isArray(saved.keyboard) ? saved.keyboard : null);
 
-    const kbBindings = Array.from({ length: action.slots }, (_, i) => {
-      if (savedKb) return typeof savedKb[i] === 'string' ? savedKb[i] : null;
-      return typeof action.defaultBindings[i] === 'string' ? action.defaultBindings[i] : null;
-    });
-    this._keyboard.set(action.id, kbBindings);
+    this._keyboard.set(action.id, _mergeSlots(action.slots, savedKb, action.defaultBindings));
 
     // ── Gamepad bindings ─────────────────────────────────────────────────────
     const savedGp = saved && !Array.isArray(saved) && Array.isArray(saved.gamepad)
       ? saved.gamepad : null;
 
-    const gpBindings = Array.from({ length: action.gamepadSlots }, (_, i) => {
-      if (savedGp) return typeof savedGp[i] === 'string' ? savedGp[i] : null;
-      return typeof action.defaultGamepadBindings[i] === 'string'
-        ? action.defaultGamepadBindings[i] : null;
-    });
-    this._gamepad.set(action.id, gpBindings);
+    this._gamepad.set(action.id, _mergeSlots(action.gamepadSlots, savedGp, action.defaultGamepadBindings));
   }
 
   /**
@@ -75,19 +74,63 @@ export class BindingStore {
   }
 
   /**
-   * Returns a plain-object snapshot with both keyboard and gamepad bindings per action,
-   * suitable for JSON serialisation and persistence.
+   * Returns a plain-object snapshot with both keyboard and gamepad bindings per
+   * registered action, suitable for JSON serialisation and export.
    * @returns {Record<string, { keyboard: (string|null)[], gamepad: (string|null)[] }>}
    */
   getAll() {
     const result = {};
     for (const action of this._registry.getAll()) {
-      result[action.id] = {
+      _defineOwn(result, action.id, {
         keyboard: [...(this._keyboard.get(action.id) ?? [])],
         gamepad:  [...(this._gamepad.get(action.id)  ?? [])],
-      };
+      });
     }
     return result;
+  }
+
+  /**
+   * The snapshot to persist: getAll() plus the raw saved entries of actions that
+   * are not registered (yet), carried through unchanged so a save made before
+   * a lazily registered action exists does not wipe its saved bindings.
+   * @returns {Record<string, unknown>}
+   */
+  getAllForStorage() {
+    const result = this.getAll();
+    for (const [id, saved] of this._saved) {
+      if (!this._registry.has(id)) _defineOwn(result, id, saved);
+    }
+    return result;
+  }
+
+  /** Forget the saved data loaded by init() (after the storage was cleared). */
+  clearSaved() {
+    this._saved = new Map();
+  }
+
+  /**
+   * The raw saved entry loaded for an action id (own keys only), or undefined.
+   * @param {string} actionId
+   * @returns {unknown}
+   */
+  getSavedEntry(actionId) {
+    return this._saved.get(actionId);
+  }
+
+  /**
+   * Replace the saved entries of all actions that are not registered with
+   * `entries` (replace-mode import) and commit, so storage reflects them even
+   * when no live binding changed. Entries for registered ids are ignored.
+   * @param {Map<string, unknown>} entries
+   */
+  replaceUnregisteredSaved(entries) {
+    for (const id of [...this._saved.keys()]) {
+      if (!this._registry.has(id)) this._saved.delete(id);
+    }
+    for (const [id, entry] of entries) {
+      if (!this._registry.has(id)) this._saved.set(id, entry);
+    }
+    this._requestCommit();
   }
 
   /**
@@ -154,8 +197,28 @@ export class BindingStore {
 
   /** Reset all registered actions to their defaults on both devices. */
   resetAll() {
-    for (const action of this._registry.getAll()) {
-      this.reset(action.id);
+    this.batch(() => {
+      for (const action of this._registry.getAll()) {
+        this.reset(action.id);
+      }
+    });
+  }
+
+  /**
+   * Run several mutations as one commit: change events are still emitted per
+   * mutation, but commit listeners (persistence) run once at the end.
+   * @param {() => void} fn
+   */
+  batch(fn) {
+    this._batchDepth += 1;
+    try {
+      fn();
+    } finally {
+      this._batchDepth -= 1;
+      if (this._batchDepth === 0 && this._batchDirty) {
+        this._batchDirty = false;
+        this._commit();
+      }
     }
   }
 
@@ -185,6 +248,17 @@ export class BindingStore {
     return () => this._listeners.delete(listener);
   }
 
+  /**
+   * Subscribe to commits: called once after each mutation outside a batch,
+   * and once at the end of a batch that changed something.
+   * @param {() => void} listener
+   * @returns {Function} unsubscribe
+   */
+  onCommit(listener) {
+    this._commitListeners.add(listener);
+    return () => this._commitListeners.delete(listener);
+  }
+
   /** @private */
   _findConflicts(code, excludeActionId, excludeSlot, device = 'keyboard') {
     const map = device === 'gamepad' ? this._gamepad : this._keyboard;
@@ -206,7 +280,52 @@ export class BindingStore {
         console.error('[BindManager] Subscriber threw an error:', err);
       }
     }
+    this._requestCommit();
   }
+
+  /** Commit now, or at the end of the running batch. @private */
+  _requestCommit() {
+    if (this._batchDepth > 0) this._batchDirty = true;
+    else this._commit();
+  }
+
+  /** @private */
+  _commit() {
+    for (const listener of this._commitListeners) {
+      try { listener(); } catch (err) {
+        console.error('[BindManager] Commit listener threw an error:', err);
+      }
+    }
+  }
+}
+
+/** defineProperty, not assignment: an id of "__proto__" would hit the prototype setter. */
+function _defineOwn(obj, key, value) {
+  Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * Per-slot bindings from saved data, falling back to the defaults. Slots the saved array does
+ * not cover (the action gained slots since it was saved) take their default, unless that code
+ * is already saved in another slot; saved slots, including explicitly cleared (null) ones, win.
+ * An empty saved array keeps every slot cleared.
+ * @param {number} count
+ * @param {(string|null)[] | null} saved
+ * @param {(string|null)[]} defaults
+ * @returns {(string|null)[]}
+ */
+function _mergeSlots(count, saved, defaults) {
+  const def = (i) => (typeof defaults[i] === 'string' ? defaults[i] : null);
+  if (!saved) return Array.from({ length: count }, (_, i) => def(i));
+  const out = Array.from({ length: count }, (_, i) => (typeof saved[i] === 'string' ? saved[i] : null));
+  // An empty saved array is a device cleared on purpose (a replace-mode import of
+  // `gamepad: []` or of an entry without that device): no defaults come back.
+  if (saved.length === 0) return out;
+  for (let i = saved.length; i < count; i++) {
+    const d = def(i);
+    if (d !== null && !out.includes(d)) out[i] = d;
+  }
+  return out;
 }
 
 /**

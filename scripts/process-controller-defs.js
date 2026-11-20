@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGamepadId } from '../src/input/gamepad-profiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,16 +21,29 @@ const HAT_DEFAULT_VALUES = {
 };
 const HAT_DEFAULT_TOLERANCE = 0.2;
 
-function main() {
-  if (!fs.existsSync(CAPTURES_DIR)) {
-    console.error(`[process_controller_defs] capture directory missing: ${CAPTURES_DIR}`);
-    process.exit(1);
+/**
+ * Process every capture JSON in `capturesDir` into profile modules in
+ * `defsDir` and the registry `outFile`. Nothing is written when a capture
+ * fails; the errors are returned instead.
+ * Refused (an error for the file; nothing is written): a capture of a pad the
+ * browser reports with mapping 'standard', and, unless `replaceLayout`, a capture
+ * that would change sourceButtons / sourceAxes of an existing profile with the
+ * same key.
+ * @param {{ capturesDir?: string, defsDir?: string, outFile?: string, log?: (line: string) => void, replaceLayout?: boolean }} [options]
+ * @returns {{ files: string[], definitions: any[], errors: string[], warnings: string[] }}
+ */
+export function processControllerDefs(options = {}) {
+  const capturesDir = options.capturesDir ?? CAPTURES_DIR;
+  const defsDir = options.defsDir ?? DEFS_DIR;
+  const outFile = options.outFile ?? OUT_FILE;
+  const log = options.log ?? ((line) => console.log(line));
+
+  if (!fs.existsSync(capturesDir)) {
+    return { files: [], definitions: [], errors: [`capture directory missing: ${capturesDir}`], warnings: [] };
   }
 
-  fs.mkdirSync(DEFS_DIR, { recursive: true });
-
   const files = fs
-    .readdirSync(CAPTURES_DIR)
+    .readdirSync(capturesDir)
     .filter((name) => name.toLowerCase().endsWith('.json'))
     .sort((a, b) => a.localeCompare(b));
 
@@ -38,7 +52,7 @@ function main() {
   const warnings = [];
 
   for (const fileName of files) {
-    const fullPath = path.join(CAPTURES_DIR, fileName);
+    const fullPath = path.join(capturesDir, fileName);
     try {
       const raw = fs.readFileSync(fullPath, 'utf8');
       const json = JSON.parse(raw);
@@ -47,7 +61,12 @@ function main() {
       for (const warning of sanity.warnings) warnings.push(`${fileName}: ${warning}`);
       if (sanity.errors.length > 0) continue;
 
-      const definition = toControllerDefinition(json, fileName);
+      const definition = toControllerDefinition(json, fileName, defsDir);
+      const layoutError = checkLayoutChange(definition, defsDir, options.replaceLayout === true);
+      if (layoutError) {
+        errors.push(`${fileName}: ${layoutError}`);
+        continue;
+      }
       definitions.push(definition);
     } catch (err) {
       errors.push(`${fileName}: ${err instanceof Error ? err.message : String(err)}`);
@@ -55,29 +74,50 @@ function main() {
   }
 
   if (errors.length > 0) {
-    console.error('[process_controller_defs] Failed to process one or more captures:');
-    for (const err of errors) console.error(`  - ${err}`);
-    process.exit(1);
+    return { files, definitions: [], errors, warnings };
   }
 
+  fs.mkdirSync(defsDir, { recursive: true });
   const dedupedDefinitions = dedupeByDevice(definitions, warnings);
-  writeProfileFiles(dedupedDefinitions);
-  removeStaleProfileFiles(dedupedDefinitions);
+  writeProfileFiles(dedupedDefinitions, defsDir);
+  removeStaleProfileFiles(dedupedDefinitions, defsDir);
 
   const output = renderIndex(dedupedDefinitions, files);
-  fs.writeFileSync(OUT_FILE, output, 'utf8');
+  writeIfChanged(outFile, output);
 
-  if (warnings.length > 0) {
-    console.warn('[process_controller_defs] Sanity warnings detected:');
-    for (const warning of warnings) console.warn(`  - ${warning}`);
-  }
-
-  console.log(`[process_controller_defs] Processed ${files.length} capture(s), generated ${dedupedDefinitions.length} device definition(s).`);
-  console.log(`[process_controller_defs] Wrote ${path.relative(ROOT, DEFS_DIR)}.`);
-  console.log(`[process_controller_defs] Wrote ${path.relative(ROOT, OUT_FILE)}.`);
+  log(`[process_controller_defs] Processed ${files.length} capture(s), generated ${dedupedDefinitions.length} device definition(s).`);
+  log(`[process_controller_defs] Wrote ${path.relative(ROOT, defsDir)}.`);
+  log(`[process_controller_defs] Wrote ${path.relative(ROOT, outFile)}.`);
+  return { files, definitions: dedupedDefinitions, errors, warnings };
 }
 
-function validateCaptureSanity(capture) {
+/**
+ * An existing generated profile with the same key keeps its raw layout: a
+ * capture with other button/axis counts would make it apply to other pads.
+ * @returns {string | null} the reason to refuse, or null
+ */
+function checkLayoutChange(definition, defsDir, replaceLayout) {
+  if (replaceLayout) return null;
+  const existing = readExistingProfileDefinition(definition.key, defsDir);
+  if (!existing || !Number.isInteger(existing.sourceButtons) || !Number.isInteger(existing.sourceAxes)) return null;
+  if (existing.sourceButtons === definition.sourceButtons && existing.sourceAxes === definition.sourceAxes) return null;
+  return `would change the raw layout of the existing profile ${definition.key} from ${existing.sourceButtons} buttons / ${existing.sourceAxes} axes to ${definition.sourceButtons} buttons / ${definition.sourceAxes} axes; pass --replace-layout (replaceLayout: true) if that is intended`;
+}
+
+function main() {
+  const result = processControllerDefs({ replaceLayout: process.argv.includes('--replace-layout') });
+  if (result.warnings.length > 0) {
+    console.warn('[process_controller_defs] Sanity warnings detected:');
+    for (const warning of result.warnings) console.warn(`  - ${warning}`);
+  }
+  if (result.errors.length > 0) {
+    console.error('[process_controller_defs] Failed to process one or more captures:');
+    for (const err of result.errors) console.error(`  - ${err}`);
+    process.exit(1);
+  }
+}
+
+export function validateCaptureSanity(capture) {
   const errors = [];
   const warnings = [];
 
@@ -142,8 +182,19 @@ function validateCaptureSanity(capture) {
   const dpadExpected = DPAD_CODES;
   const dpadPhysicalKeys = new Set();
 
-  const buttonCount = Number.isInteger(target.buttons) ? target.buttons : null;
-  const axisCount = Number.isInteger(target.axes) ? target.axes : null;
+  const buttonCount = Number.isInteger(target?.buttons) ? target.buttons : null;
+  const axisCount = Number.isInteger(target?.axes) ? target.axes : null;
+
+  // The layout the browser reported (captures since the mapping field exist).
+  // A standard-mapped pad needs no exact profile: one generated from it would
+  // apply to no pad (exact profiles apply only to raw layouts).
+  if (target?.mapping === 'standard') {
+    errors.push("runMeta.targetController.mapping is 'standard': this browser already reports the controller in the standard layout, so no exact profile is needed (the family labels apply); capture it in a browser that reports the raw layout");
+    return { errors, warnings };
+  }
+  if (typeof target?.mapping !== 'string' && (buttonCount === 17 || buttonCount === 18) && axisCount === 4) {
+    warnings.push(`runMeta.targetController has no mapping field and ${buttonCount} buttons / 4 axes: this looks standard-mapped, and a profile from it would apply to no pad`);
+  }
 
   for (const entry of captures) {
     const expected = entry?.expectedCode;
@@ -160,6 +211,8 @@ function validateCaptureSanity(capture) {
     expectedSeen.add(expected);
 
     if (!detected || typeof detected !== 'object') {
+      // An optional step (the touchpad click) may be left out: nothing to map.
+      if (entry.optional === true) continue;
       errors.push(`${expected}: detected mapping is missing`);
       continue;
     }
@@ -260,7 +313,7 @@ function validateGeneratedMappingSanity(mapping) {
   return { errors, warnings };
 }
 
-function toControllerDefinition(capture, fileName) {
+export function toControllerDefinition(capture, fileName, defsDir = DEFS_DIR) {
   if (!capture || typeof capture !== 'object') {
     throw new Error('capture root must be an object');
   }
@@ -283,7 +336,7 @@ function toControllerDefinition(capture, fileName) {
     throw new Error('unable to derive vendorId/productId from targetController.id');
   }
   const key = `${idInfo.vendorId}-${idInfo.productId}`;
-  const existingProfile = readExistingProfileDefinition(key);
+  const existingProfile = readExistingProfileDefinition(key, defsDir);
 
   const captures = Array.isArray(capture.captures) ? capture.captures : [];
   const mapping = {};
@@ -317,8 +370,8 @@ function toControllerDefinition(capture, fileName) {
     };
   }
 
-  // Fallback: include controllerDefinition mappings (useful for tester edit-mode exports
-  // that only modify a subset of captures or have null detected entries).
+  // Fallback: Input Remap also writes controllerDefinition.buttons / .axes; they
+  // fill codes whose capture entry has no detected input (a hand-trimmed capture).
   const fallbackButtons = capture?.controllerDefinition?.buttons;
   if (fallbackButtons && typeof fallbackButtons === 'object') {
     for (const [expected, entry] of Object.entries(fallbackButtons)) {
@@ -404,21 +457,29 @@ function toControllerDefinition(capture, fileName) {
   };
 }
 
-function readExistingProfileDefinition(key) {
-  const filePath = path.join(DEFS_DIR, `${key}.js`);
+/**
+ * The definition object of an existing generated profile (renderProfileFile's
+ * layout): the JSON between the line that starts `export const
+ * controllerDefinition = ` and the `;` that closes it right before the final
+ * `export default controllerDefinition;`. JSON strings hold no raw line break,
+ * so neither marker can occur inside the data, whatever the id or the names
+ * hold (`;`, quotes, backslashes, braces, `*\/`). A file that exists but cannot
+ * be read this way is an error: skipping it would skip the layout guard.
+ * @returns {object | null} null when there is no such file
+ */
+function readExistingProfileDefinition(key, defsDir) {
+  const filePath = path.join(defsDir, `${key}.js`);
   if (!fs.existsSync(filePath)) return null;
   const text = fs.readFileSync(filePath, 'utf8');
-  const marker = 'export const controllerDefinition = ';
-  const start = text.indexOf(marker);
-  if (start < 0) return null;
-  const end = text.indexOf(';', start + marker.length);
-  if (end < 0) return null;
-  const rawObject = text.slice(start + marker.length, end).trim();
-  try {
-    return JSON.parse(rawObject);
-  } catch {
-    return null;
+  const m = text.match(/^export const controllerDefinition = ([^]*?);[ \t]*\r?\n\s*export default controllerDefinition;\s*$/m);
+  let parsed = null;
+  if (m) {
+    try { parsed = JSON.parse(m[1]); } catch { parsed = null; }
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`the existing profile ${key}.js could not be read; delete it to generate the profile from the capture alone`);
+  }
+  return parsed;
 }
 
 function parseControllerIdFromFileName(fileName) {
@@ -433,7 +494,7 @@ function parseControllerIdFromFileName(fileName) {
   };
 }
 
-function applyDpadHatHeuristic(mapping) {
+export function applyDpadHatHeuristic(mapping) {
   const dpadEntries = DPAD_CODES
     .map((code) => [code, mapping[code]])
     .filter(([, entry]) => entry && entry.kind === 'axis');
@@ -477,22 +538,30 @@ function dedupeByDevice(definitions, warnings) {
   return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-function writeProfileFiles(definitions) {
+function writeProfileFiles(definitions, defsDir) {
   for (const def of definitions) {
-    const filePath = path.join(DEFS_DIR, `${def.key}.js`);
-    fs.writeFileSync(filePath, renderProfileFile(def), 'utf8');
+    writeIfChanged(path.join(defsDir, `${def.key}.js`), renderProfileFile(def));
   }
 }
 
-function removeStaleProfileFiles(definitions) {
+/**
+ * Write a generated file only when its content changed (line endings aside), so
+ * an unchanged regeneration leaves a CRLF checkout untouched and git status clean.
+ */
+function writeIfChanged(filePath, text) {
+  if (fs.existsSync(filePath) && fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n') === text) return;
+  fs.writeFileSync(filePath, text, 'utf8');
+}
+
+function removeStaleProfileFiles(definitions, defsDir) {
   const keep = new Set(definitions.map((def) => `${def.key}.js`));
   const existing = fs
-    .readdirSync(DEFS_DIR)
+    .readdirSync(defsDir)
     .filter((name) => name.toLowerCase().endsWith('.js'));
 
   for (const fileName of existing) {
     if (!keep.has(fileName)) {
-      fs.unlinkSync(path.join(DEFS_DIR, fileName));
+      fs.unlinkSync(path.join(defsDir, fileName));
     }
   }
 }
@@ -527,7 +596,7 @@ function renderProfileFile(definition) {
   ].join('\n');
 }
 
-function parseControllerId(controllerId) {
+export function parseControllerId(controllerId) {
   if (!controllerId) {
     return {
       vendorId: null,
@@ -536,28 +605,17 @@ function parseControllerId(controllerId) {
     };
   }
 
-  const trimmed = controllerId.trim();
-  const prefixMatch = trimmed.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-(.+)$/);
-  if (prefixMatch) {
-    return {
-      vendorId: prefixMatch[1].toLowerCase(),
-      productId: prefixMatch[2].toLowerCase(),
-      name: prefixMatch[3].trim(),
-    };
-  }
-
-  // Browser strings can vary. Try to recover VID/PID from "Vendor: 054c Product: 0ce6" forms.
-  const vendorMatch = trimmed.match(/vendor\D*([0-9a-fA-F]{4})/i);
-  const productMatch = trimmed.match(/product\D*([0-9a-fA-F]{4})/i);
-
+  // Same parser as the runtime: Firefox "054c-0ce6-Name" and Chrome
+  // "Name (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)" forms.
+  const parsed = parseGamepadId(controllerId);
   return {
-    vendorId: vendorMatch ? vendorMatch[1].toLowerCase() : null,
-    productId: productMatch ? productMatch[1].toLowerCase() : null,
-    name: trimmed,
+    vendorId: parsed.vendorId,
+    productId: parsed.productId,
+    name: parsed.name || controllerId.trim(),
   };
 }
 
-function renderIndex(definitions, fileNames) {
+export function renderIndex(definitions, fileNames) {
   const importLines = definitions.map((def, idx) =>
     `import profile${idx} from './profiles/${def.key}.js';`
   );
@@ -574,6 +632,7 @@ function renderIndex(definitions, fileNames) {
     ` * Source captures: ${fileNames.length ? fileNames.join(', ') : '(none)'}`,
     ' */',
     '',
+    "import { parseGamepadId } from '../gamepad-profiles.js';",
     ...importLines,
     '',
     'export const controllerProfiles = {',
@@ -609,37 +668,31 @@ function renderIndex(definitions, fileNames) {
     '}',
     '',
     '/**',
-    ' * Resolve the most specific profile by (vendorId, productId).',
-    ' * Falls back to first profile with matching vendorId if exact product is unknown.',
+    ' * Return the profile for exactly this (vendorId, productId), or null.',
+    ' * There is no vendor-only fallback: another product of the same vendor',
+    ' * has its own raw layout.',
     ' */',
     'export function findControllerProfile(vendorId, productId) {',
     '  const v = typeof vendorId === "string" ? vendorId.toLowerCase() : null;',
     '  const p = typeof productId === "string" ? productId.toLowerCase() : null;',
-    '  if (!v) return null;',
-    '',
-    '  const exactKey = p ? `${v}-${p}` : null;',
-    '  if (exactKey && controllerProfiles[exactKey]) return controllerProfiles[exactKey];',
-    '',
-    '  let vendorFallback = null;',
-    '  for (const profile of Object.values(controllerProfiles)) {',
-    '    if (!profile || profile.vendorId !== v) continue;',
-    '    if (!vendorFallback) vendorFallback = profile;',
-    '    if (p && profile.productId === p) return profile;',
-    '  }',
-    '  return vendorFallback;',
+    '  if (!v || !p) return null;',
+    '  return controllerProfiles[`${v}-${p}`] ?? null;',
     '}',
     '',
     '/**',
-    ' * Parse VID/PID from a browser gamepad id string and return a matching profile if present.',
+    ' * Parse VID/PID from a browser gamepad id (Chrome or Firefox form) and return',
+    ' * the profile for exactly that device, or null. Whether the profile applies to',
+    ' * the connected pad is decided by the resolver (mapping and button/axis counts).',
     ' */',
     'export function findControllerProfileByGamepadId(gamepadId) {',
-    '  if (!gamepadId || typeof gamepadId !== "string") return null;',
-    '  const m = gamepadId.match(/^([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-/);',
-    '  if (!m) return null;',
-    '  return findControllerProfile(m[1], m[2]);',
+    '  const { vendorId, productId } = parseGamepadId(gamepadId);',
+    '  return findControllerProfile(vendorId, productId);',
     '}',
     '',
   ].join('\n');
 }
 
-main();
+// Run only when executed as a script, so tests can import the functions.
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main();
+}

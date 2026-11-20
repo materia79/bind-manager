@@ -13,12 +13,14 @@ This directory contains project automation scripts that are run through npm scri
 - `npm run process_controller_defs`
 	- Runs `node scripts/process-controller-defs.js`
 	- Converts controller capture JSON files into generated JS profile modules and an index registry
+- `npm run demo`
+	- Runs `npx --yes serve . -p 3001 --no-clipboard`: serves the repository root, the demo at `http://localhost:3001/demo/`
 
 ---
 
 ## 1) `build.js`
 
-### Purpose
+### What `build.js` does
 
 Builds the library into browser-consumable bundles using esbuild.
 
@@ -91,7 +93,7 @@ the script detects `--watch` and:
 
 ## 2) `process-controller-defs.js`
 
-### Purpose
+### What `process-controller-defs.js` does
 
 Transforms controller capture JSON files into runtime-importable controller profile modules.
 
@@ -102,7 +104,9 @@ This script powers the generated files under:
 
 ### Why this script exists
 
-The runtime imports profile modules as JavaScript. Capture data is produced as JSON from the tester/debug workflow. This script is the normalization and code-generation step between those two worlds.
+The runtime imports profile modules as JavaScript. Capture data is produced as JSON by the built-in Input Remap tool (guided capture). This script is the normalization and code-generation step between those two worlds.
+
+The Controller Test's "Download JSON" is not a capture (it is a profile definition, without `captures`); this script rejects it.
 
 ### Input and output paths
 
@@ -124,8 +128,7 @@ npm run process_controller_defs
 the script performs the following stages.
 
 1. Pre-flight checks
-	 - Verifies `captures/` exists.
-	 - Creates `profiles/` if needed.
+	 - Verifies `captures/` exists (error `capture directory missing: …` otherwise).
 
 2. Capture discovery
 	 - Reads all `.json` files in `captures/`.
@@ -135,28 +138,30 @@ the script performs the following stages.
 	 - Parses JSON.
 	 - Runs `validateCaptureSanity()`.
 	 - Collects errors and warnings.
-	 - Skips generation for captures with validation errors.
+	 - If any capture has an error, the run stops here and writes nothing at all.
 
 4. Convert capture to definition
 	 - Runs `toControllerDefinition()`.
 	 - Derives `vendorId` and `productId` from `runMeta.targetController.id`.
-	 - Falls back to filename parsing (`####-####_name.json`) if needed.
+	 - Falls back to the file name (`vvvv-pppp.json`, `vvvv-pppp_name.json` or `vvvv-pppp-name.json`, 4 hex digits each) when the id has no pair.
+	 - Takes `sourceButtons` / `sourceAxes` from `runMeta.targetController.buttons` / `.axes` (else from the existing profile of that device).
 	 - Builds `mapping` and `labels` objects.
 	 - Merges with any existing generated profile content for that same device key.
 
 5. Deduplicate by device key
-	 - If multiple captures map to the same `vendorId-productId`, keeps the newest by `capturedAt`.
+	 - If multiple captures map to the same `vendorId-productId`, keeps the newest by `capturedAt` (the capture's `generatedAt`; on a tie the later file name).
 	 - Emits warnings for duplicates.
 
 6. Generate files
-	 - Writes one profile file per device key to `profiles/`.
-	 - Removes stale profile files that are no longer represented by input captures.
+	 - Creates `profiles/` if needed and writes one profile file per device key.
+	 - Removes every other `.js` file in `profiles/` (stale or hand-written).
 	 - Regenerates `index.js` with imports and helper lookup functions.
 
 7. Reporting and exit
-	 - Prints warnings (if any).
-	 - Prints summary counts and output locations.
-	 - Exits non-zero if any hard errors occurred.
+	 - On success, prints summary counts and output locations, then the warnings (if any).
+	 - On errors, prints the warnings and the errors and exits with code `1`. Warnings alone exit `0`.
+
+Re-running on the same captures produces the same output.
 
 ### Capture validation details
 
@@ -164,16 +169,27 @@ the script performs the following stages.
 
 It validates, among other things:
 
-- Capture root shape and required arrays
-- Presence and quality of `runMeta.targetController`
-- Existence of expected D-pad codes (`GP_B12`, `GP_B13`, `GP_B14`, `GP_B15`)
-- Mapping shape:
+- Capture root shape and a non-empty `captures` array (error)
+- Presence of `runMeta.targetController` (warning when missing: the vendor/product then comes from the file name, and the raw counts come only from an existing profile of that device; without one they stay `null` and the new profile can never apply)
+- Every capture entry has an `expectedCode` and a `detected` input (error `<code>: detected mapping is missing` otherwise). Exception: when no entry has a `detected` input but `controllerDefinition.buttons` / `.axes` have entries, or `captures` is empty and those have entries, the generator only warns and builds the profile from `controllerDefinition` (the later checks are skipped)
+- Existence of the D-pad codes `GP_B12`, `GP_B13`, `GP_B14`, `GP_B15` (error)
+- Mapping shape (error):
 	- kind is `button` or `axis`
 	- non-negative integer index
 	- axis direction is `negative` or `positive`
+- Indices beyond the target controller's button/axis counts (warning)
+- An axis code (`GP_A*`) detected as a button (warning)
 - Duplicate expected codes (warning, last one wins)
 - Multiple expected codes resolving to the same physical input (warning)
+- Fewer than three distinct physical inputs for the D-pad (warning; a hat D-pad on one axis triggers it and is then converted, see below)
 - Sequence/capture expected-code mismatch (warning; processor uses `captures` entries)
+- After conversion, the generated mapping entries are checked again (button, axis, hat shapes)
+
+**The browser's layout.** Input Remap records the layout the browser reported in `runMeta.targetController.mapping` (`'standard'` or `''`). The runtime applies exact profiles only to pads with `mapping !== 'standard'` and the captured raw counts (see [src/input/controller_definitions/README.md](../src/input/controller_definitions/README.md#when-an-exact-profile-applies)), so:
+
+- A capture with `mapping: 'standard'` is an error for that file: the browser already reports the controller in the standard layout, no exact profile is needed (the family labels apply). Nothing is written and the script exits non-zero.
+- A capture without the field (older captures) whose counts are exactly 17 or 18 buttons and 4 axes gets a warning that it looks standard-mapped.
+- A capture that would change `sourceButtons` / `sourceAxes` of an existing generated profile with the same key is an error, unless the run is started with `--replace-layout` (`npm run process_controller_defs -- --replace-layout`; the importable `processControllerDefs()` takes `replaceLayout: true`). Without this, a capture from another browser would silently replace a working raw profile.
 
 The script separates:
 
@@ -194,7 +210,7 @@ Fallback behavior is intentionally layered:
 1. Uses direct `captures[*].detected` data when available.
 2. Fills missing entries from `controllerDefinition.buttons` / `controllerDefinition.axes` in the capture payload.
 3. Fills missing labels from `sequence` labels.
-4. Merges with existing generated profile to preserve previously known data when new captures are partial.
+4. Merges with existing generated profile to preserve previously known data when new captures are partial. Codes a new capture lacks are never removed by the merge.
 
 ### D-pad hat heuristic
 
@@ -207,9 +223,9 @@ If all four D-pad expected codes resolve to the same axis and direction, the scr
 - `GP_B13` (Down): `0.142857`
 - `GP_B14` (Left): `0.714286`
 
-with default tolerance `0.2`.
+with default tolerance `0.2`. The observed values are not used.
 
-This helps runtime resolve directional input correctly for hat-style D-pads.
+The runtime recognises four hat entries on the four cardinal positions of the 2/7 grid and decodes them as a grid: a cardinal direction is also active on its two neighbouring diagonals, and an off-grid value (the resting value) is neutral.
 
 ### Generated profile file format
 
@@ -235,11 +251,20 @@ Files are marked as auto-generated and should not be edited manually.
 	- `findControllerProfile(vendorId, productId)`
 	- `findControllerProfileByGamepadId(gamepadId)`
 
-This gives runtime code a consistent lookup API for exact and fallback profile resolution.
+Lookups match vendor and product exactly (Chrome and Firefox id forms through `parseGamepadId`); there is no vendor-only fallback. Whether a found profile applies to a connected pad is decided by the resolver (`isControllerProfileApplicable`).
+
+### Module API
+
+The script is importable; `main()` runs only when the file is executed directly.
+
+- `processControllerDefs({ capturesDir?, defsDir?, outFile?, log? })` → `{ files, definitions, errors, warnings }` (the defaults are the paths above; it never throws for capture errors)
+- `validateCaptureSanity(capture)`, `toControllerDefinition(capture, fileName, defsDir)`, `applyDpadHatHeuristic(mapping)`, `parseControllerId(id)`, `renderIndex(definitions, fileNames)`
+
+There are no command-line options.
 
 ### Typical operator workflow
 
-1. Capture controller data from the debug/tester flow.
+1. Capture the controller with the built-in Input Remap tool, from a browser that does not remap it (see [Adding a controller profile](../src/input/controller_definitions/README.md#adding-a-controller-profile)).
 2. Save JSON capture(s) to `src/input/controller_definitions/captures/`.
 3. Run:
 
@@ -255,17 +280,33 @@ npm run process_controller_defs
 - Error: capture directory missing
 	- Ensure `src/input/controller_definitions/captures` exists.
 
-- Error: unable to derive vendor/product ids
+- Error: `unable to derive vendorId/productId from targetController.id`
 	- Ensure `runMeta.targetController.id` includes VID/PID info.
-	- Or ensure filename starts with `####-####` (hex VID-PID).
+	- Or ensure filename starts with `vvvv-pppp` (4 hex digits each).
+
+- Error: `captures array is missing or empty`
+	- The file is not a capture (for example the Controller Test's Download JSON). Only Input Remap's capture JSON can be processed.
+
+- The generated profile does not apply (no "Exact" chip)
+	- The pad reports different raw button/axis counts (or a different `mapping`) than at capture time; see the status note under [Capture validation details](#capture-validation-details) for captures from remapped pads.
 
 - Warning: sequence expectedCode differs from captures expectedCode
 	- The processor uses `captures[*].expectedCode` for mapping output.
 	- Treat this as a capture QA issue and recapture or normalize data.
 
 - Warning: D-pad mappings not distinct enough
-	- Re-capture D-pad steps carefully.
-	- Confirm distinct physical signals are recorded.
+	- Expected for a hat D-pad: all four directions land on one axis, and the generator then writes four `hat` entries (see "D-pad hat heuristic").
+	- Otherwise (for example two directions on one button), re-capture the D-pad steps and confirm that distinct physical signals are recorded.
+
+---
+
+## 3) The push guard scripts
+
+Three scripts guard pushes to the public repository; how to install and use them is in the root README, section ["Contributing / pushing"](../README.md#contributing--pushing), and the release flow in [docs/RELEASING.md](../docs/RELEASING.md).
+
+- `pre-push.mjs`: the pre-push hook and its CLI (`--scan-tree`, `--scan-range`, `--scan-path`); scans what would be pushed and refuses private names, secrets and unlisted binaries.
+- `hygiene-patterns.mjs`: the pattern set the hook and the hygiene tests use (`npm run hygiene`).
+- `setup-git.mjs`: `npm run setup:git` installs and checks the guard for this clone (`-- --check` only reports).
 
 ---
 

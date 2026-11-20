@@ -5,7 +5,7 @@ const PROFILE_OVERRIDE_STORAGE_VERSION = 1;
  * Default persistence adapter backed by window.localStorage.
  * Implements the storage adapter contract:
  *   load()  → plain bindings object or null
- *   save(bindings) → void
+ *   save(bindings) → boolean (false when the data could not be stored)
  *   clear() → void
  */
 export class LocalStorageAdapter {
@@ -13,6 +13,8 @@ export class LocalStorageAdapter {
   constructor(namespace) {
     this._key = `bind-manager:${namespace}`;
     this._profileOverrideKey = `bind-manager:${namespace}:gamepad-profile-overrides`;
+    /** @type {unknown} error of the last failed save(), null after a successful one */
+    this.lastSaveError = null;
   }
 
   /**
@@ -34,8 +36,10 @@ export class LocalStorageAdapter {
 
   /**
    * Persist the current binding state.
-   * Silently swallows storage quota errors so games never crash on save.
+   * Never throws, so games never crash on save: a storage error (quota
+   * exceeded, storage unavailable) returns false and is kept in lastSaveError.
    * @param {Record<string, (string|null)[]>} bindings
+   * @returns {boolean} true when stored
    */
   save(bindings) {
     try {
@@ -43,8 +47,12 @@ export class LocalStorageAdapter {
         this._key,
         JSON.stringify({ version: STORAGE_VERSION, bindings })
       );
-    } catch {
+      this.lastSaveError = null;
+      return true;
+    } catch (err) {
       // Quota exceeded or storage unavailable (private browsing, etc.)
+      this.lastSaveError = err;
+      return false;
     }
   }
 

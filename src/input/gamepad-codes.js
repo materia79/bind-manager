@@ -1,7 +1,10 @@
 /**
  * Gamepad input code constants following the W3C Standard Gamepad Mapping.
  *
- * Buttons are numbered GP_B0–GP_B16 (17 buttons total).
+ * Buttons are numbered GP_B0–GP_B23 (24 buttons total): GP_B0–GP_B16 are the
+ * standard mapping, GP_B17–GP_B23 are the extra buttons some pads report after
+ * it (Share, touchpad click, paddles, back grips). A pad with fewer buttons
+ * simply never fires the higher codes.
  * Axes 0–3 are split into negative (N) and positive (P) direction codes.
  *
  * Standard button layout:
@@ -22,6 +25,8 @@
  *   GP_B14: D-Pad Left
  *   GP_B15: D-Pad Right
  *   GP_B16: Xbox button    / PS button
+ *   GP_B17–GP_B23: extra buttons; the label families in gamepad-profiles.js
+ *                  name them per controller (Share, Touchpad, Paddle 1, …)
  *
  * Standard axis layout (each split into two direction codes):
  *   GP_A0N / GP_A0P:  Left Stick X   (left / right)
@@ -48,6 +53,18 @@ export const GP_B13 = 'GP_B13';
 export const GP_B14 = 'GP_B14';
 export const GP_B15 = 'GP_B15';
 export const GP_B16 = 'GP_B16';
+export const GP_B17 = 'GP_B17';
+export const GP_B18 = 'GP_B18';
+export const GP_B19 = 'GP_B19';
+export const GP_B20 = 'GP_B20';
+export const GP_B21 = 'GP_B21';
+export const GP_B22 = 'GP_B22';
+export const GP_B23 = 'GP_B23';
+
+/** Number of logical buttons (GP_B0 … GP_B23). */
+export const GP_BUTTON_COUNT = 24;
+/** Number of logical axes (GP_A0 … GP_A3). */
+export const GP_AXIS_COUNT = 4;
 
 // ── Axes (negative / positive direction) ────────────────────────────────────
 export const GP_A0N = 'GP_A0N';   // Left Stick Left
@@ -63,6 +80,7 @@ export const GP_A3P = 'GP_A3P';   // Right Stick Down
 export const GP_CODES = [
   GP_B0, GP_B1, GP_B2, GP_B3, GP_B4, GP_B5, GP_B6, GP_B7,
   GP_B8, GP_B9, GP_B10, GP_B11, GP_B12, GP_B13, GP_B14, GP_B15, GP_B16,
+  GP_B17, GP_B18, GP_B19, GP_B20, GP_B21, GP_B22, GP_B23,
   GP_A0N, GP_A0P, GP_A1N, GP_A1P, GP_A2N, GP_A2P, GP_A3N, GP_A3P,
 ];
 

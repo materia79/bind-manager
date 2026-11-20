@@ -1,0 +1,6 @@
+# The pre-push guard runs under sh and node on every platform, and setup:git
+# installs byte copies of these files: keep them LF whatever core.autocrlf says.
+scripts/git-hooks/* text eol=lf
+scripts/pre-push.mjs text eol=lf
+scripts/hygiene-patterns.mjs text eol=lf
+scripts/setup-git.mjs text eol=lf

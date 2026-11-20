@@ -9,3 +9,6 @@ PLAN.md
 QA_CHECKLIST.md
 docs/*
 !docs/README.md
+!docs/RELEASING.md
+test-results/
+.hygiene-denylist

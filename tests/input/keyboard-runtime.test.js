@@ -91,6 +91,18 @@ describe('KeyboardRuntime capture-on-release', () => {
     runtime.stop();
   });
 
+  it('clears held modifiers when Escape cancels capture', () => {
+    const { runtime } = setup();
+    runtime.startCapture(() => {});
+
+    keydown('ShiftLeft');
+    expect(runtime.getHeldModifiers()).toEqual(['ShiftLeft']);
+
+    keydown('Escape');
+    expect(runtime.getHeldModifiers()).toEqual([]);
+    runtime.stop();
+  });
+
   it('ignores repeat events during capture', () => {
     const { runtime } = setup();
     let captured = null;
@@ -201,5 +213,55 @@ describe('KeyboardRuntime combo gameplay dispatch', () => {
     const releases = events.filter(e => e.type === 'released');
     expect(releases.length).toBeGreaterThanOrEqual(1);
     runtime.stop();
+  });
+});
+
+describe('KeyboardRuntime pressed state across capture and suppression', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('does not dispatch released for a key pressed while gameplay was suppressed', () => {
+    const { registry, store, runtime } = setup();
+    registerAction(registry, store, 'forward', ['KeyW']);
+    const events = [];
+    runtime.onAction('forward', (e) => events.push(e.type));
+
+    runtime.setGameplaySuppressed(true);
+    keydown('KeyW');
+    runtime.setGameplaySuppressed(false);
+    keyup('KeyW');
+
+    expect(events).toEqual([]);
+    runtime.stop();
+  });
+
+  it('does not dispatch released for a key pressed during a cancelled capture', () => {
+    const { registry, store, runtime } = setup();
+    registerAction(registry, store, 'forward', ['KeyW']);
+    const events = [];
+    runtime.onAction('forward', (e) => events.push(e.type));
+
+    runtime.startCapture(() => {});
+    keydown('KeyW');
+    runtime.cancelCapture();          // e.g. the mouse runtime committed first
+    keyup('KeyW');
+
+    expect(events).toEqual([]);
+    expect(runtime.isPressed('KeyW')).toBe(false);
+    runtime.stop();
+  });
+
+  it('stop() releases keys that are still held', () => {
+    const { registry, store, runtime } = setup();
+    registerAction(registry, store, 'forward', ['KeyW']);
+    const events = [];
+    runtime.onAction('forward', (e) => events.push(e.type));
+
+    keydown('KeyW');
+    runtime.stop();
+
+    expect(events).toEqual(['pressed', 'released']);
+    expect(runtime.isPressed('KeyW')).toBe(false);
   });
 });

@@ -4,14 +4,34 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bind Manager — Demo</title>
+  <link rel="icon" href="data:," />
   <style>
+    /*
+     * Page chrome scales like the library UI: --demo-u is 1px at 1920x1080 and
+     * follows the viewport, clamped to [0.6667px, 2px]. It repeats the clamp of
+     * the library's --bm-u instead of reading it, because the library injects
+     * its stylesheet later and this sheet must not depend on that order.
+     * Text that would get too small has a px floor (10px / 11px), so the HUD
+     * is an exact scaled copy only where the floors do not apply: from about
+     * 1477px wide at 16:9 (13u >= 10px). Below that, text stays legible instead
+     * of shrinking further.
+     */
+    :root {
+      --demo-u: clamp(0.6667px, min(100vw / 1920, 100vh / 1080), 2px);
+      --demo-fs-s: max(10px, calc(13 * var(--demo-u)));
+      --demo-fs-m: max(11px, calc(15 * var(--demo-u)));
+      --demo-gap: calc(8 * var(--demo-u));
+      --demo-edge: calc(16 * var(--demo-u));
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
 
     body {
       background: #0d0d1a;
       color: #c8c8e0;
       font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
+      font-size: var(--demo-fs-m);
       min-height: 100vh;
       overflow: hidden;
     }
@@ -24,6 +44,7 @@
       height: 100%;
       background: radial-gradient(ellipse at 50% 40%, #0f2a4a 0%, #050510 70%);
     }
+    #game-canvas:focus { outline: none; }
 
     /* Grid overlay for depth cue */
     #game-canvas::after {
@@ -33,38 +54,52 @@
       background-image:
         linear-gradient(rgba(80,120,255,0.07) 1px, transparent 1px),
         linear-gradient(90deg, rgba(80,120,255,0.07) 1px, transparent 1px);
-      background-size: 60px 60px;
+      background-size: calc(60 * var(--demo-u)) calc(60 * var(--demo-u));
     }
 
-    /* ── HUD: top-left action log ── */
-    #log {
+    /* ── HUD frame: event log on the left, controls on the right ── */
+    #hud {
       position: fixed;
-      top: 14px;
-      left: 14px;
+      inset: var(--demo-edge) var(--demo-edge) auto var(--demo-edge);
       z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: calc(16 * var(--demo-u));
+      pointer-events: none;
+    }
+    #hud > * { pointer-events: auto; }
+
+    .hud-panel {
       background: rgba(0, 0, 0, 0.65);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 8px;
-      padding: 10px 14px;
-      min-width: 280px;
-      max-height: 220px;
-      overflow-y: auto;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+      border-radius: calc(10 * var(--demo-u));
       backdrop-filter: blur(8px);
     }
 
-    #log-title {
-      font-size: 11px;
+    /* ── Event log ── */
+    #log {
+      width: calc(440 * var(--demo-u));
+      min-width: 0;
+      max-height: calc(300 * var(--demo-u));
+      overflow-y: auto;
+      padding: calc(12 * var(--demo-u)) calc(16 * var(--demo-u));
+    }
+
+    #log-title,
+    .hud-panel-title {
+      font-size: var(--demo-fs-s);
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #5c7cfa;
-      margin-bottom: 6px;
+      margin-bottom: calc(6 * var(--demo-u));
     }
 
     .log-entry {
-      font-size: 12px;
+      font-size: var(--demo-fs-s);
       color: #a0a0c0;
-      padding: 2px 0;
+      padding: calc(3 * var(--demo-u)) 0;
       border-bottom: 1px solid rgba(255,255,255,0.05);
     }
     .log-entry:last-child { border-bottom: none; }
@@ -74,582 +109,125 @@
     .log-entry.changed  { color: #ffa040; }
     .log-entry.info     { color: #7090c0; }
 
-    /* ── HUD: top-right controls ── */
+    /* ── Controls ── */
     #controls {
-      position: fixed;
-      top: 14px;
-      right: 14px;
-      z-index: 100;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--demo-gap);
+      align-items: flex-end;
+      max-height: calc(100vh - 2 * var(--demo-edge));
+      overflow-y: auto;
+    }
+
+    .hud-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: var(--demo-gap);
       align-items: flex-end;
     }
 
     .hud-btn {
       background: rgba(92, 124, 250, 0.2);
-      border: 1px solid rgba(92, 124, 250, 0.5);
-      border-radius: 7px;
+      border: 0;
+      box-shadow: inset 0 0 0 1px rgba(92, 124, 250, 0.5);
+      border-radius: calc(8 * var(--demo-u));
       color: #c0ccff;
-      font-size: 13px;
+      font-size: var(--demo-fs-m);
       font-family: inherit;
+      line-height: 1.2;
       cursor: pointer;
-      padding: 7px 16px;
-      transition: background 0.15s, border-color 0.15s;
+      padding: calc(8 * var(--demo-u)) calc(18 * var(--demo-u));
+      transition: background 0.15s, box-shadow 0.15s;
     }
     .hud-btn:hover {
       background: rgba(92, 124, 250, 0.4);
-      border-color: #5c7cfa;
+      box-shadow: inset 0 0 0 1px #5c7cfa;
     }
+    .hud-btn:focus-visible {
+      outline: calc(2 * var(--demo-u)) solid #5c7cfa;
+      outline-offset: calc(2 * var(--demo-u));
+    }
+    .hud-btn:disabled { opacity: 0.4; cursor: default; }
 
     #hint-toggle-btn {
       background: rgba(40, 140, 80, 0.2);
-      border-color: rgba(40, 200, 100, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(40, 200, 100, 0.4);
       color: #80dca0;
     }
     #hint-toggle-btn:hover {
       background: rgba(40, 140, 80, 0.4);
-      border-color: rgba(40,200,100,0.8);
+      box-shadow: inset 0 0 0 1px rgba(40,200,100,0.8);
     }
 
-    #debug-modal {
-      position: fixed;
-      inset: 0;
-      z-index: 10020;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0, 0, 0, 0.78);
-      backdrop-filter: blur(4px);
+    .hud-tool-btn {
+      background: rgba(200, 144, 0, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(200, 144, 0, 0.5);
+      color: #ffd480;
+    }
+    .hud-tool-btn:hover {
+      background: rgba(200, 144, 0, 0.32);
+      box-shadow: inset 0 0 0 1px rgba(255, 196, 64, 0.85);
     }
 
-    #debug-modal.debug-open {
-      display: flex;
+    .guard-status {
+      font-size: var(--demo-fs-s);
+      color: #7090c0;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: calc(6 * var(--demo-u));
+      padding: calc(4 * var(--demo-u)) calc(10 * var(--demo-u));
     }
 
-    #debug-panel {
-      width: min(880px, calc(100vw - 24px));
-      max-height: calc(100vh - 24px);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      background: #111526;
-      border: 1px solid #38446b;
-      border-radius: 10px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-    }
-
-    .debug-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding: 14px 16px;
-    }
-
-    .debug-head h2 {
-      font-size: 15px;
-      color: #f0f2ff;
-    }
-
-    .debug-body {
+    /* ── Simulated controller ── */
+    #fake-controller {
+      width: calc(330 * var(--demo-u));
+      padding: calc(10 * var(--demo-u)) calc(12 * var(--demo-u));
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 12px;
-      padding: 12px;
-      overflow: auto;
+      gap: calc(6 * var(--demo-u));
+      box-shadow: inset 0 0 0 1px rgba(255, 196, 64, 0.35);
     }
-
-    .debug-card {
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.03);
-      padding: 10px;
-    }
-
-    .debug-card h3 {
-      font-size: 12px;
+    #fake-controller .hud-panel-title { color: #ffc440; margin: 0; }
+    .fake-badge {
+      display: inline-block;
+      margin-left: calc(6 * var(--demo-u));
+      padding: 0 calc(6 * var(--demo-u));
+      border-radius: calc(4 * var(--demo-u));
+      background: rgba(255, 196, 64, 0.18);
+      color: #ffd480;
       letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: #9ab0ff;
-      margin-bottom: 8px;
     }
-
-    #debug-status {
-      min-height: 44px;
-      color: #cfd8ff;
-      line-height: 1.45;
-    }
-
-    #debug-progress {
-      margin-top: 8px;
-      font-size: 12px;
-      color: #9fb2f5;
-    }
-
-    #debug-countdown {
-      margin-top: 8px;
-      font-size: 12px;
-      color: #ffc177;
-      font-weight: 600;
-    }
-
-    #debug-live {
-      max-height: 180px;
-      overflow: auto;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
-      background: rgba(0, 0, 0, 0.24);
-      padding: 8px;
-      font-size: 12px;
-      color: #b8c4ff;
-      line-height: 1.4;
-      white-space: pre-wrap;
-    }
-
-    #debug-results {
+    #fake-select {
       width: 100%;
-      min-height: 260px;
-      resize: vertical;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 6px;
-      background: rgba(0, 0, 0, 0.3);
-      color: #dfe5ff;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      padding: 10px;
+      font: inherit;
+      font-size: var(--demo-fs-m);
+      color: #e0e0f0;
+      background: #16162a;
+      border: 0;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+      border-radius: calc(6 * var(--demo-u));
+      padding: calc(5 * var(--demo-u)) calc(8 * var(--demo-u));
     }
-
-    .debug-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .debug-small {
-      font-size: 12px;
+    #fake-status, .hud-note {
+      font-size: var(--demo-fs-s);
       color: #98a6d8;
-      margin-top: 6px;
     }
-
-    #tester-modal {
-      position: fixed;
-      inset: 0;
-      z-index: 10030;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: rgba(2, 10, 18, 0.82);
-      backdrop-filter: blur(4px);
-    }
-
-    #tester-modal.tester-open {
-      display: flex;
-    }
-
-    #tester-panel {
-      width: min(940px, calc(100vw - 24px));
-      max-height: calc(100vh - 24px);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      background: #0f1a26;
-      border: 1px solid #35506d;
-      border-radius: 10px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-    }
-
-    .tester-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding: 14px 16px;
-    }
-
-    .tester-head h2 {
-      font-size: 15px;
-      color: #e8f8ff;
-    }
-
-    .tester-body {
+    .fake-pad {
       display: grid;
-      grid-template-columns: 1fr 340px;
-      gap: 12px;
-      padding: 12px;
-      overflow: auto;
+      grid-template-columns: repeat(auto-fill, minmax(max(56px, calc(68 * var(--demo-u))), 1fr));
+      gap: calc(4 * var(--demo-u));
     }
-
-    .tester-card {
-      border: 1px solid rgba(255, 255, 255, 0.11);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.03);
-      padding: 10px;
-    }
-
-    .tester-card h3 {
-      font-size: 12px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: #86dfff;
-      margin-bottom: 8px;
-    }
-
-    #tester-status {
-      min-height: 24px;
-      color: #daf2ff;
-      line-height: 1.45;
-      margin-bottom: 6px;
-    }
-
-    #tester-detail {
-      font-size: 12px;
-      color: #9fc0d8;
-      min-height: 36px;
-      line-height: 1.4;
-    }
-
-    #tester-last-signal,
-    #tester-active-codes {
-      margin-top: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
-      background: rgba(0, 0, 0, 0.24);
-      padding: 8px;
-      font-size: 12px;
-      color: #b8def8;
-      white-space: pre-wrap;
-      line-height: 1.4;
-    }
-
-    #tester-controller {
-      position: relative;
-      width: min(540px, 100%);
-      height: 320px;
-      margin: 0 auto;
-      border-radius: 160px;
-      border: 1px solid rgba(150, 210, 240, 0.2);
-      background:
-        radial-gradient(circle at 50% 45%, rgba(66, 164, 212, 0.22), rgba(14, 28, 42, 0.94) 64%),
-        linear-gradient(165deg, rgba(40, 80, 110, 0.45), rgba(9, 16, 25, 0.95));
+    .fake-pad .hud-btn {
+      padding: calc(6 * var(--demo-u)) calc(4 * var(--demo-u));
+      font-size: var(--demo-fs-s);
       overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      touch-action: none;
+      user-select: none;
     }
-
-    #tester-controller::before {
-      content: '';
-      position: absolute;
-      inset: 14px;
-      border-radius: 150px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      pointer-events: none;
-    }
-
-    .tester-node {
-      position: absolute;
-      min-width: 24px;
-      min-height: 24px;
-      border-radius: 999px;
-      border: 1px solid rgba(191, 223, 244, 0.35);
-      color: #d9edfa;
-      font-size: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(12, 25, 36, 0.9);
-      transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
-      padding: 4px 6px;
-      text-align: center;
-      pointer-events: none;
-    }
-
-    #tester-controller.tester-edit-mode .tester-node.editable {
-      pointer-events: auto;
-      cursor: pointer;
-      border-style: dashed;
-    }
-
-    #tester-controller.tester-edit-mode .tester-node.editable:hover {
-      transform: scale(1.06);
-      border-color: rgba(236, 248, 255, 0.86);
-    }
-
-    .tester-node.selected {
-      border-color: #ffd56a;
-      box-shadow: 0 0 14px rgba(255, 213, 106, 0.7);
-      background: rgba(62, 41, 8, 0.92);
-      color: #fff8e5;
-    }
-
-    .tester-node.active {
-      border-color: #7cf0ff;
-      box-shadow: 0 0 14px rgba(124, 240, 255, 0.75);
-      transform: scale(1.06);
-      background: rgba(18, 55, 78, 0.95);
-      color: #f2fcff;
-    }
-
-    .tester-node.wide {
-      border-radius: 8px;
-      min-width: 46px;
-      min-height: 22px;
-    }
-
-    .tester-stick {
-      position: absolute;
-      width: 88px;
-      height: 88px;
-      border-radius: 50%;
-      border: 1px solid rgba(178, 214, 236, 0.36);
-      background: rgba(6, 12, 20, 0.55);
-      pointer-events: none;
-    }
-
-    .tester-stick::before,
-    .tester-stick::after {
-      content: '';
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      background: rgba(180, 210, 228, 0.18);
-      transform: translate(-50%, -50%);
-    }
-
-    .tester-stick::before {
-      width: 1px;
-      height: 100%;
-    }
-
-    .tester-stick::after {
-      width: 100%;
-      height: 1px;
-    }
-
-    .tester-stick-dot {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      border: 1px solid rgba(200, 232, 250, 0.7);
-      background: rgba(78, 157, 208, 0.55);
-      transform: translate(-50%, -50%);
-      transition: transform 0.08s linear;
-    }
-
-    .tester-trigger-meter {
-      position: absolute;
-      width: 18px;
-      height: 58px;
-      border-radius: 8px;
-      border: 1px solid rgba(180, 220, 245, 0.32);
-      background: rgba(8, 14, 22, 0.66);
-      overflow: hidden;
-    }
-
-    .tester-trigger-fill {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 0%;
-      background: linear-gradient(180deg, rgba(83, 178, 233, 0.72), rgba(30, 105, 158, 0.95));
-      transition: height 0.08s linear;
-    }
-
-    .tester-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .tester-help {
-      margin-top: 8px;
-      font-size: 12px;
-      color: #8eb8d4;
-
-        .tester-raw-section {
-          margin-top: 6px;
-          text-align: left;
-        }
-
-        .tester-raw-pre {
-          font-family: 'Courier New', Courier, monospace;
-          font-size: 10px;
-          line-height: 1.5;
-          color: #7cc8ea;
-          background: rgba(7, 15, 23, 0.88);
-          border: 1px solid rgba(100, 180, 220, 0.18);
-          border-radius: 6px;
-          padding: 8px 10px;
-          margin-top: 6px;
-          max-height: 220px;
-          overflow-y: auto;
-          white-space: pre;
-          text-align: left;
-        }
-
-        .tester-trigger-edit {
-          position: absolute;
-          left: 50%;
-          top: 94px;
-          transform: translateX(-50%);
-          display: flex;
-          gap: 6px;
-          align-items: center;
-          padding: 4px 8px;
-          border-radius: 999px;
-          border: 1px solid rgba(100, 180, 220, 0.25);
-          background: rgba(7, 15, 23, 0.82);
-          font-size: 11px;
-          color: #b8def8;
-          z-index: 3;
-        }
-
-        .tester-trigger-edit span {
-          opacity: 0.9;
-          white-space: nowrap;
-        }
-
-        .tester-code-btn {
-          font-size: 11px;
-          padding: 2px 8px;
-          height: 26px;
-        }
-
-        .tester-code-btn.active {
-          border-color: #4dd;
-          background: rgba(0, 30, 40, 0.9);
-          color: #aff;
-        }
-
-        .tester-code-btn.selected {
-          border-color: #ffd56a;
-          background: rgba(62, 41, 8, 0.9);
-          color: #fff8e5;
-        }
-
-        .tester-bindings-section {
-          margin-top: 8px;
-          border: 1px solid rgba(100, 180, 220, 0.2);
-          border-radius: 8px;
-          background: rgba(8, 16, 24, 0.75);
-          padding: 8px;
-        }
-
-        .tester-bindings-head {
-          font-size: 12px;
-          color: #b8def8;
-          margin-bottom: 6px;
-        }
-
-        .tester-bindings-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-          display: grid;
-          gap: 6px;
-        }
-
-        .tester-binding-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 8px;
-          border: 1px solid rgba(100, 180, 220, 0.15);
-          border-radius: 6px;
-          padding: 6px 8px;
-          background: rgba(11, 20, 30, 0.8);
-          font-size: 12px;
-          color: #d6ecff;
-        }
-
-        .tester-binding-meta {
-          color: #8eb8d4;
-          font-size: 11px;
-        }
-
-        .tester-binding-remove {
-          height: 24px;
-          padding: 2px 8px;
-          font-size: 11px;
-          flex-shrink: 0;
-        }
-
-        .tester-binding-empty {
-          color: #8eb8d4;
-          font-size: 12px;
-          font-style: italic;
-          border: 1px dashed rgba(100, 180, 220, 0.2);
-          border-radius: 6px;
-          padding: 6px 8px;
-        }
-
-        #capture-mini-modal {
-          position: fixed;
-          inset: 0;
-          display: none;
-          align-items: center;
-          justify-content: center;
-          background: rgba(0, 0, 0, 0.55);
-          z-index: 10000;
-          pointer-events: all;
-        }
-
-        #capture-mini-modal.open {
-          display: flex;
-        }
-
-        #capture-mini-panel {
-          width: min(560px, 92vw);
-          max-height: 80vh;
-          overflow: auto;
-          border-radius: 12px;
-          border: 1px solid rgba(110, 200, 230, 0.35);
-          background: linear-gradient(180deg, rgba(10, 22, 34, 0.98), rgba(8, 16, 24, 0.98));
-          color: #d6ecff;
-          padding: 12px 14px;
-          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-        }
-
-        #capture-mini-instruction {
-          margin-top: 6px;
-          font-size: 14px;
-          color: #d6ecff;
-        }
-
-        #capture-mini-countdown {
-          margin-top: 6px;
-          font-size: 13px;
-          color: #8fd6ff;
-        }
-
-        #capture-mini-live {
-          margin-top: 8px;
-          white-space: pre-wrap;
-          font-size: 12px;
-          color: #a7eaff;
-          border: 1px solid rgba(100, 180, 220, 0.2);
-          border-radius: 8px;
-          background: rgba(9, 18, 27, 0.8);
-          padding: 8px;
-        }
-    }
-
-    @media (max-width: 860px) {
-      .debug-body {
-        grid-template-columns: 1fr;
-      }
-
-      .tester-body {
-        grid-template-columns: 1fr;
-      }
-
-      #tester-controller {
-        height: 300px;
-      }
+    .fake-pad .hud-btn.is-down {
+      background: rgba(255, 196, 64, 0.45);
+      box-shadow: inset 0 0 0 1px #ffc440;
+      color: #fff6dc;
     }
 
     /* ── Centre title ── */
@@ -661,200 +239,92 @@
       text-align: center;
       pointer-events: none;
       z-index: 50;
+      width: max-content;
+      max-width: calc(100vw - 2 * var(--demo-edge));
     }
     #center-text h1 {
-      font-size: 28px;
+      font-size: max(20px, calc(42 * var(--demo-u)));
       font-weight: 700;
       color: rgba(200, 210, 255, 0.9);
-      text-shadow: 0 0 40px rgba(92,124,250,0.6);
-      margin-bottom: 8px;
+      text-shadow: 0 0 calc(40 * var(--demo-u)) rgba(92,124,250,0.6);
+      margin-bottom: calc(8 * var(--demo-u));
     }
     #center-text p {
-      font-size: 13px;
+      font-size: var(--demo-fs-m);
       color: rgba(150, 160, 200, 0.7);
     }
     #center-text kbd {
       display: inline-block;
       background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 3px;
-      padding: 1px 6px;
-      font-size: 12px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+      border-radius: calc(3 * var(--demo-u));
+      padding: calc(1 * var(--demo-u)) calc(6 * var(--demo-u));
+      font-size: var(--demo-fs-s);
       font-family: inherit;
+    }
+
+    /* Narrow viewports (phones, small windows): controls on top, log below. */
+    @media (max-width: 760px) {
+      #hud {
+        flex-direction: column;
+        align-items: stretch;
+        inset: 8px 8px auto 8px;
+        gap: 8px;
+      }
+      #controls { order: -1; align-items: stretch; max-height: none; overflow: visible; }
+      .hud-buttons { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+      .hud-buttons .hud-btn { padding: 6px 10px; }
+      #fake-controller { width: auto; }
+      #log { width: auto; max-height: 22vh; }
+      #center-text { top: auto; bottom: 30vh; transform: translateX(-50%); }
     }
   </style>
 </head>
 <body>
 
-  <div id="game-canvas"></div>
+  <div id="game-canvas" tabindex="0" title="Click to capture the cursor (Esc releases)"></div>
 
-  <div id="log">
-    <div id="log-title">Event Log</div>
-  </div>
+  <div id="hud">
+    <div id="log" class="hud-panel" aria-live="polite">
+      <div id="log-title">Event Log</div>
+    </div>
 
-  <div id="controls">
-    <button class="hud-btn" id="open-btn">⚙ Key Bindings</button>
-    <button class="hud-btn" id="hint-toggle-btn">👁 Toggle Hints</button>
-    <button class="hud-btn" id="reset-btn">↺ Reset All</button>
+    <div id="controls">
+      <div class="hud-buttons">
+        <button class="hud-btn" id="open-btn" type="button">⚙ Key Bindings</button>
+        <button class="hud-btn hud-tool-btn" id="open-tester-btn" type="button">🎮 Controller Test</button>
+        <button class="hud-btn hud-tool-btn" id="open-remap-btn" type="button">🧭 Input Remap</button>
+        <button class="hud-btn" id="hint-toggle-btn" type="button">👁 Toggle Hints</button>
+        <button class="hud-btn" id="reset-btn" type="button">↺ Reset All</button>
+        <button class="hud-btn" id="fullscreen-btn" type="button">⛶ Fullscreen + Keyboard Lock</button>
+        <button class="hud-btn" id="leave-guard-btn" type="button">🚪 Arm Leave Guard</button>
+      </div>
+      <div id="guard-status" class="guard-status">Guard: idle</div>
+
+      <section id="fake-controller" class="hud-panel" aria-labelledby="fake-title">
+        <h2 class="hud-panel-title" id="fake-title">Fake controller <span class="fake-badge">simulated</span></h2>
+        <select id="fake-select" aria-label="Simulated controller family"></select>
+        <div id="fake-status">No simulated pad</div>
+        <div id="fake-pad" class="fake-pad" hidden>
+          <button class="hud-btn" type="button" data-fake-input="b0">GP_B0</button>
+          <button class="hud-btn" type="button" data-fake-input="b1">GP_B1</button>
+          <button class="hud-btn" type="button" data-fake-input="b2">GP_B2</button>
+          <button class="hud-btn" type="button" data-fake-input="b3">GP_B3</button>
+          <button class="hud-btn" type="button" data-fake-input="b6">GP_B6</button>
+          <button class="hud-btn" type="button" data-fake-input="b9">GP_B9</button>
+          <button class="hud-btn" type="button" data-fake-input="b12">GP_B12</button>
+          <button class="hud-btn" type="button" data-fake-input="b17">GP_B17</button>
+          <button class="hud-btn" type="button" data-fake-input="ls-up">GP_A1N</button>
+          <button class="hud-btn" type="button" data-fake-input="ls-left">GP_A0N</button>
+        </div>
+        <p class="hud-note">A pretend gamepad for trying the controller features without one. Hold a button to press it. Real pads are hidden while it is on.</p>
+      </section>
+    </div>
   </div>
 
   <div id="center-text">
     <h1>Bind Manager Demo</h1>
     <p>Press <kbd>F5</kbd> or click "Key Bindings" to open the modal.</p>
-  </div>
-
-  <div id="debug-modal" aria-hidden="true">
-    <div id="debug-panel" role="dialog" aria-modal="true" aria-label="Input Debugger">
-      <div class="debug-head">
-        <h2>Input Debugger</h2>
-        <button class="hud-btn" id="debug-close-btn">Close</button>
-      </div>
-      <div class="debug-body">
-        <div class="debug-card">
-          <h3>Guided Test</h3>
-          <div class="debug-small">Resolved controller profile</div>
-          <div id="debug-profile-status">Profile: waiting for controller</div>
-          <div class="debug-actions">
-            <select id="debug-profile-select"></select>
-            <button class="hud-btn" id="debug-profile-auto-btn">Auto</button>
-          </div>
-          <div class="debug-small">Capture preset</div>
-          <div class="debug-actions">
-            <select id="debug-preset-select"></select>
-          </div>
-          <div id="debug-status">Press Start Debug to begin the controller mapping routine.</div>
-          <div id="debug-progress"></div>
-          <div id="debug-countdown"></div>
-          <div class="debug-small">Live strongest input delta from baseline</div>
-          <div id="debug-live">(idle)</div>
-          <div class="debug-actions">
-            <button class="hud-btn" id="debug-start-btn">Start Debug</button>
-            <button class="hud-btn" id="debug-back-btn">Back</button>
-            <button class="hud-btn" id="debug-redo-btn">Redo</button>
-            <button class="hud-btn" id="debug-capture-btn">Capture</button>
-            <button class="hud-btn" id="debug-next-btn">Next</button>
-            <button class="hud-btn" id="debug-copy-btn">Copy JSON</button>
-            <button class="hud-btn" id="debug-download-btn">Download JSON</button>
-          </div>
-          <div id="debug-validation"></div>
-          <div class="debug-small">Release all controls during normalization when prompted. Each control step records for 5 seconds.</div>
-        </div>
-        <div class="debug-card">
-          <h3>Generated Controller Definition JSON</h3>
-          <textarea id="debug-results" spellcheck="false" readonly></textarea>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="tester-modal" aria-hidden="true">
-    <div id="tester-panel" role="dialog" aria-modal="true" aria-label="Controller Tester" tabindex="-1">
-      <div class="tester-head">
-        <h2>Controller Tester</h2>
-        <button class="hud-btn" id="tester-close-btn">Close</button>
-      </div>
-      <div class="tester-body">
-        <div class="tester-card">
-          <h3>Live Controller View</h3>
-          <div id="tester-controller">
-            <div class="tester-node wide" data-code="GP_B4" style="left: 82px; top: 20px;">L1</div>
-            <div class="tester-node wide" data-code="GP_B5" style="right: 82px; top: 20px;">R1</div>
-
-            <div class="tester-trigger-meter" style="left: 96px; top: 48px;">
-              <div id="tester-l2-fill" class="tester-trigger-fill"></div>
-            </div>
-            <div class="tester-trigger-meter" style="right: 96px; top: 48px;">
-              <div id="tester-r2-fill" class="tester-trigger-fill"></div>
-            </div>
-            <div class="tester-node wide" data-code="GP_B6" style="left: 78px; top: 112px;">L2</div>
-            <div class="tester-node wide" data-code="GP_B7" style="right: 78px; top: 112px;">R2</div>
-            <div id="tester-trigger-edit" class="tester-trigger-edit" style="display:none;">
-              <span>Trigger analog targets</span>
-              <button class="hud-btn tester-code-btn" data-code="GP_B6">L2</button>
-              <button class="hud-btn tester-code-btn" data-code="GP_B7">R2</button>
-              <button class="hud-btn tester-code-btn" data-code="GP_B6A">L2A</button>
-              <button class="hud-btn tester-code-btn" data-code="GP_B7A">R2A</button>
-            </div>
-
-            <div class="tester-node" data-code="GP_B12" style="left: 56px; top: 132px;">U</div>
-            <div class="tester-node" data-code="GP_B13" style="left: 56px; top: 190px;">D</div>
-            <div class="tester-node" data-code="GP_B14" style="left: 26px; top: 162px;">L</div>
-            <div class="tester-node" data-code="GP_B15" style="left: 86px; top: 162px;">R</div>
-
-            <div class="tester-stick" style="left: 130px; top: 170px;">
-              <div id="tester-left-stick-dot" class="tester-stick-dot"></div>
-            </div>
-            <div class="tester-node" data-code="GP_A1N" style="left: 165px; top: 146px;">Up</div>
-            <div class="tester-node" data-code="GP_A1P" style="left: 165px; top: 258px;">Down</div>
-            <div class="tester-node" data-code="GP_A0N" style="left: 108px; top: 202px;">Left</div>
-            <div class="tester-node" data-code="GP_A0P" style="left: 222px; top: 202px;">Right</div>
-            <div class="tester-node" data-code="GP_B10" style="left: 166px; top: 204px;">L3</div>
-
-            <div class="tester-node" data-code="GP_B2" style="right: 86px; top: 132px;">Sq</div>
-            <div class="tester-node" data-code="GP_B3" style="right: 56px; top: 104px;">Tr</div>
-            <div class="tester-node" data-code="GP_B0" style="right: 56px; top: 162px;">Cr</div>
-            <div class="tester-node" data-code="GP_B1" style="right: 26px; top: 132px;">Ci</div>
-
-            <div class="tester-stick" style="right: 130px; top: 170px;">
-              <div id="tester-right-stick-dot" class="tester-stick-dot"></div>
-            </div>
-            <div class="tester-node" data-code="GP_A3N" style="right: 165px; top: 146px;">Up</div>
-            <div class="tester-node" data-code="GP_A3P" style="right: 165px; top: 258px;">Down</div>
-            <div class="tester-node" data-code="GP_A2N" style="right: 222px; top: 202px;">Left</div>
-            <div class="tester-node" data-code="GP_A2P" style="right: 108px; top: 202px;">Right</div>
-            <div class="tester-node" data-code="GP_B11" style="right: 166px; top: 204px;">R3</div>
-
-            <div class="tester-node wide" data-code="GP_B8" style="left: 214px; top: 134px;">Create</div>
-            <div class="tester-node" data-code="GP_B16" style="left: 256px; top: 160px;">PS</div>
-            <div class="tester-node wide" data-code="GP_B9" style="left: 292px; top: 134px;">Options</div>
-          </div>
-          <div class="tester-raw-section">
-            <button type="button" class="hud-btn" id="tester-raw-toggle-btn" style="font-size:11px;padding:2px 10px;height:26px;margin-top:6px;">Show raw input</button>
-            <pre id="tester-raw-pre" class="tester-raw-pre" hidden></pre>
-          </div>
-        </div>
-        <div class="tester-card">
-          <h3>Signal Details</h3>
-          <div id="tester-profile-status">Profile: waiting for controller</div>
-          <div class="tester-actions">
-            <select id="tester-profile-select"></select>
-            <button class="hud-btn" id="tester-profile-auto-btn">Auto</button>
-          </div>
-          <div id="tester-status">Connect a gamepad and press controls to test input mapping.</div>
-          <div id="tester-detail">Idle.</div>
-          <div class="tester-actions">
-            <button class="hud-btn" id="tester-calibrate-btn">Calibrate Baseline</button>
-          </div>
-          <div class="tester-actions">
-            <button class="hud-btn" id="tester-edit-toggle-btn">Enable Edit Mode</button>
-            <button class="hud-btn" id="tester-capture-update-btn" disabled>Capture Update</button>
-            <button class="hud-btn" id="tester-download-updated-btn" disabled>Download Updated JSON</button>
-          </div>
-          <div id="tester-edit-target">Edit target: (none)</div>
-          <div id="tester-edit-status">Edit mode is off.</div>
-          <div id="tester-bindings-section" class="tester-bindings-section" style="display:none;">
-            <div class="tester-bindings-head">Current bindings for selected target</div>
-            <ul id="tester-bindings-list" class="tester-bindings-list"></ul>
-          </div>
-          <div id="tester-last-signal">Last strongest signal: (none)</div>
-          <div id="tester-active-codes">Active codes: (none)</div>
-          <div class="tester-help">Tip: keep sticks centered during calibration. Escape closes this modal.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="capture-mini-modal" aria-hidden="true">
-    <div id="capture-mini-panel" role="dialog" aria-modal="true" aria-label="Input Capture" tabindex="-1">
-      <div class="debug-head">
-        <h3 id="capture-mini-title">Capture Input</h3>
-        <button class="hud-btn" id="capture-mini-cancel-btn">Cancel</button>
-      </div>
-      <div id="capture-mini-instruction">Press and hold input now.</div>
-      <div id="capture-mini-countdown"></div>
-      <div id="capture-mini-live">Waiting for strongest signal...</div>
-      <div class="debug-small">Capture window uses strongest stable input over 5 seconds.</div>
-    </div>
   </div>
 
   <script type="module" src="./main.js"></script>

@@ -1,0 +1,21 @@
+# .hygiene-denylist: private names the pre-push guard must never let reach the
+# public repository. `npm run setup:git` copies this example to
+# .hygiene-denylist, which is untracked (listed in .gitignore) and never
+# published. Fill in YOUR real entries there, never in this example file.
+#
+# Format, one entry per line:
+#   - lines starting with # are comments, blank lines are ignored;
+#   - a plain string matches case-insensitively; one of 5 or more characters
+#     also inside compound names ("acmecorp" matches "AcmeCorpClient"), a
+#     shorter one only as a whole word ("acme" matches "acme-tools", not
+#     "acmeClient");
+#   - /regex/flags is a JavaScript regular expression ("g" is added).
+# A hit is reported as denylist-line-<n> (the line number in this file), so
+# the entry itself is never printed.
+#
+# The file is looked up in the checkout root, then in the main worktree root.
+#
+# Harmless examples, commented out so a fresh copy blocks nothing; put your
+# own entries below them, without the leading #:
+# example-internal-codename
+# /example-ticket-\d+/i

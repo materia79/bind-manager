@@ -196,6 +196,7 @@ Options:
 - `browserGuard?: boolean | BrowserGuardOptions` cancel browser shortcuts while the game owns input, default `false` (see [Browser shortcut guard](#browser-shortcut-guard))
 - `wheelPixelThreshold?: number` pixel delta that counts as one wheel notch, default `30` (see [Mouse wheel bindings](#mouse-wheel-bindings))
 - `reservedKeyWarnings?: boolean` note in the rebind dialog when the player binds a key the browser or the operating system keeps, default `true` (see [Reserved keys](#reserved-keys))
+- `bindSearch?: boolean` search field above the bindings list that filters it while the player types, default `true` (see [Searching the bindings](#searching-the-bindings))
 - `deadband?: number` gamepad axis values at or below this are treated as rest, default `0.12`
 - `analogThreshold?: number` an axis direction counts as pressed past this value, default `0.5`
 
@@ -614,6 +615,23 @@ The full workflow, and what it needs from the pad, is in [src/input/controller_d
 - Duplicate bindings are allowed and shown as warnings.
 - Tab stays inside the bindings modal and the capture dialog; closing returns focus to the opener. Reset, Reset All and profile changes update the modal in place and keep its scroll position and focus.
 - A tap or click on Cancel (or Close) never reaches the control underneath, also with touch and pen and on a double tap.
+- The Escape that closes the modal ends there: it does not reach window listeners, so an action bound to Escape does not fire as the modal closes.
+
+### Searching the bindings
+
+A search field sits between the modal's header and the list, so it stays in view while the list scrolls. What the player types filters the list at once:
+
+- The text is split at spaces; a row is shown when every word occurs in its label, its description, its group name, or the label of one of its current bindings as its button shows it ("Space", "Ctrl", "Wheel Up", and gamepad buttons under the active profile, such as "Cross" on a DualSense). Internal codes (`KeyW`, `GP_B0`) are not matched. Case and accents do not count ("saute" finds "Sauté").
+- Rows that do not match are hidden in place (the `hidden` attribute; no re-render), and so is a group with no row left. Hidden rows are out of the Tab order and the focus trap. When nothing matches, one line says so and names the text; a polite live region tells screen readers the number of matches.
+- The filter follows binding changes and gamepad profile changes, since binding labels are matched. A row that holds the focus stays shown until the text changes, so rebinding a key in a filtered list never removes the control in use.
+- While a filter is active the list starts at its top; clearing the text returns to the scroll position from before the search.
+- Escape with text in the field clears it and keeps the modal open; the next Escape closes the modal. Enter does nothing. Tab moves on to the clear button and the list. The clear button (×) appears when there is text.
+- Typing in the field never fires an action or starts a capture, and the browser guard leaves it alone (actions are suppressed while the modal is open). The debug toggle key is ignored while it would type into the field (a letter, digit or other character, Backspace, Delete, the arrows, Home, End), so it may be a letter key; F5 and other non-typing keys still toggle.
+- The text survives `refresh()` (value, focus and caret) and is cleared when the modal closes. Opening the modal puts the focus on the modal, not in the field. During a capture the field is disabled like the other controls.
+- On touch screens (`any-pointer: coarse`) the field's text is at least 16px whatever `--bm-u` is, so iOS Safari does not zoom the page when it takes focus. The list body keeps a minimum height (`min(120u, 40vh)`), so a short viewport, such as one with an on-screen keyboard, cuts the footer before the list.
+- `bindSearch: false` removes the field; the modal's markup is then as in 0.2.1.
+
+Classes: `bm-search` (the row), `bm-search-input`, `bm-search-clear`, `bm-search-status` (the live region, visually hidden with `bm-visually-hidden`) and `bm-search-empty` (the no-match line, also a `bm-empty`).
 
 ## Persistence
 

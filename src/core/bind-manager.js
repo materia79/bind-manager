@@ -58,6 +58,7 @@ export function createBindManager(options = {}) {
     browserGuard = false,
     wheelPixelThreshold,
     reservedKeyWarnings = true,
+    bindSearch = true,
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -741,6 +742,7 @@ export function createBindManager(options = {}) {
   modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime, {
     reservedKeyWarnings,
     reservedContext,
+    bindSearch,
   });
   hints = new HintsController(store, registry, gamepadRuntime);
 
@@ -772,7 +774,8 @@ export function createBindManager(options = {}) {
 
   if (debug && typeof window !== 'undefined') {
     _debugListener = (e) => {
-      if (e.code === debugKey) {
+      // A letter or other typing key as debugKey still types into the modal's search field
+      if (e.code === debugKey && !modal.isSearchTyping(e)) {
         e.preventDefault();  // also on auto-repeat, so a held F5 never reloads the page
         if (!e.repeat) modal.toggle();
       }
@@ -1029,6 +1032,7 @@ function _hasOwn(obj, key) {
  *           - Cancel browser shortcuts while the game owns input (opt-in)
  * @property {number} [wheelPixelThreshold=30]     - Pixel delta that counts as one wheel notch
  * @property {boolean} [reservedKeyWarnings=true]  - Warn in the rebind dialog about keys the browser or OS keeps
+ * @property {boolean} [bindSearch=true]           - Search field above the bindings list that filters it as you type
  *
  * @typedef {object} BrowserGuardApi
  * @property {boolean} enabled

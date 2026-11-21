@@ -6,9 +6,15 @@ All notable changes to bind-manager are documented here. The format follows [Kee
 
 ## [0.2.2] - 2026-11-21
 
+### Added
+
+- **Search in the Key Bindings modal.** A field between the header and the list filters it while the player types: every word must occur in the action's label, description or group, or in a binding label as its button shows it (keyboard, mouse and gamepad, under the active profile). Case and accents do not count. Rows and empty groups are hidden in place, out of the Tab order and the focus trap; a line names the text when nothing matches, and a polite live region announces the number of matches. Escape clears the text first and closes the modal on an empty field. The text survives `refresh()` and is cleared on close. On touch screens the field's text is at least 16px (no iOS focus zoom). See the README, section [Searching the bindings](README.md#searching-the-bindings).
+- **New option** `bindSearch` (default `true`); `false` renders the modal as in 0.2.1.
+
 ### Fixed
 
 - **Escape that closes the Key Bindings modal no longer fires a game action.** An action bound to Escape (a pause menu, say) fired as the modal closed, because gameplay was live again by the time the key reached the keyboard runtime. The modal now stops that Escape there; this holds with the search off too. A host's own window-level `keydown` listener therefore no longer sees the Escape that closes the modal; use `onActiveChange` to learn that it closed.
+- A debug toggle key that types a character (`debugKey: 'KeyK'`, for example) no longer toggles the modal while the player types into its search field.
 
 ## [0.2.1] - 2026-11-21
 

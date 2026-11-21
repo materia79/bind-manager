@@ -205,11 +205,104 @@ const CSS = `
   background: var(--bm-btn-hover);
 }
 
+/* Rows hidden by the search (and other [hidden] parts) stay hidden whatever their display rule says */
+.bm-overlay [hidden] {
+  display: none;
+}
+
+/* Read by screen readers only (the search's match count) */
+.bm-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- Search: one row between the header and the body, so it stays while the list scrolls ---- */
+.bm-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: calc(12 * var(--bm-u)) calc(24 * var(--bm-u));
+  box-shadow: inset 0 -1px 0 var(--bm-modal-border);
+  flex-shrink: 0;
+}
+
+.bm-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(36 * var(--bm-u));
+  margin: 0;
+  border: 0;
+  padding: 0 calc(40 * var(--bm-u)) 0 calc(12 * var(--bm-u));
+  appearance: none;
+  background: var(--bm-btn-bg);
+  box-shadow: inset 0 0 0 1px var(--bm-btn-border);
+  border-radius: calc(6 * var(--bm-u));
+  color: var(--bm-text-primary);
+  font-family: inherit;
+  font-size: var(--bm-fs-m);
+  line-height: 1.2;
+}
+.bm-search-input:hover {
+  box-shadow: inset 0 0 0 1px var(--bm-accent);
+}
+.bm-search-input::placeholder {
+  color: var(--bm-text-desc);
+  opacity: 1;
+}
+/* The clear button below replaces the browser's own */
+.bm-search-input::-webkit-search-cancel-button,
+.bm-search-input::-webkit-search-decoration {
+  appearance: none;
+}
+.bm-search-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Touch screens: at least 16px text, or iOS Safari zooms the page when the field takes focus */
+@media (any-pointer: coarse) {
+  .bm-search-input {
+    font-size: max(16px, var(--bm-fs-m)); /* the one px font size: the iOS zoom limit */
+  }
+}
+
+.bm-search-clear {
+  position: absolute;
+  right: calc(30 * var(--bm-u));
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(28 * var(--bm-u));
+  height: calc(28 * var(--bm-u));
+  padding: 0;
+  background: transparent;
+  color: var(--bm-text-secondary);
+  font-size: var(--bm-fs-l);
+  line-height: 1;
+  border-radius: calc(6 * var(--bm-u));
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.bm-search-clear:hover {
+  background: var(--bm-btn-hover);
+  color: var(--bm-text-primary);
+}
+.bm-search-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ---- Scrollable body ---- */
 .bm-modal-body {
   overflow-y: auto;
   flex: 1 1 auto;
-  min-height: 0;
+  /* Never squeezed to nothing (a short viewport, an on-screen keyboard): the footer is cut first */
+  min-height: min(calc(120 * var(--bm-u)), 40vh);
   padding: calc(16 * var(--bm-u)) 0;
   /* The scrollbar space is always reserved, so the layout does not depend on overflow */
   scrollbar-gutter: stable;

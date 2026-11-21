@@ -20,13 +20,18 @@ const ROOT_TOKEN_LINES = [
   '  --bm-fs-l: calc(21 * var(--bm-u));',
 ];
 
+// The one px font size: the search field on touch screens stays at 16px or more,
+// or iOS Safari zooms the page when it takes focus.
+const TOUCH_SEARCH_FONT = '    font-size: max(16px, var(--bm-fs-m));';
+
 /** CSS without comments and without the seven token lines, as [lineNumber, text] pairs. */
 function checkedLines() {
   const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
   return withoutComments
     .split(/\r?\n/)
     .map((text, i) => [i + 1, text])
-    .filter(([, text]) => !TOKEN_LINE.test(text));
+    .filter(([, text]) => !TOKEN_LINE.test(text))
+    .filter(([, text]) => text.trimEnd() !== TOUCH_SEARCH_FONT);
 }
 
 describe('styles.js units', () => {
@@ -70,6 +75,15 @@ describe('styles.js units', () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps the search field at 16px or more only on touch screens', () => {
+    const block = CSS.match(/@media \(any-pointer: coarse\) \{\n {2}\.bm-search-input \{\n([^}]*)\}\n\}/)?.[1] ?? '';
+    const declarations = block.split('\n').map((line) => line.replace(/\s*\/\*.*\*\/\s*$/, '')).filter((line) => line.trim());
+    expect(declarations).toEqual([TOUCH_SEARCH_FONT]);
+    // Nowhere else (comments aside)
+    const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(withoutComments.split('\n').map((line) => line.trimEnd()).filter((line) => /\d+px/.test(line) && !/\b1px\b|-1px\b/.test(line) && !TOKEN_LINE.test(line))).toEqual([TOUCH_SEARCH_FONT]);
   });
 
   it('uses no rem or em lengths', () => {

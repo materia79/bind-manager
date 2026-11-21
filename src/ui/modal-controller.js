@@ -29,6 +29,12 @@ export class ModalController {
     this._reservedKeyWarnings = options.reservedKeyWarnings !== false;
     /** @type {() => { guard?: import('../input/reserved-codes.js').ReservedGuardState | null, platform?: import('../input/reserved-codes.js').ReservedPlatform }} the guard's state and the platform */
     this._reservedContext = typeof options.reservedContext === 'function' ? options.reservedContext : () => ({});
+    /** The search field above the list; false leaves the modal as it was before 0.2.2. */
+    this._bindSearch = options.bindSearch !== false;
+    /** Text in the search field; kept across re-renders, cleared on close(). */
+    this._searchText = '';
+    /** Body scroll position when the filter became active, restored when it is cleared. */
+    this._scrollBeforeSearch = 0;
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
@@ -89,12 +95,21 @@ export class ModalController {
       }
     });
 
+    this._overlay.addEventListener('input', (e) => {
+      if (e.target instanceof HTMLInputElement && e.target.matches('.bm-search-input')) this._setSearchText(e.target.value);
+    });
+
     this._overlay.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') {
         if (this._captureTarget) {
           e.preventDefault();
           e.stopPropagation();
           this._cancelCapture();
+        } else if (e.target === this._searchInput() && e.target.value !== '') {
+          // First Escape empties the search field, the next one closes the modal
+          e.preventDefault();
+          e.stopPropagation();
+          this._setSearchText('');
         } else {
           // The Escape that closes the modal is used up here: once closed, gameplay is
           // live again, and the key must not reach an action bound to Escape on window
@@ -179,7 +194,18 @@ export class ModalController {
     if (!this._overlay) return;
     this._cancelCapture();
     const wasOpen = this._open;
-    if (wasOpen) this._savedScrollTop = this._overlay.querySelector('.bm-modal-body')?.scrollTop ?? 0;
+    if (wasOpen) {
+      // A filtered list's scroll position means nothing in the full list: keep the one from before the search
+      this._savedScrollTop = _searchWords(this._searchText).length > 0
+        ? this._scrollBeforeSearch
+        : this._overlay.querySelector('.bm-modal-body')?.scrollTop ?? 0;
+    }
+    if (this._searchText !== '') {
+      this._searchText = '';
+      const input = this._searchInput();
+      if (input) input.value = '';
+      this._applySearch();
+    }
     this._overlay.style.display = 'none';
     this._open = false;
     this._runtime.setGameplaySuppressed(false);
@@ -199,6 +225,21 @@ export class ModalController {
 
   isOpen() {
     return this._open;
+  }
+
+  /**
+   * True when `event` types or edits text in the search field (a printable
+   * character, Backspace, Delete, the arrows, Home or End). The manager's
+   * debug toggle key ignores such events, so it can be a letter key.
+   * @param {KeyboardEvent} event
+   */
+  isSearchTyping(event) {
+    const input = this._searchInput();
+    if (!input || event.target !== input) return false;
+    const key = event.key ?? '';
+    if (TEXT_EDIT_KEYS.has(key)) return true;
+    // A character; Ctrl or Cmd make it a shortcut, unless Ctrl comes from AltGr
+    return [...key].length === 1 && !event.metaKey && (!event.ctrlKey || !!event.getModifierState?.('AltGraph'));
   }
 
   /**
@@ -230,9 +271,11 @@ export class ModalController {
           <h2 class="bm-modal-title">Key Bindings</h2>
           <button class="bm-close-btn" type="button" aria-label="Close">✕</button>
         </div>
+        ${this._renderSearch()}
         <div class="bm-modal-body">
           ${this._renderGamepadProfilePanel()}
           ${this._renderGroups(groups)}
+          ${this._bindSearch ? '<p class="bm-empty bm-search-empty" hidden></p>' : ''}
         </div>
         <div class="bm-modal-footer">
           <div class="bm-conflict-warning bm-hidden" role="alert"></div>
@@ -244,6 +287,8 @@ export class ModalController {
       </div>
     `;
 
+    // Filter before the scroll position comes back; the row that held the focus stays visible
+    this._applySearch(focus?.actionId);
     const body = this._overlay.querySelector('.bm-modal-body');
     if (body) body.scrollTop = scrollTop;
     if (body && this._resizeObserver) {
@@ -275,6 +320,11 @@ export class ModalController {
       return;
     }
     if (this._captureTarget) return;
+    if (cls.contains('bm-search-clear')) {
+      this._setSearchText('');
+      this._searchInput()?.focus({ preventScroll: true });
+      return;
+    }
     // Just after a capture was cancelled by pointer, a second fast tap or click on
     // the Cancel button's spot lands on the slot that was under the dialog: ignore
     // it. Elsewhere, and keyboard activation (detail 0), pass.
@@ -348,7 +398,11 @@ export class ModalController {
     if (!(el instanceof HTMLElement) || !this._overlay?.contains(el)) return null;
     const role = FOCUS_ROLES.find((r) => el.classList.contains(r)) ?? 'bm-modal';
     const { actionId, slot, device, footerActionId } = el.dataset;
-    return { role, actionId, slot, device, footerActionId };
+    // The search field keeps its caret and selection too
+    const caret = el instanceof HTMLInputElement && role === 'bm-search-input'
+      ? { start: el.selectionStart, end: el.selectionEnd, direction: el.selectionDirection }
+      : null;
+    return { role, actionId, slot, device, footerActionId, caret };
   }
 
   _restoreFocus(focus) {
@@ -366,8 +420,12 @@ export class ModalController {
     if (target && !_isFocusable(target) && focus.role === 'bm-clear-slot-btn') {
       target = target.closest('.bm-slot')?.querySelector('.bm-bind-btn') ?? null;
     }
+    if (target && !_isFocusable(target) && focus.role === 'bm-search-clear') target = this._searchInput();
     if (!target || !_isFocusable(target)) target = this._overlay.querySelector('.bm-modal');
     target?.focus({ preventScroll: true });
+    if (focus.caret && target instanceof HTMLInputElement && focus.caret.start != null) {
+      target.setSelectionRange(focus.caret.start, focus.caret.end ?? focus.caret.start, focus.caret.direction ?? 'none');
+    }
   }
 
   /** Lightweight update that only rewrites button labels — avoids full DOM teardown. */
@@ -389,6 +447,106 @@ export class ModalController {
       btn.title = _bindTitle(code ? label : null);
       btn.classList.toggle('bm-unbound', !code);
     }
+    // Binding labels are matched, so a changed label can change what the filter shows
+    this._applySearch();
+  }
+
+  // ── Search ──────────────────────────────────────────────────────────────────
+
+  /** The search row between the header and the body ('' when the option is off). */
+  _renderSearch() {
+    if (!this._bindSearch) return '';
+    const value = this._searchText;
+    return `
+        <div class="bm-search">
+          <input class="bm-search-input" type="search" aria-label="Search key bindings" placeholder="Search actions or keys" autocomplete="off" spellcheck="false" enterkeyhint="search" value="${_esc(value)}">
+          <button class="bm-search-clear" type="button" aria-label="Clear search" title="Clear search"${value === '' ? ' hidden' : ''}>×</button>
+          <span class="bm-search-status bm-visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
+        </div>`;
+  }
+
+  /** @returns {HTMLInputElement | null} */
+  _searchInput() {
+    return this._overlay?.querySelector('.bm-search-input') ?? null;
+  }
+
+  /**
+   * New search text, typed or set: filter, and scroll the list to its top while
+   * a filter is active. Clearing it returns to the position before the search.
+   */
+  _setSearchText(text) {
+    const wasActive = _searchWords(this._searchText).length > 0;
+    const isActive = _searchWords(text).length > 0;
+    const body = this._overlay?.querySelector('.bm-modal-body');
+    if (!wasActive && isActive) this._scrollBeforeSearch = body?.scrollTop ?? 0;
+    this._searchText = text;
+    const input = this._searchInput();
+    if (input && input.value !== text) input.value = text;
+    this._applySearch();
+    if (body && isActive) body.scrollTop = 0;
+    else if (body && wasActive) body.scrollTop = this._scrollBeforeSearch;
+  }
+
+  /**
+   * Show the rows that match the search text, hide the others (and a group
+   * with no row left) with the hidden attribute: no re-render, so focus and the
+   * DOM stay. A row holding the focus or the capture stays visible, so a
+   * rebind inside a filtered list never removes the control in use.
+   * @param {string | null} [pinnedActionId] - a row to keep visible as well (the focus before a re-render)
+   */
+  _applySearch(pinnedActionId = null) {
+    const input = this._searchInput();
+    if (!input) return;
+    const words = _searchWords(this._searchText);
+    const active = document.activeElement;
+    const pinned = new Set([pinnedActionId, this._captureTarget?.actionId].filter((id) => id != null));
+    let rows = 0;
+    let matches = 0;
+    for (const group of this._overlay.querySelectorAll('.bm-group')) {
+      let visible = 0;
+      for (const row of group.querySelectorAll('.bm-action-row')) {
+        rows += 1;
+        const show = words.length === 0
+          || pinned.has(row.dataset.actionId)
+          || row.contains(active)
+          || this._rowMatches(row.dataset.actionId, words);
+        row.hidden = !show;
+        if (show) visible += 1;
+      }
+      group.hidden = visible === 0;
+      matches += visible;
+    }
+
+    const clear = this._overlay.querySelector('.bm-search-clear');
+    if (clear) clear.hidden = this._searchText === '';
+    const query = this._searchText.trim();
+    const empty = this._overlay.querySelector('.bm-search-empty');
+    if (empty) {
+      empty.hidden = !(words.length > 0 && matches === 0 && rows > 0);
+      empty.textContent = empty.hidden ? '' : `No key bindings match "${query}".`;
+    }
+    const status = this._overlay.querySelector('.bm-search-status');
+    if (status) {
+      const text = words.length === 0 ? ''
+        : matches === 0 ? 'No key bindings match.'
+          : `${matches} key binding${matches === 1 ? '' : 's'} ${matches === 1 ? 'matches' : 'match'}.`;
+      if (status.textContent !== text) status.textContent = text;
+    }
+  }
+
+  /**
+   * Every word must occur in the action's label, description or group, or in
+   * the label of one of its current bindings as its button shows it.
+   */
+  _rowMatches(actionId, words) {
+    const action = this._registry.get(actionId);
+    if (!action) return false;
+    const labels = [
+      ...(this._store.get(actionId, 'keyboard') ?? []).filter(Boolean).map((code) => getKeyLabel(code)),
+      ...(this._store.get(actionId, 'gamepad') ?? []).filter(Boolean).map((code) => this._getGamepadLabel(code)),
+    ];
+    const haystack = _fold([action.label, action.description ?? '', action.group, ...labels].join('\n'));
+    return words.every((word) => haystack.includes(word));
   }
 
   /**
@@ -720,6 +878,9 @@ export class ModalController {
     for (const btn of this._overlay.querySelectorAll('.bm-footer-action-btn')) {
       btn.disabled = capturing;
     }
+    for (const el of this._overlay.querySelectorAll('.bm-search-input, .bm-search-clear')) {
+      el.disabled = capturing;
+    }
   }
 
   /**
@@ -792,6 +953,8 @@ export class ModalController {
   }
 
   _handleBlockContextMenu(event) {
+    // The search field keeps its own menu (paste, spelling)
+    if (event.target != null && event.target === this._searchInput()) return;
     event.preventDefault();
   }
 
@@ -816,7 +979,22 @@ const FOCUS_ROLES = [
   'bm-footer-action-btn',
   'bm-reset-all-btn',
   'bm-close-btn',
+  'bm-search-input',
+  'bm-search-clear',
 ];
+
+/** Keys that edit the search field's text besides printable characters. */
+const TEXT_EDIT_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+
+/** Lower case, accents removed: "Sauté" and "saute" match. */
+function _fold(text) {
+  return String(text).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+/** The search text as folded words; empty when there is nothing to filter by. */
+function _searchWords(text) {
+  return _fold(text).split(/\s+/).filter(Boolean);
+}
 
 
 /*

@@ -25,6 +25,8 @@ import { MODIFIER_ORDER, buildComboCode, buildChordCode, isModifierChord } from 
 
 const SEQUENCES = Number(process.env.BM_FUZZ_SEQUENCES) || 1500;
 const STEPS = 48;
+// About 1 ms per sequence; generous, so a loaded machine or BM_FUZZ_SEQUENCES=100000 does not time out
+const TIMEOUT_MS = Math.max(30000, SEQUENCES * 10);
 const KEYS = ['KeyA', 'KeyS', 'KeyW', 'Space', 'Escape', 'Tab'];
 const ALL = [...MODIFIER_ORDER, ...KEYS];
 
@@ -212,7 +214,7 @@ describe('keyboard runtime fuzz', () => {
       const failure = runSequence(seed, false, sameAsOld);
       if (failure) expect.fail(failure);
     }
-  });
+  }, TIMEOUT_MS);
 
   it(`with chords: every event follows the rules (${SEQUENCES} sequences of ${STEPS} steps)`, () => {
     let chordPresses = 0;
@@ -225,5 +227,5 @@ describe('keyboard runtime fuzz', () => {
     }
     // The sequences really exercise chords
     expect(chordPresses).toBeGreaterThan(SEQUENCES / 10);
-  });
+  }, TIMEOUT_MS);
 });

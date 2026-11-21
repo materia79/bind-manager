@@ -284,21 +284,27 @@ See [Browser Shortcut Guard](#browser-shortcut-guard) for the guide.
 
 ### Reserved keys
 
-Some keys never reach a web page, some only while it is fullscreen, and some only in some browsers. The rebind dialog adds a note when the player binds one of them; binding is still allowed. When the key is also bound to another action, the conflict note comes first.
+Some keys never reach a web page, some only while it is fullscreen, and some only in some browsers. The rebind dialog adds a note when the player binds one of them; binding is still allowed. When the key is also bound to another action, the conflict note comes first, and the note's full text is in its title.
 
 The levels:
 
 | Level | Meaning | Examples |
 | --- | --- | --- |
-| `blocked` | never reaches the page | the Windows / Command key, Ctrl+Alt+Del, Ctrl+Shift+Esc, Ctrl+Esc, Alt+Esc, Ctrl+Shift+Q; on macOS Cmd+Q, Cmd+Tab, Cmd+Space, Cmd+H |
-| `fullscreen-only` | reaches the page only while it is fullscreen | Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q, Ctrl+Tab, Ctrl+PageUp, Ctrl+PageDown, Ctrl+F4, also with extra modifiers (Ctrl+Shift+Q excepted); Alt+Tab, which Keyboard Lock hands over in fullscreen |
-| `unreliable` | works in some browsers or situations only | Escape, F11, F12, Ctrl+Shift+I/J/C, Ctrl+1..9, Ctrl+Shift+P, Shift + right click, Alt+Space, Alt+F4; other Windows / Command key combos |
+| `blocked` | never reaches the page | the Windows / Command key; Ctrl+Alt+Del, Ctrl+Shift+Esc, Ctrl+Esc, Alt+Esc, Ctrl+Shift+Q; Cmd+Q, Cmd+Tab, Cmd+Space, Cmd+H; every Windows-key combo when the platform is not a Mac; Alt+Tab and Alt+F4 unless the guard's Keyboard Lock applies (below) |
+| `fullscreen-only` | reaches the page only while it is fullscreen | Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q, Ctrl+Tab, Ctrl+PageUp, Ctrl+PageDown, Ctrl+F4 (also with Shift; Ctrl+Shift+Q excepted; never with Alt, since Ctrl+Alt is AltGr on many layouts); Cmd+W, Cmd+T, Cmd+N on a Mac; **Alt+Tab** while the browser guard is enabled with Keyboard Lock on and Tab among its lock keys |
+| `unreliable` | works in some browsers or situations only | Escape (with any modifiers), F11 and F12 (with any modifiers), Ctrl+Shift+I/J/C, Ctrl+1..9, Ctrl+Shift+P, Shift + right click, Alt+Space; Alt+F4 under the guard's Keyboard Lock; Windows-key combos when the platform is unknown; on a Mac, Cmd combos nothing cancels; a fullscreen-only shortcut the browser guard lets through |
 
-The [browser shortcut guard](#browser-shortcut-guard) is the single source of truth. `fullscreen-only` is the guard's `FULLSCREEN_ONLY_SHORTCUTS`, matched with the guard's own pattern logic (`Mod` is Ctrl or the Windows / Command key, a pattern matches with at least its modifiers). Why they work only in fullscreen, and what Keyboard Lock changes, is in [What a page cannot block, and Keyboard Lock](#what-a-page-cannot-block-and-keyboard-lock). In fullscreen the page receives them first, so the guard (or your own `preventDefault()`) must cancel the browser's action. A Windows / Command combo the guard can cancel (Cmd+R, Cmd+S, ...) is not reported. While the manager's guard is enabled, its configured policy counts: a `fullscreen-only` shortcut it lets through (`allow`, or left out of `shortcuts` and `block`) is reported as `unreliable`.
+The [browser shortcut guard](#browser-shortcut-guard) is the single source of truth, and its real decision counts:
 
-- `getReservedInfo(code, { shortcutPolicy })` returns `{ level, reason }` or `null`. `shortcutPolicy` is optional, in the shape `browserGuard.getShortcutPolicy()` returns; without it the guard's defaults apply.
-- `isReservedCode(code, { shortcutPolicy })` is `true` for any level.
-- `manager.getReservedBindings()` lists current keyboard and mouse bindings that are affected, `{ actionId, slot, code, level, reason }[]`, for example to check your defaults.
+- `fullscreen-only` is the guard's `FULLSCREEN_ONLY_SHORTCUTS`, matched with the guard's own pattern logic (`Mod` is Ctrl or the Windows / Command key; a pattern matches with at least its modifiers). Why they work only in fullscreen, and what Keyboard Lock changes, is in [What a page cannot block, and Keyboard Lock](#what-a-page-cannot-block-and-keyboard-lock).
+- **Guard disabled (the default):** nothing cancels the browser's action. Tab and window shortcuts stay `fullscreen-only`, and the note says that in fullscreen the game has to cancel the browser's action itself, with the browser guard as the way to do it. On a Mac, Cmd combos nothing cancels (Cmd+R, Cmd+S, Cmd+L, ...) are `unreliable`. Alt+Tab is `blocked`.
+- **Guard enabled:** a key it cancels is fine: through its lists (`shortcuts`, `block`), or because it is bound and `blockBound` is on (the default). A Cmd combo it cancels is not reported. A `fullscreen-only` shortcut it really lets through (`allow`, or `blockBound: false` and not in its lists) gets "The browser guard lets X through, so the browser also acts on it." (level `unreliable`).
+- **Keyboard Lock:** Alt+Tab is `fullscreen-only` only while the guard is enabled, `keyboardLock` is on and Tab is in its effective lock keys (`keyboardLockKeys: null` locks every key); otherwise it is `blocked`. Alt+F4 under the same conditions is `unreliable` (not verified), otherwise `blocked`.
+- **Platform:** the Windows / Command key is read from what a page can see (`navigator.userAgentData.platform`, then `navigator.platform`, then the user agent). On a Mac it is Cmd, handled through the guard's `Mod` logic; elsewhere every Windows-key combo is `blocked`; when the platform is unknown such combos are `unreliable`.
+
+- `getReservedInfo(code, { guard, platform, bound })` returns `{ level, reason }` (plus `guardLetsThrough: true` in the case above) or `null`. All options are optional: `guard` is a guard's effective state (without it, nothing is cancelled), `platform` is `'mac'`, `'other'` or `'unknown'` (default: detected), `bound` defaults to `true`.
+- `isReservedCode(code, options)` is `true` for any level.
+- `manager.getReservedBindings()` lists current keyboard and mouse bindings that are affected, `{ actionId, slot, code, level, reason, guardLetsThrough? }[]`, for example to check your defaults. It and the rebind dialog use the manager's guard and the detected platform.
 - `reservedKeyWarnings: false` turns the note in the rebind dialog off.
 
 The macOS entries are not verified on a real Mac.

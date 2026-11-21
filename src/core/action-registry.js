@@ -1,3 +1,5 @@
+import { normalizeChordCode } from '../input/key-names.js';
+
 /**
  * Manages the registry of all declared actions.
  * Actions are immutable once registered; binding state lives in BindingStore.
@@ -42,7 +44,8 @@ export class ActionRegistry {
       group: typeof def.group === 'string' && def.group.trim() !== '' ? def.group : 'General',
       // Keyboard slots / defaults
       slots,
-      defaultBindings: _defaults(def.id, 'defaultBindings', def.defaultBindings, slots),
+      // A modifier-only chord in another order is put in canonical order
+      defaultBindings: _defaults(def.id, 'defaultBindings', def.defaultBindings, slots).map(normalizeChordCode),
       // Gamepad slots / defaults
       gamepadSlots,
       defaultGamepadBindings: _defaults(def.id, 'defaultGamepadBindings', def.defaultGamepadBindings, gamepadSlots),

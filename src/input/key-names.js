@@ -133,3 +133,40 @@ export function buildComboCode(modifiers, primaryCode) {
   const sorted = MODIFIER_ORDER.filter(m => modifiers.includes(m));
   return [...sorted, primaryCode].join('+');
 }
+
+/**
+ * Build the canonical code of a modifier-only chord: the distinct modifier codes
+ * joined with "+" in MODIFIER_ORDER, whatever order they were pressed in
+ * (e.g. ["ShiftLeft", "ControlLeft"] → "ControlLeft+ShiftLeft"). Codes that are
+ * not modifiers are ignored. One modifier gives its own code; none gives ''.
+ * @param {string[]} modifiers
+ * @returns {string}
+ */
+export function buildChordCode(modifiers) {
+  if (!modifiers || modifiers.length === 0) return '';
+  return MODIFIER_ORDER.filter(m => modifiers.includes(m)).join('+');
+}
+
+/**
+ * True for a modifier-only chord code: two or more distinct modifier codes
+ * joined with "+" (in any order), e.g. "ControlLeft+ShiftLeft".
+ * @param {unknown} code
+ * @returns {boolean}
+ */
+export function isModifierChord(code) {
+  if (typeof code !== 'string' || !code.includes('+')) return false;
+  const parts = code.split('+');
+  return parts.every(part => MODIFIER_CODES.has(part)) && new Set(parts).size === parts.length;
+}
+
+/**
+ * The canonical form of a binding code: a modifier-only chord written in another
+ * order is put in MODIFIER_ORDER ("ShiftLeft+ControlLeft" → "ControlLeft+ShiftLeft").
+ * Every other value, combos with a key included, is returned unchanged.
+ * @template T
+ * @param {T} code
+ * @returns {T | string}
+ */
+export function normalizeChordCode(code) {
+  return isModifierChord(code) ? buildChordCode(/** @type {string} */ (code).split('+')) : code;
+}

@@ -652,7 +652,7 @@ Each group title of the bindings list is a button that folds and unfolds the gro
 
 Classes: `bm-group-toggle` (the header button, also a `bm-group-title`), `bm-group-marker`, `bm-group-name`, `bm-group-count` (with `bm-group-count-short` and the screen-reader `bm-group-count-long`), `bm-group-rows` (the rows, `hidden` when folded) and `bm-group-folded` on a folded `bm-group`.
 
-With 400 actions in 16 groups (desktop Chromium, to the second painted frame), `open()` takes about as long as in 0.2.1 while all groups are open (about 100 ms; about 600 ms with 4x CPU throttling) and is much faster with groups folded (about 34 ms with every group folded; about 120 ms throttled): rows of folded groups are built but not laid out. A keystroke that narrows the filter takes about two frames (33 ms; 70 ms throttled); one that widens it lays out the rows that come back (deleting one character to bring back 111 rows: about 50 ms; about 350 ms throttled).
+With 400 actions in 16 groups (desktop Chromium, to the second painted frame), `open()` takes about as long as in 0.2.1 while all groups are open (about 100 ms; about 600 ms with 4x CPU throttling) and is much faster with groups folded (about 34 ms with every group folded; about 120 ms throttled): rows of folded groups are built but not laid out. A keystroke that narrows the filter takes about two frames (33 ms; 70 ms throttled); one that widens it lays out the rows that come back (deleting one character to bring back 247 rows (from 40 to 287): about 50 ms; about 350 ms throttled).
 
 ## Persistence
 

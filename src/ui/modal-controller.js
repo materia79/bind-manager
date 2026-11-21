@@ -39,7 +39,7 @@ export class ModalController {
     this._groupFolding = options.groupFolding !== false;
     /** The host's groups that start folded (a remembered choice of the player wins). */
     this._defaultCollapsed = new Set(Array.isArray(options.collapsedGroups) ? options.collapsedGroups.filter((name) => typeof name === 'string') : []);
-    /** @type {{ load?: () => unknown, save?: (groups: Record<string, boolean>) => void } | null} where the player's choices persist */
+    /** @type {{ load?: () => unknown, save?: (groups: [string, boolean][]) => void } | null} where the player's choices persist */
     this._foldStore = options.foldStore ?? null;
     /** @type {Map<string, boolean>} the player's choices: group name → folded */
     this._foldChoices = this._groupFolding ? _readFoldChoices(this._foldStore) : new Map();
@@ -604,7 +604,7 @@ export class ModalController {
     this._foldChoices.set(name, !!collapsed);
     while (this._foldChoices.size > MAX_FOLD_CHOICES) this._foldChoices.delete(this._foldChoices.keys().next().value);
     try {
-      this._foldStore?.save?.(Object.fromEntries(this._foldChoices));
+      this._foldStore?.save?.([...this._foldChoices]);
     } catch {
       // A storage that fails keeps the state in memory
     }
@@ -1117,17 +1117,24 @@ const MAX_FOLD_CHOICES = 256;
 let _controllerCount = 0;
 
 /**
- * The player's stored fold choices as a Map; anything but an object of
- * booleans counts as none, and a store that throws as empty.
+ * The player's stored fold choices as a Map in their order, oldest first.
+ * The store gives `[name, folded]` pairs (or an object `{ name: folded }`, in
+ * its key order); a name listed twice counts with its last entry, and beyond
+ * MAX_FOLD_CHOICES the newest are kept. Anything else counts as none, and a
+ * store that throws as empty.
  */
 function _readFoldChoices(store) {
   const choices = new Map();
   try {
     const raw = store?.load?.();
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return choices;
-    for (const [name, folded] of Object.entries(raw)) {
-      if (typeof folded === 'boolean' && choices.size < MAX_FOLD_CHOICES) choices.set(name, folded);
+    if (!raw || typeof raw !== 'object') return choices;
+    const entries = Array.isArray(raw) ? raw : Object.entries(raw);
+    for (const entry of entries) {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || typeof entry[1] !== 'boolean') continue;
+      choices.delete(entry[0]);
+      choices.set(entry[0], entry[1]);
     }
+    while (choices.size > MAX_FOLD_CHOICES) choices.delete(choices.keys().next().value);
   } catch {
     // Unreadable: start with the host's defaults
   }

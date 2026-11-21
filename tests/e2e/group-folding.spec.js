@@ -74,7 +74,7 @@ test.describe('group folding', () => {
       folds: localStorage.getItem(`bind-manager:${ns}:collapsed-groups`),
       bindings: localStorage.getItem(`bind-manager:${ns}`),
     }), namespace);
-    expect(stored.folds).toBe('{"version":1,"groups":{"Spells":true,"System":false}}');
+    expect(stored.folds).toBe('{"version":2,"groups":[["Spells",true],["System",false]]}');
     expect(stored.bindings).toBe(bindingsBefore);
     await page.reload();
     await setup(page, { namespace, reuse: true, collapsedGroups: ['System'] });

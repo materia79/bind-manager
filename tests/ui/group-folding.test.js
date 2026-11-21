@@ -26,7 +26,7 @@ function memoryStorage({ folds = true } = {}) {
     clear() { data.bindings = null; data.folds = undefined; },
   };
   if (folds) {
-    adapter.loadCollapsedGroups = () => data.folds ?? {};
+    adapter.loadCollapsedGroups = () => data.folds ?? [];
     adapter.saveCollapsedGroups = (state) => { data.folds = JSON.parse(JSON.stringify(state)); data.foldSaves += 1; };
   }
   return adapter;
@@ -198,7 +198,7 @@ describe('group folding: options and storage', () => {
     expect(isFolded('Movement')).toBe(false);
     header('Spells').click();
     header('Movement').click();
-    expect(storage.data.folds).toEqual({ Spells: false, Movement: true });
+    expect(storage.data.folds).toEqual([['Spells', false], ['Movement', true]]);
     manager.destroy();
     document.body.innerHTML = '';
     // Next session: the stored choices win over the host defaults both ways
@@ -220,7 +220,7 @@ describe('group folding: options and storage', () => {
     expect(localStorage.getItem(`bind-manager:${ns}`)).toBe(bindingsBefore);
     expect(JSON.parse(bindingsBefore)).toEqual({ version: 1, bindings: expect.any(Object) });
     expect(Object.keys(JSON.parse(bindingsBefore))).toEqual(['version', 'bindings']);
-    expect(localStorage.getItem(`bind-manager:${ns}:collapsed-groups`)).toBe('{"version":1,"groups":{"Spells":true}}');
+    expect(localStorage.getItem(`bind-manager:${ns}:collapsed-groups`)).toBe('{"version":2,"groups":[["Spells",true]]}');
     manager.destroy();
     document.body.innerHTML = '';
     manager = createBindManager({ namespace: ns });
@@ -255,16 +255,17 @@ describe('group folding: options and storage', () => {
     }
   });
 
-  it('LocalStorageAdapter reads only a valid version 1 object and drops non-boolean entries', () => {
+  it('LocalStorageAdapter reads version 2 pairs or a version 1 object, and drops malformed entries', () => {
     const adapter = new LocalStorageAdapter('fold-read');
     const key = 'bind-manager:fold-read:collapsed-groups';
-    for (const raw of ['not json', '{"version":2,"groups":{"A":true}}', '{"version":1,"groups":[true]}', '{"version":1}', 'null']) {
+    for (const raw of ['not json', '{"version":2,"groups":{"A":true}}', '{"version":1,"groups":[true]}', '{"version":1}', '{"version":3,"groups":[["A",true]]}', 'null']) {
       localStorage.setItem(key, raw);
-      expect(adapter.loadCollapsedGroups(), raw).toEqual({});
+      expect(adapter.loadCollapsedGroups(), raw).toEqual([]);
     }
     localStorage.setItem(key, '{"version":1,"groups":{"A":true,"B":false,"C":"yes","__proto__":true}}');
-    const groups = adapter.loadCollapsedGroups();
-    expect(Object.entries(groups)).toEqual([['A', true], ['B', false], ['__proto__', true]]);
+    expect(adapter.loadCollapsedGroups()).toEqual([['A', true], ['B', false], ['__proto__', true]]);
+    localStorage.setItem(key, '{"version":2,"groups":[["7",true],["__proto__",false],["X","yes"]]}');
+    expect(adapter.loadCollapsedGroups()).toEqual([['7', true], ['__proto__', false]]);
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);
   });
 
@@ -289,7 +290,7 @@ describe('group folding: options and storage', () => {
     manager.open();
     header('__proto__').click();
     expect(isFolded('__proto__')).toBe(true);
-    expect(Object.keys(storage.data.folds)).toEqual(['__proto__']);
+    expect(storage.data.folds).toEqual([['__proto__', true]]);
   });
 
   it('groupFolding: false renders plain titles; with bindSearch: false too the markup is as in 0.2.1', () => {

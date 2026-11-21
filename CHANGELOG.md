@@ -23,7 +23,7 @@ All notable changes to bind-manager are documented here. The format follows [Kee
   A shortcut the guard lets through reads "The browser guard lets X through, so the browser also acts on it."
 - **Other rules:**
   - Browser commands nothing cancels (Ctrl+S, Ctrl+R, F5, Ctrl+wheel, …, and Cmd combos on a Mac) are `unreliable`. One rule decides this for every platform: the guard is disabled, or it lets the key through.
-  - Under the guard's Keyboard Lock, a `blocked` combo whose key is locked becomes `unreliable`, as the README's Keyboard Lock section describes; Ctrl+Alt+Del stays `blocked`.
+  - Under the guard's Keyboard Lock, only the combos the README's Keyboard Lock section names change while their key is locked: the bare Windows key and Cmd+Tab on a Mac become `unreliable`, Alt+Tab becomes `fullscreen-only`, and Alt+F4 is `unreliable`. Every other `blocked` combo (Win + any key, Ctrl+Shift+Q, Cmd+Q, the Esc combos, Cmd+Space, Cmd+H, Ctrl+Alt+Del) stays `blocked`.
   - Windows-key combos depend on the detected platform: on a Mac, Cmd through the guard's `Mod` logic, and the bare Command key is `unreliable`; elsewhere `blocked`; when the platform is unknown, `unreliable`.
   - Combos with Alt are never `fullscreen-only` (Ctrl+Alt is AltGr on many layouts).
   - Escape, F11 and F12 count with any modifiers.

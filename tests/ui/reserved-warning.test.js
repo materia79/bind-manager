@@ -44,7 +44,7 @@ describe('reserved-key note in the rebind dialog', () => {
     pressCombo(['ControlLeft'], 'KeyT');
     expect(manager.getBinding('close-bag')[0]).toBe('ControlLeft+KeyT');
     expect(warning().classList.contains('bm-hidden')).toBe(false);
-    expect(warning().textContent).toMatch(/only works while the game is fullscreen\. The browser uses it to open a new tab\.$/);
+    expect(warning().textContent).toMatch(/only works while the game is fullscreen\. The browser uses it to open a new tab\. In fullscreen the game has to cancel the browser's action itself; the browser guard does that\.$/);
     expect(warning().getAttribute('title')).toBe(warning().textContent);
   });
 
@@ -73,7 +73,7 @@ describe('reserved-key note in the rebind dialog', () => {
     pressCombo(['ControlLeft'], 'KeyW');
     const text = warning().textContent;
     expect(text).toMatch(/is also bound to "Quit menu" — both will be active\./);
-    expect(text).toMatch(/only works while the game is fullscreen\. The browser uses it to close the tab\.$/);
+    expect(text).toMatch(/only works while the game is fullscreen\. The browser uses it to close the tab\. In fullscreen the game has to cancel/);
     expect(text.indexOf('also bound')).toBeLessThan(text.indexOf('only works'));
     expect(warning().getAttribute('title')).toBe(text);
   });
@@ -86,10 +86,18 @@ describe('reserved-key note in the rebind dialog', () => {
     expect(warning().getAttribute('title')).toBe(warning().textContent);
   });
 
+  it('a guard with shortcuts [] still cancels the key once it is bound (blockBound): fullscreen-only, the guard cancels it', () => {
+    create({ browserGuard: { enabled: true, shortcuts: [] } });
+    capture('close-bag');
+    pressCombo(['ControlLeft'], 'KeyT');
+    expect(warning().textContent).toMatch(/only works while the game is fullscreen\. The browser uses it to open a new tab; in fullscreen the browser guard cancels that\.$/);
+  });
+
   it("follows the manager's guard while it is enabled", () => {
     create({ browserGuard: { enabled: true, allow: ['Mod+KeyT'] } });
     capture('close-bag');
     pressCombo(['ControlLeft'], 'KeyT');
-    expect(warning().textContent).toMatch(/may not work in every browser\. The browser uses it to open a new tab, and the browser guard is set to let it through\.$/);
+    expect(warning().textContent).toMatch(/^The browser guard lets .+ through, so the browser also acts on it\. The browser uses it to open a new tab\.$/);
+    expect(warning().getAttribute('title')).toBe(warning().textContent);
   });
 });

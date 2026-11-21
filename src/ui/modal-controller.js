@@ -27,8 +27,8 @@ export class ModalController {
   constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = [], mouseRuntime = null, options = {}) {
     /** Warn when a captured key is one the browser or OS keeps for itself. */
     this._reservedKeyWarnings = options.reservedKeyWarnings !== false;
-    /** @type {() => (import('../input/reserved-codes.js').ShortcutPolicy | null)} the configured guard's policy, or null for its defaults */
-    this._reservedPolicy = typeof options.reservedPolicy === 'function' ? options.reservedPolicy : () => null;
+    /** @type {() => { guard?: import('../input/reserved-codes.js').ReservedGuardState | null, platform?: import('../input/reserved-codes.js').ReservedPlatform }} the guard's state and the platform */
+    this._reservedContext = typeof options.reservedContext === 'function' ? options.reservedContext : () => ({});
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
@@ -614,7 +614,7 @@ export class ModalController {
         if (code === null) { this._updateBindButtons(); return; }
         const result = this._store.set(actionId, slot, code, 'keyboard');
         const reserved = this._reservedKeyWarnings
-          ? getReservedInfo(code, { shortcutPolicy: this._reservedPolicy() })
+          ? getReservedInfo(code, { ...this._reservedContext(), bound: true })
           : null;
         if (reserved || result.conflicts.length > 0) {
           this._showConflictWarning(result.conflicts, code, 'keyboard', reserved);
@@ -741,11 +741,13 @@ export class ModalController {
       notes.push(`${label} is also bound to ${names.join(', ')} — both will be active.`);
     }
     if (reserved) {
-      const lead = {
-        blocked: `${label} will not work in the browser.`,
-        'fullscreen-only': `${label} only works while the game is fullscreen.`,
-        unreliable: `${label} may not work in every browser.`,
-      }[reserved.level];
+      const lead = reserved.guardLetsThrough
+        ? `The browser guard lets ${label} through, so the browser also acts on it.`
+        : {
+          blocked: `${label} will not work in the browser.`,
+          'fullscreen-only': `${label} only works while the game is fullscreen.`,
+          unreliable: `${label} may not work in every browser.`,
+        }[reserved.level];
       notes.push(`${lead} ${reserved.reason}`);
     }
     warningEl.textContent = notes.join(' ');

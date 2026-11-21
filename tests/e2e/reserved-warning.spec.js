@@ -29,7 +29,7 @@ test.describe('reserved-key note in the bindings modal', () => {
     });
     const warning = page.locator('.bm-conflict-warning');
     await expect(warning).toBeVisible();
-    await expect(warning).toHaveText(/is also bound to "Quit menu" — both will be active\. .+ only works while the game is fullscreen\. The browser uses it to close the tab\.$/);
+    await expect(warning).toHaveText(/is also bound to "Quit menu" — both will be active\. .+ only works while the game is fullscreen\. The browser uses it to close the tab\. In fullscreen the game has to cancel the browser's action itself; the browser guard does that\.$/);
     const { text, title } = await warning.evaluate((el) => ({ text: el.textContent, title: el.getAttribute('title') }));
     expect(title).toBe(text);
     expect(text.indexOf('also bound')).toBeLessThan(text.indexOf('only works'));

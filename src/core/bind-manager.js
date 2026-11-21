@@ -1,4 +1,4 @@
-import { getReservedInfo } from '../input/reserved-codes.js';
+import { detectPlatform, getReservedInfo } from '../input/reserved-codes.js';
 import { ActionRegistry } from './action-registry.js';
 import { BindingStore } from './binding-store.js';
 import { KeyboardRuntime } from '../input/keyboard-runtime.js';
@@ -96,13 +96,18 @@ export function createBindManager(options = {}) {
   const mouseRuntime = new MouseRuntime(store, runtime, { wheelPixelThreshold });
 
   // -- Browser shortcut guard (opt-in) --
+  const guardOptions = _normaliseBrowserGuardOption(browserGuard);
   const guard = new BrowserShortcutGuard(store, runtime, {
-    ..._normaliseBrowserGuardOption(browserGuard),
+    ...guardOptions,
     isUiActive: () => manager.active || !!builtInToolsController?.isAnyOpen?.(),
   });
   const guardApi = _makeBrowserGuardApi(guard);
-  // Reserved-key notes follow the configured guard while it is enabled, else its defaults.
-  const reservedPolicy = () => (guard.enabled ? guard.getShortcutPolicy() : null);
+  // Reserved-key notes follow the guard's real state. blockBound is set once at
+  // construction (no setter), so the option is the guard's value.
+  const reservedContext = () => ({
+    guard: { ...guard.getShortcutPolicy(), ...guard.getKeyboardLockSettings(), blockBound: guardOptions.blockBound ?? true },
+    platform: detectPlatform(),
+  });
 
   // -- Active state + cursor persistence --
   let _keepCursorAfterClose = false;
@@ -634,16 +639,17 @@ export function createBindManager(options = {}) {
     /**
      * Lists current keyboard/mouse bindings the browser or OS may keep for itself.
      * Use it to check defaults at startup or to show a summary to the player.
-     * Follows the browser guard's policy while the guard is enabled.
-     * @returns {{ actionId: string, slot: number, code: string, level: import('../input/reserved-codes.js').ReservedLevel, reason: string }[]}
+     * Follows the browser guard's real state (enabled, policy, blockBound,
+     * Keyboard Lock) and the platform.
+     * @returns {{ actionId: string, slot: number, code: string, level: import('../input/reserved-codes.js').ReservedLevel, reason: string, guardLetsThrough?: boolean }[]}
      */
     getReservedBindings() {
-      const opts = { shortcutPolicy: reservedPolicy() };
+      const opts = reservedContext();
       const found = [];
       for (const [actionId, bindings] of Object.entries(store.getAll())) {
         bindings.keyboard.forEach((code, slot) => {
           const info = getReservedInfo(code, opts);
-          if (info) found.push({ actionId, slot, code, level: info.level, reason: info.reason });
+          if (info) found.push({ actionId, slot, code, level: info.level, reason: info.reason, ...(info.guardLetsThrough ? { guardLetsThrough: true } : {}) });
         });
       }
       return found;
@@ -734,7 +740,7 @@ export function createBindManager(options = {}) {
   captureModal = new CaptureModalController();
   modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime, {
     reservedKeyWarnings,
-    reservedPolicy,
+    reservedContext,
   });
   hints = new HintsController(store, registry, gamepadRuntime);
 

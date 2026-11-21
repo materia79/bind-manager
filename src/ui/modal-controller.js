@@ -96,6 +96,9 @@ export class ModalController {
           e.stopPropagation();
           this._cancelCapture();
         } else {
+          // The Escape that closes the modal is used up here: once closed, gameplay is
+          // live again, and the key must not reach an action bound to Escape on window
+          e.stopPropagation();
           this.close();
         }
       } else if (e.key === 'Tab') {

@@ -4,6 +4,12 @@ All notable changes to bind-manager are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-21
+
+### Fixed
+
+- **Escape that closes the Key Bindings modal no longer fires a game action.** An action bound to Escape (a pause menu, say) fired as the modal closed, because gameplay was live again by the time the key reached the keyboard runtime. The modal now stops that Escape there; this holds with the search off too. A host's own window-level `keydown` listener therefore no longer sees the Escape that closes the modal; use `onActiveChange` to learn that it closed.
+
 ## [0.2.1] - 2026-11-21
 
 ### Added

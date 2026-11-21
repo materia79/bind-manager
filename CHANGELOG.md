@@ -4,6 +4,8 @@ All notable changes to bind-manager are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-21
+
 ### Added
 
 - **Reserved keys.** The rebind dialog adds a note when the player binds a key the browser or the operating system keeps for itself; binding is still allowed. A conflict note, if any, comes first, and the note's full text is in its title. There are three levels:

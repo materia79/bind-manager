@@ -17,14 +17,15 @@
  * its modifiers), and its real decision for a bound key counts (`allow`, its
  * lists, `blockBound`). A disabled guard cancels nothing.
  *
- * Keyboard Lock follows the 0.2.0 README (section "What a page cannot block, and
- * Keyboard Lock"): it can hand the Windows key and other operating system
- * shortcuts to the page (README line 384), a locked key arrives with every
- * modifier combination and `lock()` without keys locks every key (line 387), but
- * only keys the operating system lets go of, never a secure attention sequence
- * such as Ctrl+Alt+Del (lines 388, 400); locking Tab captures Alt+Tab on Windows
- * (line 393). So a 'blocked' combo whose key the guard locks becomes 'unreliable'
- * (Alt+Tab: 'fullscreen-only'), except Ctrl+Alt+Del.
+ * Keyboard Lock changes a level only where the 0.2.0 README (section "What a page
+ * cannot block, and Keyboard Lock") plainly says it delivers the combo: the bare
+ * Windows key and Cmd+Tab on a Mac (README line 384) become 'unreliable' while the
+ * guard locks their key, and Alt+Tab (line 393) becomes 'fullscreen-only' while it
+ * locks Tab. Alt+F4 keeps its earlier 'unreliable' under the lock. Every other
+ * 'blocked' combo stays 'blocked' whatever is locked: the general "every modifier
+ * combination" sentence (line 387) is not enough on its own, line 388 limits it to
+ * keys the operating system lets go of, and Ctrl+Alt+Del is never captured
+ * (lines 388, 400).
  *
  * The Windows / Command key depends on the platform: on a Mac it is Cmd, handled
  * through the guard's `Mod` logic; elsewhere it is the Windows key, whose combos
@@ -65,26 +66,25 @@ import {
 /** @typedef {'mac' | 'other' | 'unknown'} ReservedPlatform */
 
 /**
- * Keys that never reach the page, unless the guard's Keyboard Lock locks their key
- * (see the header). Modifiers match "at least these", so Alt+Shift+Tab counts as
- * Alt+Tab. `lock: 'verified'` (Alt+Tab, README line 393) makes a locked combo
- * 'fullscreen-only', `lock: 'secure'` (Ctrl+Alt+Del, README lines 388 and 400)
- * keeps it 'blocked'; every other rule becomes 'unreliable' when its key is locked.
- * The four Cmd entries are macOS shortcuts (not verified on a real Mac) and
- * Windows-key shortcuts elsewhere; `reasons` holds the text per platform.
- * @type {Array<{ mods: string[], keys: string[], reason?: string, reasons?: Record<ReservedPlatform, string>, lock?: 'verified' | 'secure' }>}
+ * Keys that never reach the page. Modifiers match "at least these", so
+ * Alt+Shift+Tab counts as Alt+Tab. `underLock` is the level while the guard's
+ * Keyboard Lock locks the rule's key (see the header), per platform when it is an
+ * object; a rule without it stays 'blocked' whatever is locked. The four Cmd
+ * entries are macOS shortcuts (not verified on a real Mac) and Windows-key
+ * shortcuts elsewhere; `reasons` holds the text per platform.
+ * @type {Array<{ mods: string[], keys: string[], reason?: string, reasons?: Record<ReservedPlatform, string>, underLock?: ReservedLevel | Partial<Record<ReservedPlatform, ReservedLevel>> }>}
  */
 const WINDOWS_KEY_REASON = 'The operating system uses the Windows key for its own shortcuts.';
 const BLOCKED_RULES = [
-  { mods: ['ctrl', 'alt'], keys: ['Delete'], lock: 'secure', reason: 'The operating system reserves it.' },
+  { mods: ['ctrl', 'alt'], keys: ['Delete'], reason: 'The operating system reserves it.' },
   { mods: ['ctrl', 'shift'], keys: ['Escape'], reason: 'The operating system uses it to open the Task Manager.' },
   { mods: ['ctrl'], keys: ['Escape'], reason: 'The operating system uses Ctrl+Esc (the Start menu on Windows).' },
   { mods: ['alt'], keys: ['Escape'], reason: 'The operating system uses it to switch windows.' },
-  { mods: ['ctrl', 'shift'], keys: ['KeyQ'], reason: 'Chromium uses it to quit, also in fullscreen.' },
-  { mods: ['alt'], keys: ['F4'], reason: 'The operating system uses it to close the window.' },
-  { mods: ['alt'], keys: ['Tab'], lock: 'verified', reason: 'The operating system uses it to switch windows.' },
+  { mods: ['ctrl', 'shift'], keys: ['KeyQ'], reason: 'Chromium on Windows and Linux uses it to quit, and the browser keeps quit for itself even in fullscreen.' },
+  { mods: ['alt'], keys: ['F4'], underLock: 'unreliable', reason: 'The operating system uses it to close the window.' },
+  { mods: ['alt'], keys: ['Tab'], underLock: 'fullscreen-only', reason: 'The operating system uses it to switch windows.' },
   { mods: ['meta'], keys: ['KeyQ'], reasons: { mac: 'macOS uses it to quit the browser.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
-  { mods: ['meta'], keys: ['Tab'], reasons: { mac: 'macOS uses it to switch applications.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
+  { mods: ['meta'], keys: ['Tab'], underLock: { mac: 'unreliable' }, reasons: { mac: 'macOS uses it to switch applications.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
   { mods: ['meta'], keys: ['Space'], reasons: { mac: 'macOS uses it to open Spotlight.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
   { mods: ['meta'], keys: ['KeyH'], reasons: { mac: 'macOS uses it to hide the browser.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
 ];
@@ -124,7 +124,10 @@ const MOD_NAME = {
   MetaLeft: 'meta', MetaRight: 'meta',
 };
 
-const FULLSCREEN_ONLY_PARSED = FULLSCREEN_ONLY_SHORTCUTS.map((pattern) => ({ pattern, parsed: parseShortcutPattern(pattern) }));
+/** README line 378 (0.2.0): "Whether F1/F3/F6/F7/F12 can be cancelled is up to each browser." (F12 has its own rule.) */
+const BROWSER_DECIDES_CANCEL = new Set(['F1', 'F3', 'F6', 'F7']);
+
+const FULLSCREEN_ONLY_PARSED =FULLSCREEN_ONLY_SHORTCUTS.map((pattern) => ({ pattern, parsed: parseShortcutPattern(pattern) }));
 
 /**
  * The guard's browser commands: its default patterns with a Ctrl / `Mod` modifier
@@ -194,16 +197,16 @@ export function getReservedInfo(code, options = {}) {
   for (const rule of BLOCKED_RULES) {
     if (!rule.keys.includes(primary) || !rule.mods.every((m) => mods.has(m))) continue;
     const reason = rule.reasons ? rule.reasons[platform] : rule.reason;
-    if (locked && rule.lock === 'verified') {
+    const lockLevel = locked ? (typeof rule.underLock === 'object' ? rule.underLock[platform] : rule.underLock) : undefined;
+    if (lockLevel === 'fullscreen-only') {
       return { level: 'fullscreen-only', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) hands it to the page.` };
     }
-    if (locked && rule.lock !== 'secure') return underLock(reason);
+    if (lockLevel === 'unreliable') return underLock(reason);
     return { level: 'blocked', reason };
   }
 
-  if (mods.has('meta') && platform === 'other') {
-    return locked ? underLock(WINDOWS_KEY_REASON) : { level: 'blocked', reason: WINDOWS_KEY_REASON };
-  }
+  // Windows-key combos: no README line says Keyboard Lock delivers them.
+  if (mods.has('meta') && platform === 'other') return { level: 'blocked', reason: WINDOWS_KEY_REASON };
   if (mods.has('meta') && platform === 'unknown') {
     return { level: 'unreliable', reason: 'The operating system may use Windows / Command key combinations.' };
   }
@@ -254,9 +257,13 @@ export function isReservedCode(code, options) {
 function _uncancelled(guard, primary, flags, bound) {
   if (guard && _guardCancels(guard, primary, flags, bound)) return null;
   const reason = 'The browser may have its own shortcut on it.';
-  return guard
-    ? { level: 'unreliable', reason, guardLetsThrough: true }
-    : { level: 'unreliable', reason: `${reason} Nothing cancels it; the browser guard can.` };
+  if (guard) return { level: 'unreliable', reason, guardLetsThrough: true };
+  return {
+    level: 'unreliable',
+    reason: BROWSER_DECIDES_CANCEL.has(primary)
+      ? `${reason} Nothing cancels it, and whether it can be cancelled at all is up to each browser.`
+      : `${reason} Nothing cancels it; the browser guard can.`,
+  };
 }
 
 /** The guard's real decision for this key: allow wins, then its lists, then blockBound for a bound key. */

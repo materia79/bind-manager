@@ -19,56 +19,82 @@ const guardState = (over = {}) => ({
 });
 const level = (code, options) => getReservedInfo(code, options)?.level ?? null;
 
-describe('M1: Keyboard Lock can deliver what the 0.2.0 README says it can', () => {
+describe('M1: Keyboard Lock changes a level only where the 0.2.0 README plainly says it delivers the combo', () => {
   const lockAll = guardState({ keyboardLockKeys: null });
 
-  it('README:384 ("the Windows key" among the OS shortcuts Keyboard Lock changes) + README:387 ("lock() with no arguments captures every key"): bare Windows key under lock() of every key is unreliable', () => {
+  it('README:384 ("the Windows key" among the OS shortcuts Keyboard Lock changes): the bare Windows key with MetaLeft/MetaRight locked, or every key locked, is unreliable', () => {
     expect(level('MetaLeft', { platform: 'other', guard: lockAll })).toBe('unreliable');
     expect(level('MetaRight', { platform: 'other', guard: guardState({ keyboardLockKeys: ['MetaRight'] }) })).toBe('unreliable');
     // Not locked by the default list: stays blocked.
     expect(level('MetaLeft', { platform: 'other', guard: guardState() })).toBe('blocked');
   });
 
-  it('README:387 ("captures the listed KeyboardEvent.code keys with every modifier combination"): Win + a locked key is unreliable', () => {
-    for (const code of ['MetaLeft+Tab', 'MetaLeft+KeyW', 'MetaLeft+KeyT', 'MetaLeft+KeyN', 'MetaLeft+KeyQ', 'MetaLeft+PageUp', 'MetaLeft+PageDown', 'MetaLeft+F4']) {
-      expect(level(code, { platform: 'other', guard: guardState() }), code).toBe('unreliable');
-    }
-    expect(level('MetaLeft+KeyE', { platform: 'other', guard: lockAll })).toBe('unreliable');
-    // KeyE is not in the default lock list: stays blocked.
-    expect(level('MetaLeft+KeyE', { platform: 'other', guard: guardState() })).toBe('blocked');
+  it('README:384 ("Cmd+Tab" among the OS shortcuts Keyboard Lock changes): Cmd+Tab on a Mac with Tab locked is unreliable', () => {
+    expect(level('MetaLeft+Tab', { platform: 'mac', guard: guardState() })).toBe('unreliable');
+    expect(level('MetaLeft+Tab', { platform: 'mac', guard: lockAll })).toBe('unreliable');
+    expect(getReservedInfo('MetaLeft+Tab', { platform: 'mac', guard: guardState() }).reason).toMatch(/^macOS uses it to switch applications; in fullscreen the browser guard's Keyboard Lock/);
+    // Tab not locked: stays blocked.
+    expect(level('MetaLeft+Tab', { platform: 'mac', guard: guardState({ keyboardLockKeys: ['KeyW'] }) })).toBe('blocked');
+    expect(level('MetaLeft+Tab', { platform: 'mac', guard: null })).toBe('blocked');
   });
 
-  it('README:384 ("Cmd+Tab" among the OS shortcuts Keyboard Lock changes) + README:387: Cmd+Tab and Cmd+Q with Tab / KeyQ locked are unreliable; Cmd+Space, Cmd+H only under lock() of every key', () => {
-    for (const platform of ['mac', 'other']) {
-      expect(level('MetaLeft+Tab', { platform, guard: guardState() }), platform).toBe('unreliable');
-      expect(level('MetaLeft+KeyQ', { platform, guard: guardState() }), platform).toBe('unreliable');
-      expect(level('MetaLeft+Space', { platform, guard: guardState() }), platform).toBe('blocked');
-      expect(level('MetaLeft+Space', { platform, guard: lockAll }), platform).toBe('unreliable');
-      expect(level('MetaLeft+KeyH', { platform, guard: lockAll }), platform).toBe('unreliable');
+  // Back to blocked: no README line plainly says Keyboard Lock delivers these.
+  // Each is checked with the default lock keys, with every key locked, and with
+  // exactly its own key locked; the level must be the same as without any guard.
+  const LOCKS = (key) => [guardState(), lockAll, guardState({ keyboardLockKeys: [key] })];
+  const expectLockChangesNothing = (code, key, platforms, expected) => {
+    for (const platform of platforms) {
+      const base = level(code, { platform, guard: null });
+      if (expected[platform]) expect(base, `${code} on ${platform} without a guard`).toBe(expected[platform]);
+      for (const guard of LOCKS(key)) {
+        expect(level(code, { platform, guard }), `${code} on ${platform}, lock keys ${JSON.stringify(guard.keyboardLockKeys)}`).toBe(base);
+      }
+    }
+  };
+  const BACK_TO_BLOCKED = [
+    { name: 'Ctrl+Shift+Q', code: 'ControlLeft+ShiftLeft+KeyQ', key: 'KeyQ', platforms: ['other', 'mac', 'unknown'], expected: { other: 'blocked', mac: 'blocked', unknown: 'blocked' } },
+    { name: 'Cmd+Q (Mac)', code: 'MetaLeft+KeyQ', key: 'KeyQ', platforms: ['mac', 'unknown'], expected: { mac: 'blocked', unknown: 'blocked' } },
+    { name: 'Cmd+Space (Mac)', code: 'MetaLeft+Space', key: 'Space', platforms: ['mac', 'unknown'], expected: { mac: 'blocked', unknown: 'blocked' } },
+    { name: 'Cmd+H (Mac)', code: 'MetaLeft+KeyH', key: 'KeyH', platforms: ['mac', 'unknown'], expected: { mac: 'blocked', unknown: 'blocked' } },
+    { name: 'Ctrl+Esc', code: 'ControlLeft+Escape', key: 'Escape', platforms: ['other', 'mac'], expected: { other: 'blocked', mac: 'blocked' } },
+    { name: 'Alt+Esc', code: 'AltLeft+Escape', key: 'Escape', platforms: ['other', 'mac'], expected: { other: 'blocked', mac: 'blocked' } },
+    { name: 'Ctrl+Shift+Esc', code: 'ControlLeft+ShiftLeft+Escape', key: 'Escape', platforms: ['other', 'mac'], expected: { other: 'blocked', mac: 'blocked' } },
+    // Win + any key; on an unknown platform these keep their earlier level (Win+Tab/Q: blocked, others unreliable), the lock changes nothing.
+    ...['KeyW', 'KeyT', 'KeyN', 'KeyQ', 'Tab', 'PageUp', 'PageDown', 'F4', 'KeyL', 'KeyR', 'KeyD', 'KeyE'].map((key) => ({
+      name: `Win+${key.replace(/^Key/, '')}`, code: `MetaLeft+${key}`, key, platforms: ['other', 'unknown'],
+      expected: { other: 'blocked', unknown: ['KeyQ', 'Tab'].includes(key) ? 'blocked' : 'unreliable' },
+    })),
+  ];
+  for (const { name, code, key, platforms, expected } of BACK_TO_BLOCKED) {
+    it(`no README line backs Keyboard Lock delivering ${name}: it stays ${Object.values(expected)[0]} whatever is locked`, () => {
+      expectLockChangesNothing(code, key, platforms, expected);
+    });
+  }
+
+  it('the Ctrl+Shift+Q reason agrees with README:382 (quit stays with the browser, also in fullscreen) and does not claim Chromium quits with it on a Mac', () => {
+    for (const guard of [null, guardState(), lockAll]) {
+      const { reason } = getReservedInfo('ControlLeft+ShiftLeft+KeyQ', { platform: 'other', guard });
+      expect(reason).toBe('Chromium on Windows and Linux uses it to quit, and the browser keeps quit for itself even in fullscreen.');
+      expect(reason).not.toMatch(/hand it to the page|macOS|Mac/);
     }
   });
 
-  it('README:387 (every modifier combination of a locked key): Ctrl+Shift+Q with KeyQ locked is unreliable', () => {
-    expect(level('ControlLeft+ShiftLeft+KeyQ', { platform: 'other', guard: guardState() })).toBe('unreliable');
-    expect(level('ControlLeft+ShiftLeft+KeyQ', { platform: 'other', guard: null })).toBe('blocked');
-  });
-
-  it('README:387 (every modifier combination; Escape is lockable, README:389): Ctrl+Esc, Alt+Esc, Ctrl+Shift+Esc with Escape locked are unreliable', () => {
-    for (const code of ['ControlLeft+Escape', 'AltLeft+Escape', 'ControlLeft+ShiftLeft+Escape']) {
-      expect(level(code, { platform: 'other', guard: lockAll }), code).toBe('unreliable');
-      expect(level(code, { platform: 'other', guard: guardState() }), code).toBe('blocked'); // Escape not in the default list
-    }
+  it('README:393 ("Locking Tab also captures Alt+Tab"): Alt+Tab stays fullscreen-only; Alt+F4 keeps its round-2 level under the lock', () => {
+    expect(level('AltLeft+Tab', { platform: 'other', guard: guardState() })).toBe('fullscreen-only');
+    expect(level('AltLeft+F4', { platform: 'other', guard: guardState() })).toBe('unreliable');
+    expect(level('AltLeft+F4', { platform: 'other', guard: null })).toBe('blocked');
   });
 
   it('README:388 ("Secure attention sequences such as Ctrl+Alt+Del can never be captured") and README:400: Ctrl+Alt+Del stays blocked under any lock', () => {
-    expect(level('ControlLeft+AltLeft+Delete', { platform: 'other', guard: lockAll })).toBe('blocked');
+    for (const platform of ['other', 'mac', 'unknown']) {
+      expect(level('ControlLeft+AltLeft+Delete', { platform, guard: lockAll }), platform).toBe('blocked');
+    }
   });
 
-  it('no lock, no change: guard disabled, keyboardLock off, or the key not locked keep blocked', () => {
-    for (const guard of [null, guardState({ enabled: false }), guardState({ keyboardLock: false }), guardState({ keyboardLockKeys: [] })]) {
-      for (const code of ['MetaLeft+Tab', 'MetaLeft+KeyW', 'ControlLeft+ShiftLeft+KeyQ']) {
-        expect(level(code, { platform: 'other', guard }), code).toBe('blocked');
-      }
+  it('no lock, no change: guard disabled, keyboardLock off, or the key not locked keep the bare Windows key and Cmd+Tab blocked', () => {
+    for (const guard of [null, guardState({ keyboardLockKeys: null, enabled: false }), guardState({ keyboardLockKeys: null, keyboardLock: false }), guardState({ keyboardLockKeys: [] })]) {
+      expect(level('MetaLeft', { platform: 'other', guard }), JSON.stringify(guard)).toBe('blocked');
+      expect(level('MetaLeft+Tab', { platform: 'mac', guard }), JSON.stringify(guard)).toBe('blocked');
     }
   });
 });
@@ -106,6 +132,24 @@ describe('M2: one "nothing cancels it" decision for Windows/Linux and Mac', () =
   it('the reason names the browser guard when nothing cancels it, and the dialog lead covers the guard case', () => {
     expect(getReservedInfo('ControlLeft+KeyS', { platform: 'other', guard: null }).reason).toBe('The browser may have its own shortcut on it. Nothing cancels it; the browser guard can.');
     expect(getReservedInfo('MetaLeft+KeyS', { platform: 'mac', guard: null }).reason).toBe('The browser may have its own shortcut on it. Nothing cancels it; the browser guard can.');
+  });
+
+  it('L-8, L-3: with the guard off, F1/F3/F6/F7/F10 and the zoom keys get the note; for F1/F3/F6/F7 it follows README:378 (cancelling is up to each browser)', () => {
+    const CAN = 'The browser may have its own shortcut on it. Nothing cancels it; the browser guard can.';
+    const UP_TO_BROWSER = 'The browser may have its own shortcut on it. Nothing cancels it, and whether it can be cancelled at all is up to each browser.';
+    for (const platform of ['other', 'mac']) {
+      for (const code of ['F1', 'F3', 'F6', 'F7']) {
+        expect(getReservedInfo(code, { platform, guard: null }), `${code} on ${platform}`).toEqual({ level: 'unreliable', reason: UP_TO_BROWSER });
+      }
+      const mod = platform === 'mac' ? 'MetaLeft' : 'ControlLeft';
+      for (const code of ['F10', ...['Equal', 'Minus', 'Digit0', 'NumpadAdd', 'NumpadSubtract', 'Numpad0'].map((key) => `${mod}+${key}`)]) {
+        expect(getReservedInfo(code, { platform, guard: null }), `${code} on ${platform}`).toEqual({ level: 'unreliable', reason: CAN });
+      }
+    }
+    // With the guard enabled on defaults they are in its list: no note.
+    for (const code of ['F1', 'F3', 'F6', 'F7', 'F10', 'ControlLeft+Equal', 'ControlLeft+Numpad0']) {
+      expect(getReservedInfo(code, { platform: 'other', guard: guardState() }), code).toBeNull();
+    }
   });
 
   it('scrolling keys, mouse buttons and AltGr combos get no note', () => {
@@ -202,6 +246,41 @@ describe('L4: non-boolean option values are read the way the guard reads them', 
     for (const enabled of [0, '']) {
       expect(level('ControlLeft+KeyW', { platform: 'other', guard: guardState({ enabled, allow: ['Mod+KeyW'] }) }), String(enabled)).toBe('fullscreen-only');
       expect(getReservedInfo('ControlLeft+KeyW', { platform: 'other', guard: guardState({ enabled }) }).reason).toMatch(/game has to cancel/);
+    }
+  });
+
+  it('L-7: a truthy non-boolean enabled (1, "yes") counts as enabled, as the guard reads it', () => {
+    for (const enabled of [1, 'yes']) {
+      // Directly: the enabled guard cancels Ctrl+S (in its list), so there is no note.
+      expect(getReservedInfo('ControlLeft+KeyS', { platform: 'other', guard: guardState({ enabled }) }), String(enabled)).toBeNull();
+      expect(getReservedInfo('ControlLeft+KeyW', { platform: 'other', guard: guardState({ enabled }) }).reason, String(enabled)).toMatch(/the browser guard cancels that\.$/);
+      // Through the manager: the real guard keeps the raw value and treats it as enabled.
+      const manager = createBindManager({ namespace: `round3-l7-${n}-${String(enabled)}`, browserGuard: { enabled } });
+      manager.registerAction({ id: 'save', slots: 1, defaultBindings: ['ControlLeft+KeyS'] });
+      expect(manager.getReservedBindings(), String(enabled)).toEqual([]);
+      manager.destroy();
+    }
+    // Control: disabled, the same binding gets the note.
+    const manager = createBindManager({ namespace: `round3-l7-${n}-off`, browserGuard: { enabled: false } });
+    manager.registerAction({ id: 'save', slots: 1, defaultBindings: ['ControlLeft+KeyS'] });
+    expect(manager.getReservedBindings()).toHaveLength(1);
+    manager.destroy();
+  });
+
+  it('L-6: a guard state without blockBound behaves as blockBound: true (README:309), like the guard', () => {
+    const { blockBound, ...noBlockBound } = guardState({ shortcuts: [] });
+    expect(blockBound).toBe(true);
+    expect('blockBound' in noBlockBound).toBe(false);
+    // Bound, not in the lists: cancelled because blockBound defaults to true.
+    expect(getReservedInfo('ControlLeft+KeyS', { platform: 'other', guard: noBlockBound, bound: true })).toBeNull();
+    expect(getReservedInfo('ControlLeft+KeyW', { platform: 'other', guard: noBlockBound, bound: true }).reason).toMatch(/the browser guard cancels that\.$/);
+    // Unbound: let through.
+    expect(getReservedInfo('ControlLeft+KeyS', { platform: 'other', guard: noBlockBound, bound: false })?.guardLetsThrough).toBe(true);
+    // The real guard built without blockBound decides the same.
+    for (const bound of [true, false]) {
+      const store = { getActionsByCode: () => (bound ? ['save'] : []) };
+      const guard = new BrowserShortcutGuard(store, { getHeldModifiers: () => ['ControlLeft'] }, { enabled: true, shortcuts: [] });
+      expect(guard._shouldBlock('KeyS', { ctrlKey: true, shiftKey: false, altKey: false, metaKey: false }), `bound=${bound}`).toBe(bound);
     }
   });
 });

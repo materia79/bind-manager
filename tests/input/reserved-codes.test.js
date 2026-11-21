@@ -103,9 +103,9 @@ describe('getReservedInfo', () => {
     expect(mac('MetaLeft+KeyR', null)).toBe('unreliable'); // M2: nothing cancels it
     expect(mac('MetaLeft+KeyS', guardState({ enabled: false }))).toBe('unreliable');
     expect(mac('MetaLeft+KeyR', guardState({ allow: ['Mod+KeyR'] }))).toBe('unreliable');
-    // Not a Mac (no key locked: round 3, M1 makes a locked key's Win combo unreliable)
+    // Not a Mac: blocked, also with the default lock keys (KeyW is locked; no README line says Keyboard Lock delivers Win combos)
     for (const code of ['MetaLeft+KeyW', 'MetaLeft+KeyR', 'MetaLeft+KeyE', 'MetaLeft+KeyD']) {
-      expect(getReservedInfo(code, { platform: 'other', guard: guardState({ keyboardLockKeys: [] }) })?.level, code).toBe('blocked');
+      expect(getReservedInfo(code, { platform: 'other', guard: guardState() })?.level, code).toBe('blocked');
     }
     // Unknown
     for (const code of ['MetaLeft+KeyW', 'MetaLeft+KeyR', 'MetaLeft+KeyE']) {

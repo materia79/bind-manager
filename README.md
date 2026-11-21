@@ -188,14 +188,17 @@ With `debug: true`, the debug key (F5) toggles the modal and its default (page r
 Options:
 - `namespace?: string` storage namespace, default `default`
 - `debug?: boolean` enable debug toggle key listener
-- `debugKey?: string` `KeyboardEvent.code` used for modal toggle, default `F5`
+- `debugKey?: string` `KeyboardEvent.code` used for modal toggle, default `F5`. A key that types a character (a letter, a digit, Space, punctuation) or edits text (Backspace, Delete, the arrows, Home, End) does not toggle while the modal's search field has the focus, nor does any keystroke of an IME composition; it types there instead (see [Searching the bindings](#searching-the-bindings))
 - `container?: HTMLElement | null` mount target for modal, hints and tools, default `document.body`
-- `storage?: { load, save, clear?, loadGamepadProfileOverrides?, saveGamepadProfileOverrides? } | null` custom persistence adapter (see [Persistence](#persistence))
+- `storage?: { load, save, clear?, loadGamepadProfileOverrides?, saveGamepadProfileOverrides?, loadCollapsedGroups?, saveCollapsedGroups? } | null` custom persistence adapter (see [Persistence](#persistence))
 - `builtInTools?: true | { inputRemap?: boolean, controllerTest?: boolean } | null` enable the bundled Input Remap and Controller Test tools (`true` enables both; see [Built-in tools](#built-in-tools))
 - `footerActions?: { id, label, className?, onClick }[]` extra buttons in the bindings modal's footer, before the built-in tools
 - `browserGuard?: boolean | BrowserGuardOptions` cancel browser shortcuts while the game owns input, default `false` (see [Browser shortcut guard](#browser-shortcut-guard))
 - `wheelPixelThreshold?: number` pixel delta that counts as one wheel notch, default `30` (see [Mouse wheel bindings](#mouse-wheel-bindings))
 - `reservedKeyWarnings?: boolean` note in the rebind dialog when the player binds a key the browser or the operating system keeps, default `true` (see [Reserved keys](#reserved-keys))
+- `bindSearch?: boolean` search field above the bindings list that filters it while the player types, default `true` (see [Searching the bindings](#searching-the-bindings))
+- `groupFolding?: boolean` group headers of the bindings list fold and unfold their rows, default `true` (see [Folding groups](#folding-groups))
+- `collapsedGroups?: string[]` groups that start folded, default `[]` (all open); the player's remembered choice wins
 - `deadband?: number` gamepad axis values at or below this are treated as rest, default `0.12`
 - `analogThreshold?: number` an axis direction counts as pressed past this value, default `0.5`
 
@@ -233,6 +236,8 @@ Action definition fields:
 - `close()`
 - `toggle()`
 - `isOpen()`
+- `setGroupCollapsed(group, collapsed)` — fold or unfold a group of the bindings list and remember it, like the player's click (no-op with `groupFolding: false`)
+- `isGroupCollapsed(group)` — the remembered fold state of a group: the player's choice, else `collapsedGroups`
 - `openInputRemap()` — opens the Input Remap tool when `builtInTools` enables it (no-op otherwise)
 - `openControllerTest()` — opens the Controller Test tool when `builtInTools` enables it (no-op otherwise)
 
@@ -614,14 +619,48 @@ The full workflow, and what it needs from the pad, is in [src/input/controller_d
 - Duplicate bindings are allowed and shown as warnings.
 - Tab stays inside the bindings modal and the capture dialog; closing returns focus to the opener. Reset, Reset All and profile changes update the modal in place and keep its scroll position and focus.
 - A tap or click on Cancel (or Close) never reaches the control underneath, also with touch and pen and on a double tap.
+- The Escape that closes the modal ends there: it does not reach window listeners, so an action bound to Escape does not fire as the modal closes.
+
+### Searching the bindings
+
+A search field sits between the modal's header and the list, so it stays in view while the list scrolls. What the player types filters the list at once:
+
+- The text is split at spaces; a row is shown when every word occurs in its label, its description, its group name, or the label of one of its current bindings as its button shows it ("Space", "Ctrl", "Wheel Up", and gamepad buttons under the active profile, such as "Cross" on a DualSense). Internal codes (`KeyW`, `GP_B0`) are not matched. Case and accents do not count ("saute" finds "Sauté").
+- Rows that do not match are hidden in place (the `hidden` attribute; no re-render), and so is a group with no row left. Hidden rows are out of the Tab order and the focus trap. When nothing matches, one line says so and names the text; a polite live region tells screen readers the number of matches.
+- The filter follows binding changes and gamepad profile changes, since binding labels are matched. A row or group header that holds the focus stays shown until the text changes, so rebinding a key in a filtered list never removes the control in use. Should a focused control end up hidden all the same, the focus moves to the search field (from a hidden × clear-slot button: to its bind button), never out of the modal.
+- While a filter is active the list starts at its top; clearing the text returns to the scroll position from before the search.
+- Escape with text in the field, or on the clear button, clears the text, keeps the modal open and puts the focus in the field; the next Escape closes the modal. Elsewhere in the modal (a row, a group header) Escape closes it as before. Enter does nothing. Tab moves on to the clear button and the list. The clear button (×) appears when there is text.
+- During an IME composition (`isComposing`, or `keyCode` 229), every keystroke belongs to the input method: the Escape that cancels a composition neither clears the text nor closes the modal, and the debug toggle key does not toggle.
+- Typing in the field never fires an action or starts a capture, and the browser guard leaves it alone (actions are suppressed while the modal is open). The debug toggle key is ignored while it would type into the field (a letter, digit or other character, Backspace, Delete, the arrows, Home, End), so it may be a letter key; F5 and other non-typing keys still toggle.
+- The text survives `refresh()` (value, focus and caret) and is cleared when the modal closes. Opening the modal puts the focus on the modal, not in the field. During a capture the field is disabled like the other controls.
+- On touch screens (`any-pointer: coarse`) the field's text is at least 16px whatever `--bm-u` is, so iOS Safari does not zoom the page when it takes focus. The list body keeps a minimum height (`min(120u, 40vh)`), so a short viewport, such as one with an on-screen keyboard, cuts the footer before the list.
+- `bindSearch: false` removes the field. The modal's markup is as in 0.2.1 only with `groupFolding: false` as well (folding is on by default), byte for byte, which a test checks against 0.2.1's output.
+
+Classes: `bm-search` (the row), `bm-search-input`, `bm-search-clear`, `bm-search-status` (the live region, visually hidden with `bm-visually-hidden`) and `bm-search-empty` (the no-match line, also a `bm-empty`).
+
+### Folding groups
+
+Each group title of the bindings list is a button that folds and unfolds the group's rows (click, tap, Enter or Space). It shows a marker, the group name and a count of bound actions out of all, for example "3 / 64" (read as "3 of 64 bound"); an action counts as bound when any keyboard, mouse or gamepad slot is set. The count follows binding changes in place.
+
+- **Defaults.** All groups start open. `collapsedGroups: ['Spells']` starts the named groups folded; `manager.setGroupCollapsed(group, collapsed)` folds or unfolds one from code.
+- **Remembered.** The player's choice, open or folded, is kept per namespace and wins over `collapsedGroups`. `LocalStorageAdapter` keeps it in its own key, `bind-manager:<namespace>:collapsed-groups`, as `{ "version": 2, "groups": [["<group name>", true | false], ...] }`, oldest choice first (`true` folded, `false` opened by the player); the bindings key `bind-manager:<namespace>` is not touched. At most 256 groups are kept: the newest choices, also for a stored list longer than that; a name listed twice counts with its last entry. The object form `{ "version": 1, "groups": { "<name>": true | false } }` is still read, in its stored order. A custom storage adapter may add `loadCollapsedGroups()` (returns the `[name, folded]` pairs, oldest first; an object `{ name: folded }` is accepted too) and `saveCollapsedGroups(groups)` (gets the pairs); without them the state lives in memory for the page's lifetime. Reading and saving never throw.
+- **Reset and clear.** Reset All leaves the fold state alone. `clearStorage()` deletes the stored fold state with the rest (the adapter's `clear()`); the groups folded on screen stay as they are until the next reload.
+- **With the search.** While the search field holds text, every group with a match is shown open, so matches inside folded groups appear. A header click during a search folds or unfolds that group for the current search only; clearing the search brings back the fold state from before, unchanged.
+- **Focus.** Rows of a folded group are out of the Tab order and the focus trap. When a group folds with the focus inside it, the focus goes to its header. Headers are disabled during a capture. `refresh()` keeps fold state, focus (also on a header) and scroll.
+- **Warnings.** Rows carry no lasting conflict or reserved-key marker (those notes are the temporary line in the footer), so a folded header shows none.
+- `groupFolding: false` renders plain group titles; with `bindSearch: false` as well, the modal's markup is as in 0.2.1.
+
+Classes: `bm-group-toggle` (the header button, also a `bm-group-title`), `bm-group-marker`, `bm-group-name`, `bm-group-count` (with `bm-group-count-short` and the screen-reader `bm-group-count-long`), `bm-group-rows` (the rows, `hidden` when folded) and `bm-group-folded` on a folded `bm-group`.
+
+With 400 actions in 16 groups (desktop Chromium, to the second painted frame), `open()` takes about as long as in 0.2.1 while all groups are open (about 100 ms; about 600 ms with 4x CPU throttling) and is much faster with groups folded (about 34 ms with every group folded; about 120 ms throttled): rows of folded groups are built but not laid out. A keystroke that narrows the filter takes about two frames (33 ms; 70 ms throttled); one that widens it lays out the rows that come back (deleting one character to bring back 111 rows: about 50 ms; about 350 ms throttled).
 
 ## Persistence
 
-Bindings are persisted under the localStorage key `bind-manager:<namespace>`, manual gamepad profile overrides under `bind-manager:<namespace>:gamepad-profile-overrides`. The payloads are versioned internally.
+Bindings are persisted under the localStorage key `bind-manager:<namespace>`, manual gamepad profile overrides under `bind-manager:<namespace>:gamepad-profile-overrides`, the folded groups of the bindings list under `bind-manager:<namespace>:collapsed-groups` (see [Folding groups](#folding-groups)). The payloads are versioned internally.
 
 - Saved bindings of actions that are not registered (yet) are kept on every save, so an action registered later still gets its saved bindings. `clearStorage()` drops them too.
 - Saving happens once per committed change (`resetAll()` is one commit). A failed save (quota exceeded, storage unavailable) never stops later saves: every later change tries again, the manager warns once in the console, and `getStorageStatus()` returns `{ ok, failedSaves, lastError, lastFailure }`. `ok` and `lastError` describe the latest save (`lastError` is `null` again after a successful save); `failedSaves` counts failures and `lastFailure` (`{ error, at }`) keeps the most recent one.
-- A custom `storage` adapter needs `load()` and `save(bindings)`; `clear()`, `loadGamepadProfileOverrides()` and `saveGamepadProfileOverrides(overrides)` are optional. A `save()` that throws or returns `false` counts as a failed save (the built-in `LocalStorageAdapter` returns `true`/`false` and keeps `lastSaveError`); a `save()` that returns nothing counts as a success.
+- A custom `storage` adapter needs `load()` and `save(bindings)`; `clear()`, `loadGamepadProfileOverrides()`, `saveGamepadProfileOverrides(overrides)`, `loadCollapsedGroups()` and `saveCollapsedGroups(groups)` are optional. A `save()` that throws or returns `false` counts as a failed save (the built-in `LocalStorageAdapter` returns `true`/`false` and keeps `lastSaveError`); a `save()` that returns nothing counts as a success.
 - In-memory gamepad mapping edits are never saved.
 
 ## JSON Export and Import

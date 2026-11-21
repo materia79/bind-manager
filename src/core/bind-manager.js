@@ -58,6 +58,9 @@ export function createBindManager(options = {}) {
     browserGuard = false,
     wheelPixelThreshold,
     reservedKeyWarnings = true,
+    bindSearch = true,
+    groupFolding = true,
+    collapsedGroups = [],
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -193,6 +196,20 @@ export function createBindManager(options = {}) {
     toggle() { modal.toggle(); },
     /** @returns {boolean} */
     isOpen() { return modal.isOpen(); },
+    /**
+     * Fold or unfold a group of the bindings list and remember it, like the
+     * player's click on its header (no-op with groupFolding: false).
+     * @param {string} group
+     * @param {boolean} collapsed
+     */
+    setGroupCollapsed(group, collapsed) { if (groupFolding) modal.setGroupCollapsed(group, collapsed); },
+    /**
+     * Whether a group is folded: the player's remembered choice, else the
+     * `collapsedGroups` option (false with groupFolding: false).
+     * @param {string} group
+     * @returns {boolean}
+     */
+    isGroupCollapsed(group) { return groupFolding ? modal.isGroupCollapsed(group) : false; },
     /** Open the bundled Input Remap tool when enabled. */
     openInputRemap() { builtInToolsController?.openInputRemap(); },
     /** Open the bundled Controller Test tool when enabled. */
@@ -621,9 +638,10 @@ export function createBindManager(options = {}) {
     },
 
     /**
-     * Delete everything persisted for this namespace (bindings and gamepad
-     * profile overrides) via the storage adapter's clear(). In-memory
-     * bindings are untouched; the next binding change is persisted again.
+     * Delete everything persisted for this namespace (bindings, gamepad
+     * profile overrides and the remembered folded groups) via the storage
+     * adapter's clear(). In-memory bindings and the groups folded on screen
+     * are untouched; the next change is persisted again.
      * Saved bindings of actions not registered yet are dropped as well, so
      * those actions get their defaults when they register.
      * Call resetAll() first to also return the live bindings to defaults.
@@ -741,6 +759,14 @@ export function createBindManager(options = {}) {
   modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime, {
     reservedKeyWarnings,
     reservedContext,
+    bindSearch,
+    groupFolding,
+    collapsedGroups,
+    // The player's fold choices, in the adapter's own key; an adapter without the methods keeps them in memory
+    foldStore: {
+      load: () => (typeof storageAdapter.loadCollapsedGroups === 'function' ? storageAdapter.loadCollapsedGroups() : null),
+      save: (groups) => { if (typeof storageAdapter.saveCollapsedGroups === 'function') storageAdapter.saveCollapsedGroups(groups); },
+    },
   });
   hints = new HintsController(store, registry, gamepadRuntime);
 
@@ -772,7 +798,8 @@ export function createBindManager(options = {}) {
 
   if (debug && typeof window !== 'undefined') {
     _debugListener = (e) => {
-      if (e.code === debugKey) {
+      // A letter or other typing key as debugKey still types into the modal's search field
+      if (e.code === debugKey && !modal.isSearchTyping(e)) {
         e.preventDefault();  // also on auto-repeat, so a held F5 never reloads the page
         if (!e.repeat) modal.toggle();
       }
@@ -1029,6 +1056,9 @@ function _hasOwn(obj, key) {
  *           - Cancel browser shortcuts while the game owns input (opt-in)
  * @property {number} [wheelPixelThreshold=30]     - Pixel delta that counts as one wheel notch
  * @property {boolean} [reservedKeyWarnings=true]  - Warn in the rebind dialog about keys the browser or OS keeps
+ * @property {boolean} [bindSearch=true]           - Search field above the bindings list that filters it as you type
+ * @property {boolean} [groupFolding=true]         - Group headers of the bindings list fold and unfold their rows
+ * @property {string[]} [collapsedGroups=[]]       - Groups that start folded; the player's remembered choice wins
  *
  * @typedef {object} BrowserGuardApi
  * @property {boolean} enabled

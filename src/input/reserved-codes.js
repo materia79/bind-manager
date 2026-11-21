@@ -17,17 +17,16 @@
  * its modifiers), and its real decision for a bound key counts (`allow`, its
  * lists, `blockBound`). A disabled guard cancels nothing.
  *
- * Keyboard Lock changes a level only where the 0.2.0 README (section "What a page
- * cannot block, and Keyboard Lock") plainly says it delivers the combo: the bare
- * Windows key (no other modifier held) and Cmd+Tab on a Mac (README line 384)
- * become 'unreliable' while the guard locks their key, and Alt+Tab (line 393)
- * becomes 'fullscreen-only' while it locks Tab. Alt+F4 keeps its earlier
- * 'unreliable' under the lock. While the Windows key is held on a non-Mac
- * platform nothing changes (Win+Alt+Tab, Win+Alt+F4 stay 'blocked'). Every other
- * 'blocked' combo stays 'blocked' whatever is locked: the general "every modifier
- * combination" sentence (line 387) is not enough on its own, line 388 limits it to
- * keys the operating system lets go of, and Ctrl+Alt+Del is never captured
- * (lines 388, 400).
+ * Keyboard Lock: under the guard's lock exactly the combos the 0.2.0 README
+ * (section "What a page cannot block, and Keyboard Lock") names change level, on
+ * the README's platform, with exactly their modifiers (LOCK_CHANGES): on a Mac
+ * Cmd+Tab becomes 'unreliable' (README line 384); on a known non-Mac platform
+ * Alt+Tab becomes 'fullscreen-only' (line 393), Alt+F4 'unreliable' (its earlier
+ * level), and the bare Windows key 'unreliable' (line 384). On an unknown platform
+ * the lock changes nothing. Every other combo keeps its level whatever is locked:
+ * the general "every modifier combination" sentence (line 387) is not enough on
+ * its own, line 388 limits it to keys the operating system lets go of, and
+ * Ctrl+Alt+Del is never captured (lines 388, 400).
  *
  * The Windows / Command key depends on the platform: on a Mac it is Cmd, handled
  * through the guard's `Mod` logic; elsewhere it is the Windows key, whose combos
@@ -69,12 +68,11 @@ import {
 
 /**
  * Keys that never reach the page. Modifiers match "at least these", so
- * Alt+Shift+Tab counts as Alt+Tab. `underLock` is the level while the guard's
- * Keyboard Lock locks the rule's key (see the header), per platform when it is an
- * object; a rule without it stays 'blocked' whatever is locked. The four Cmd
- * entries are macOS shortcuts (not verified on a real Mac) and Windows-key
- * shortcuts elsewhere; `reasons` holds the text per platform.
- * @type {Array<{ mods: string[], keys: string[], reason?: string, reasons?: Record<ReservedPlatform, string>, underLock?: ReservedLevel | Partial<Record<ReservedPlatform, ReservedLevel>> }>}
+ * Alt+Shift+Tab counts as Alt+Tab. Under the guard's Keyboard Lock only the
+ * entries of LOCK_CHANGES change level. The four Cmd entries are macOS shortcuts
+ * (not verified on a real Mac) and Windows-key shortcuts elsewhere; `reasons`
+ * holds the text per platform.
+ * @type {Array<{ mods: string[], keys: string[], reason?: string, reasons?: Record<ReservedPlatform, string> }>}
  */
 const WINDOWS_KEY_REASON = 'The operating system uses the Windows key for its own shortcuts.';
 const BLOCKED_RULES = [
@@ -83,12 +81,24 @@ const BLOCKED_RULES = [
   { mods: ['ctrl'], keys: ['Escape'], reason: 'The operating system uses Ctrl+Esc (the Start menu on Windows).' },
   { mods: ['alt'], keys: ['Escape'], reason: 'The operating system uses it to switch windows.' },
   { mods: ['ctrl', 'shift'], keys: ['KeyQ'], reason: 'Chromium on Windows and Linux uses it to quit, and the browser keeps quit for itself even in fullscreen.' },
-  { mods: ['alt'], keys: ['F4'], underLock: 'unreliable', reason: 'The operating system uses it to close the window.' },
-  { mods: ['alt'], keys: ['Tab'], underLock: 'fullscreen-only', reason: 'The operating system uses it to switch windows.' },
+  { mods: ['alt'], keys: ['F4'], reason: 'The operating system uses it to close the window.' },
+  { mods: ['alt'], keys: ['Tab'], reason: 'The operating system uses it to switch windows.' },
   { mods: ['meta'], keys: ['KeyQ'], reasons: { mac: 'macOS uses it to quit the browser.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
-  { mods: ['meta'], keys: ['Tab'], underLock: { mac: 'unreliable' }, reasons: { mac: 'macOS uses it to switch applications.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
+  { mods: ['meta'], keys: ['Tab'], reasons: { mac: 'macOS uses it to switch applications.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
   { mods: ['meta'], keys: ['Space'], reasons: { mac: 'macOS uses it to open Spotlight.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
   { mods: ['meta'], keys: ['KeyH'], reasons: { mac: 'macOS uses it to hide the browser.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
+];
+
+/**
+ * The complete list of level changes under the guard's Keyboard Lock (guard
+ * enabled, `keyboardLock` on, the key locked): platform, EXACT modifier set, key.
+ * @type {Array<{ platform: ReservedPlatform, mods: string[], keys: string[], level: ReservedLevel }>}
+ */
+const LOCK_CHANGES = [
+  { platform: 'mac', mods: ['meta'], keys: ['Tab'], level: 'unreliable' }, // README line 384: Cmd+Tab
+  { platform: 'other', mods: ['alt'], keys: ['Tab'], level: 'fullscreen-only' }, // README line 393: Alt+Tab
+  { platform: 'other', mods: ['alt'], keys: ['F4'], level: 'unreliable' }, // Alt+F4: its earlier level, kept
+  { platform: 'other', mods: [], keys: ['MetaLeft', 'MetaRight'], level: 'unreliable' }, // README line 384: the Windows key
 ];
 
 /**
@@ -185,10 +195,7 @@ export function getReservedInfo(code, options = {}) {
     const name = MOD_NAME[part];
     if (name) mods.add(name);
   }
-  const locked = _guardLocks(guard, primary);
-  // While the Windows key is held on a non-Mac platform there is no lock path: no
-  // README line says Keyboard Lock delivers Windows-key combos (Win+Alt+Tab included).
-  const winHeld = mods.has('meta') && platform !== 'mac';
+  const lockLevel = _guardLocks(guard, primary) ? _lockChange(platform, mods, primary) : undefined;
   const underLock = (reason) => ({ level: 'unreliable', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) may hand it to the page.` });
 
   // The Windows / Command key, pressed last.
@@ -196,14 +203,12 @@ export function getReservedInfo(code, options = {}) {
     if (platform === 'mac') return { level: 'unreliable', reason: 'On macOS the Command key reaches the page, but keys pressed while it is held are browser shortcuts (not verified on a real Mac).' };
     if (platform === 'unknown') return { level: 'unreliable', reason: 'The Windows key never reaches the page on Windows; on macOS the Command key does.' };
     const reason = 'The operating system reserves the Windows key.';
-    // Only the bare key (no other modifier held) has a lock path (README line 384).
-    return locked && mods.size === 0 ? underLock(reason) : { level: 'blocked', reason };
+    return lockLevel === 'unreliable' ? underLock(reason) : { level: 'blocked', reason };
   }
 
   for (const rule of BLOCKED_RULES) {
     if (!rule.keys.includes(primary) || !rule.mods.every((m) => mods.has(m))) continue;
     const reason = rule.reasons ? rule.reasons[platform] : rule.reason;
-    const lockLevel = locked && !winHeld ? (typeof rule.underLock === 'object' ? rule.underLock[platform] : rule.underLock) : undefined;
     if (lockLevel === 'fullscreen-only') {
       return { level: 'fullscreen-only', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) hands it to the page.` };
     }
@@ -278,6 +283,13 @@ function _guardCancels(guard, primary, flags, bound) {
   if (matches(guard.allow)) return false;
   if (matches(guard.shortcuts) || matches(guard.block)) return true;
   return !!(guard.blockBound ?? true) && bound;
+}
+
+/** The level a LOCK_CHANGES entry gives a locked combo: same platform, exactly its modifiers. */
+function _lockChange(platform, mods, primary) {
+  const entry = LOCK_CHANGES.find((e) => e.platform === platform && e.keys.includes(primary)
+    && mods.size === e.mods.length && e.mods.every((m) => mods.has(m)));
+  return entry?.level;
 }
 
 /** True when the enabled guard requests Keyboard Lock and locks this key. */

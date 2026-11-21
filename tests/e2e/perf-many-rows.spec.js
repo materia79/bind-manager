@@ -1,6 +1,7 @@
 /**
  * Measurement, not a gate: 400 actions in 16 groups, the time from open() to a
- * rendered modal and the time of one keystroke in the search field, at normal
+ * rendered modal and the time of keystrokes in the search field (narrowing,
+ * widening and clearing the filter), at normal
  * speed and with 4x CPU throttling (a stand-in for a phone). Runs only with
  * BM_PERF=1; prints one JSON line per case. BM_PERF_BASE_DIR, a folder holding
  * another version's src/ (for example 0.2.1 from git archive), measures open()
@@ -74,24 +75,29 @@ async function timeOpen(page) {
   }, RUNS);
 }
 
-/** One keystroke in the field (input event to the next painted frame), median of RUNS. */
+/**
+ * Keystrokes in the field (input event to the second painted frame), medians of RUNS:
+ * narrow ('spell 1' to 'spell 12'), widen (deleting the '2': back to 'spell 1')
+ * and clear ('spell 1' to '': all 400 rows again).
+ */
 async function timeKeystroke(page) {
   return page.evaluate(async (runs) => {
     const input = document.querySelector('.bm-search-input');
     if (!input) return null;
     input.focus();
-    const times = [];
+    const steps = [['', null], ['spell 1', null], ['spell 12', 'narrow'], ['spell 1', 'widen'], ['', 'clear']];
+    const times = { narrow: [], widen: [], clear: [] };
     for (let i = 0; i < runs; i++) {
-      for (const value of ['spell 1', 'spell 12']) {
+      for (const [value, label] of steps) {
         const t0 = performance.now();
         input.value = value;
         input.dispatchEvent(new Event('input', { bubbles: true }));
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        if (value === 'spell 12') times.push(performance.now() - t0);
+        if (label) times[label].push(performance.now() - t0);
       }
     }
-    times.sort((a, b) => a - b);
-    return { median: times[runs >> 1], min: times[0], max: times[runs - 1] };
+    const median = (list) => list.sort((a, b) => a - b)[runs >> 1];
+    return { narrow: median(times.narrow), widen: median(times.widen), clear: median(times.clear) };
   }, RUNS);
 }
 

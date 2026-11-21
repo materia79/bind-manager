@@ -634,7 +634,7 @@ A search field sits between the modal's header and the list, so it stays in view
 - Typing in the field never fires an action or starts a capture, and the browser guard leaves it alone (actions are suppressed while the modal is open). The debug toggle key is ignored while it would type into the field (a letter, digit or other character, Backspace, Delete, the arrows, Home, End), so it may be a letter key; F5 and other non-typing keys still toggle.
 - The text survives `refresh()` (value, focus and caret) and is cleared when the modal closes. Opening the modal puts the focus on the modal, not in the field. During a capture the field is disabled like the other controls.
 - On touch screens (`any-pointer: coarse`) the field's text is at least 16px whatever `--bm-u` is, so iOS Safari does not zoom the page when it takes focus. The list body keeps a minimum height (`min(120u, 40vh)`), so a short viewport, such as one with an on-screen keyboard, cuts the footer before the list.
-- `bindSearch: false` removes the field; the modal's markup is then as in 0.2.1.
+- `bindSearch: false` removes the field. The modal's markup is as in 0.2.1 only with `groupFolding: false` as well (folding is on by default), byte for byte, which a test checks against 0.2.1's output.
 
 Classes: `bm-search` (the row), `bm-search-input`, `bm-search-clear`, `bm-search-status` (the live region, visually hidden with `bm-visually-hidden`) and `bm-search-empty` (the no-match line, also a `bm-empty`).
 
@@ -652,7 +652,7 @@ Each group title of the bindings list is a button that folds and unfolds the gro
 
 Classes: `bm-group-toggle` (the header button, also a `bm-group-title`), `bm-group-marker`, `bm-group-name`, `bm-group-count` (with `bm-group-count-short` and the screen-reader `bm-group-count-long`), `bm-group-rows` (the rows, `hidden` when folded) and `bm-group-folded` on a folded `bm-group`.
 
-With 400 actions in 16 groups, `open()` took about 117 ms to the second painted frame in desktop Chromium (0.2.1: about 130–150 ms), and about 33 ms with every group folded; one keystroke in the search field took about 33 ms (two frames). With 4x CPU throttling these were about 920 ms, 180 ms and 115 ms. Rows of folded groups are built but not laid out.
+With 400 actions in 16 groups (desktop Chromium, to the second painted frame), `open()` takes about as long as in 0.2.1 while all groups are open (about 100 ms; about 600 ms with 4x CPU throttling) and is much faster with groups folded (about 34 ms with every group folded; about 120 ms throttled): rows of folded groups are built but not laid out. A keystroke that narrows the filter takes about two frames (33 ms; 70 ms throttled); one that widens it lays out the rows that come back (deleting one character to bring back 111 rows: about 50 ms; about 350 ms throttled).
 
 ## Persistence
 

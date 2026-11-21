@@ -2,6 +2,21 @@
 
 All notable changes to bind-manager are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/) (in 0.x, a minor version may change behaviour).
 
+## [Unreleased]
+
+### Added
+
+- **Reserved keys.** The rebind dialog adds a note when the player binds a key the browser or the operating system keeps for itself; binding is still allowed. A conflict note, if any, comes first, and the note's full text is in its title. There are three levels:
+  - `blocked`: never reaches the page.
+  - `fullscreen-only`: Chromium's tab and window shortcuts, which reach the page only while it is fullscreen.
+  - `unreliable`: works in some browsers or situations only.
+- **New API:**
+  - `getReservedInfo(code, { shortcutPolicy })` and `isReservedCode(code, { shortcutPolicy })`;
+  - `manager.getReservedBindings()`;
+  - the option `reservedKeyWarnings` (default `true`);
+  - `FULLSCREEN_ONLY_SHORTCUTS`, the browser guard's tab and window shortcuts. It is part of `DEFAULT_BLOCKED_SHORTCUTS`, which is unchanged.
+- **The browser guard is the source of truth.** `fullscreen-only` membership and Windows / Command key handling come from the guard's lists and pattern logic. While the manager's guard is enabled, its configured policy counts. See the README, section [Reserved keys](README.md#reserved-keys). The macOS entries are not verified on a real Mac.
+
 ## [0.2.0] - 2026-11-19
 
 The first release after 0.1.0. The UI and the built-in tools were rebuilt, the gamepad support grew from three families to eight, and many input bugs were fixed. The public API only gained exports: none were removed. Several behaviours a host can notice did change, though, so read the upgrade notes first. The full list is in the README, section [Upgrading from 0.1.0](README.md#upgrading-from-010).

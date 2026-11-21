@@ -195,6 +195,7 @@ Options:
 - `footerActions?: { id, label, className?, onClick }[]` extra buttons in the bindings modal's footer, before the built-in tools
 - `browserGuard?: boolean | BrowserGuardOptions` cancel browser shortcuts while the game owns input, default `false` (see [Browser shortcut guard](#browser-shortcut-guard))
 - `wheelPixelThreshold?: number` pixel delta that counts as one wheel notch, default `30` (see [Mouse wheel bindings](#mouse-wheel-bindings))
+- `reservedKeyWarnings?: boolean` note in the rebind dialog when the player binds a key the browser or the operating system keeps, default `true` (see [Reserved keys](#reserved-keys))
 - `deadband?: number` gamepad axis values at or below this are treated as rest, default `0.12`
 - `analogThreshold?: number` an axis direction counts as pressed past this value, default `0.5`
 
@@ -283,12 +284,24 @@ See [Browser Shortcut Guard](#browser-shortcut-guard) for the guide.
 
 ### Reserved keys
 
-Some keys never reach a web page, or only in some browsers: `Ctrl+W`, `Ctrl+T`, `Ctrl+N`, `Ctrl+Tab`, `Alt+F4`, the Windows / Command key, `F11`, `Escape` in fullscreen and a few more.
+Some keys never reach a web page, some only while it is fullscreen, and some only in some browsers. The rebind dialog adds a note when the player binds one of them; binding is still allowed. When the key is also bound to another action, the conflict note comes first.
 
-- The rebind dialog warns when the player binds one of them. Binding is still allowed.
-- `getReservedInfo(code, { keyboardLocked })` returns `{ level: 'blocked' | 'unreliable', reason, lockable }` or `null`.
-- `manager.getReservedBindings()` lists current bindings that are affected, for example to check your defaults.
-- Options: `reservedKeyWarnings` (default `true`) and `isKeyboardLocked: () => boolean`. Return `true` from it while the [Keyboard Lock API](https://developer.mozilla.org/docs/Web/API/Keyboard/lock) is active in fullscreen; browser shortcuts the lock frees are then no longer reported.
+The levels:
+
+| Level | Meaning | Examples |
+| --- | --- | --- |
+| `blocked` | never reaches the page | the Windows / Command key, Ctrl+Alt+Del, Ctrl+Shift+Esc, Ctrl+Esc, Alt+Esc, Ctrl+Shift+Q; on macOS Cmd+Q, Cmd+Tab, Cmd+Space, Cmd+H |
+| `fullscreen-only` | reaches the page only while it is fullscreen | Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Q, Ctrl+Tab, Ctrl+PageUp, Ctrl+PageDown, Ctrl+F4, also with extra modifiers (Ctrl+Shift+Q excepted); Alt+Tab, which Keyboard Lock hands over in fullscreen |
+| `unreliable` | works in some browsers or situations only | Escape, F11, F12, Ctrl+Shift+I/J/C, Ctrl+1..9, Ctrl+Shift+P, Shift + right click, Alt+Space, Alt+F4; other Windows / Command key combos |
+
+The [browser shortcut guard](#browser-shortcut-guard) is the single source of truth. `fullscreen-only` is the guard's `FULLSCREEN_ONLY_SHORTCUTS`, matched with the guard's own pattern logic (`Mod` is Ctrl or the Windows / Command key, a pattern matches with at least its modifiers). Why they work only in fullscreen, and what Keyboard Lock changes, is in [What a page cannot block, and Keyboard Lock](#what-a-page-cannot-block-and-keyboard-lock). In fullscreen the page receives them first, so the guard (or your own `preventDefault()`) must cancel the browser's action. A Windows / Command combo the guard can cancel (Cmd+R, Cmd+S, ...) is not reported. While the manager's guard is enabled, its configured policy counts: a `fullscreen-only` shortcut it lets through (`allow`, or left out of `shortcuts` and `block`) is reported as `unreliable`.
+
+- `getReservedInfo(code, { shortcutPolicy })` returns `{ level, reason }` or `null`. `shortcutPolicy` is optional, in the shape `browserGuard.getShortcutPolicy()` returns; without it the guard's defaults apply.
+- `isReservedCode(code, { shortcutPolicy })` is `true` for any level.
+- `manager.getReservedBindings()` lists current keyboard and mouse bindings that are affected, `{ actionId, slot, code, level, reason }[]`, for example to check your defaults.
+- `reservedKeyWarnings: false` turns the note in the rebind dialog off.
+
+The macOS entries are not verified on a real Mac.
 
 ### Hint controls
 
@@ -314,8 +327,8 @@ Everything below is exported from `src/index.js` (and is a property of `window.B
 | Area | Exports |
 | --- | --- |
 | Manager | `createBindManager` |
-| Keyboard and mouse | `getKeyLabel`, `isKnownCode`, `KEY_DISPLAY_NAMES`, `MODIFIER_ORDER`, `MODIFIER_CODES`, `buildComboCode`, `WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD` |
-| Browser guard | `DEFAULT_BLOCKED_SHORTCUTS`, `DEFAULT_KEYBOARD_LOCK_KEYS`, `parseShortcutPattern`, `matchesShortcutPattern` |
+| Keyboard and mouse | `getKeyLabel`, `isKnownCode`, `KEY_DISPLAY_NAMES`, `MODIFIER_ORDER`, `MODIFIER_CODES`, `buildComboCode`, `WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD`, `getReservedInfo`, `isReservedCode` |
+| Browser guard | `DEFAULT_BLOCKED_SHORTCUTS`, `DEFAULT_KEYBOARD_LOCK_KEYS`, `FULLSCREEN_ONLY_SHORTCUTS`, `parseShortcutPattern`, `matchesShortcutPattern` |
 | Gamepad codes | `GP_CODES`, `GP_B0`..`GP_B23`, `GP_A0N`..`GP_A3P`, `GP_BUTTON_COUNT` (24), `GP_AXIS_COUNT` (4), `isGamepadCode`, `getGamepadCodeType` |
 | Families and labels | `GAMEPAD_PROFILES`, `GAMEPAD_FAMILIES`, `GAMEPAD_FAMILY_NAMES`, `GAMEPAD_DEVICE_FAMILIES`, `GAMEPAD_LABEL_VARIANTS`, `GAMEPAD_UNVERIFIED_LABELS`, `detectGamepadProfile`, `getGamepadLabel`, `getGamepadFamilyName`, `getGamepadLabelVariant`, `isGamepadLabelUnverified`, `parseGamepadId` |
 | Profile resolution | `getControllerFamily`, `getResolvedGamepadLabel`, `isControllerProfileApplicable`, `resolveGamepadProfile` |

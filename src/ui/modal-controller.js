@@ -306,8 +306,8 @@ export class ModalController {
       </div>
     `;
 
-    // Filter before the scroll position comes back; the row that held the focus stays visible
-    this._applySearch(focus?.actionId);
+    // Filter before the scroll position comes back; the row or group header that held the focus stays visible
+    this._applySearch(focus?.actionId, focus?.role === 'bm-group-toggle' ? focus.group : null);
     const body = this._overlay.querySelector('.bm-modal-body');
     if (body) body.scrollTop = scrollTop;
     if (body && this._resizeObserver) {
@@ -520,13 +520,17 @@ export class ModalController {
    * rebind inside a filtered list never removes the control in use.
    * @param {string | null} [pinnedActionId] - a row to keep visible as well (the focus before a re-render)
    */
-  _applySearch(pinnedActionId = null) {
+  _applySearch(pinnedActionId = null, pinnedGroup = null) {
     const input = this._searchInput();
     // Neither search nor folding: leave the markup as it is (0.2.1)
     if (!this._overlay || (!input && !this._groupFolding)) return;
     const words = input ? _searchWords(this._searchText) : [];
     const searching = words.length > 0;
     const active = document.activeElement;
+    // The clear button hides before the focus check below, so a focused clear
+    // button emptied by a script hands the focus to the field
+    const clear = input ? this._overlay.querySelector('.bm-search-clear') : null;
+    if (clear) clear.hidden = this._searchText === '';
     const pinned = new Set([pinnedActionId, this._captureTarget?.actionId].filter((id) => id != null));
     let rows = 0;
     let matches = 0;
@@ -541,16 +545,16 @@ export class ModalController {
         if (row.hidden === show) row.hidden = !show;
         if (show) visible += 1;
       }
-      // A group holding the focus (its header) stays shown, like a row does
-      group.hidden = visible === 0 && !group.contains(active);
+      // A group holding the focus (its header) stays shown, like a row does; so
+      // does the group whose header held it before a re-render
+      group.hidden = visible === 0 && !group.contains(active)
+        && !(pinnedGroup != null && group.dataset.group === pinnedGroup);
       matches += visible;
       if (this._groupFolding) this._applyFold(group, this._isGroupFolded(group.dataset.group, searching));
     }
     this._keepFocusInside(active);
     if (!input) return;
 
-    const clear = this._overlay.querySelector('.bm-search-clear');
-    if (clear) clear.hidden = this._searchText === '';
     const query = this._searchText.trim();
     const empty = this._overlay.querySelector('.bm-search-empty');
     if (empty) {
@@ -910,7 +914,7 @@ export class ModalController {
       this._captureModal?.open({
         title: 'Capture Input',
         message: 'Press a key or mouse button to bind now.',
-        detail: 'Modifier combos supported. Escape cancels.',
+        detail: 'Modifier combos supported, also modifiers alone (Ctrl + Shift). Escape cancels.',
         onCancel: (info) => this._cancelCaptureFrom(info),
       });
       let captured = false;

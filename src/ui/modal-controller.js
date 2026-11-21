@@ -113,15 +113,19 @@ export class ModalController {
 
     this._overlay.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') {
+        const input = this._searchInput();
         if (this._captureTarget) {
           e.preventDefault();
           e.stopPropagation();
           this._cancelCapture();
-        } else if (e.target === this._searchInput() && e.target.value !== '') {
-          // First Escape empties the search field, the next one closes the modal
+        } else if (input && e.target === input && _isComposing(e)) {
+          // This Escape cancels an IME composition: the input method's, not ours
+        } else if (input && input.value !== '' && (e.target === input || e.target === this._overlay.querySelector('.bm-search-clear'))) {
+          // First Escape in the search row empties the field (focus goes to it), the next one closes the modal
           e.preventDefault();
           e.stopPropagation();
           this._setSearchText('');
+          if (e.target !== input) input.focus({ preventScroll: true });
         } else {
           // The Escape that closes the modal is used up here: once closed, gameplay is
           // live again, and the key must not reach an action bound to Escape on window
@@ -242,13 +246,16 @@ export class ModalController {
 
   /**
    * True when `event` types or edits text in the search field (a printable
-   * character, Backspace, Delete, the arrows, Home or End). The manager's
+   * character, Backspace, Delete, the arrows, Home or End, or any keystroke
+   * of an IME composition). The manager's
    * debug toggle key ignores such events, so it can be a letter key.
    * @param {KeyboardEvent} event
    */
   isSearchTyping(event) {
     const input = this._searchInput();
     if (!input || event.target !== input) return false;
+    // Every keystroke of an IME composition goes to the input method
+    if (_isComposing(event)) return true;
     const key = event.key ?? '';
     if (TEXT_EDIT_KEYS.has(key)) return true;
     // A character; Ctrl or Cmd make it a shortcut, unless Ctrl comes from AltGr
@@ -283,12 +290,11 @@ export class ModalController {
         <div class="bm-modal-header">
           <h2 class="bm-modal-title">Key Bindings</h2>
           <button class="bm-close-btn" type="button" aria-label="Close">✕</button>
-        </div>
-        ${this._renderSearch()}
+        </div>${this._renderSearch()}
         <div class="bm-modal-body">
           ${this._renderGamepadProfilePanel()}
-          ${this._renderGroups(groups)}
-          ${this._bindSearch ? '<p class="bm-empty bm-search-empty" hidden></p>' : ''}
+          ${this._renderGroups(groups)}${this._bindSearch ? `
+          <p class="bm-empty bm-search-empty" hidden></p>` : ''}
         </div>
         <div class="bm-modal-footer">
           <div class="bm-conflict-warning bm-hidden" role="alert"></div>
@@ -472,7 +478,7 @@ export class ModalController {
 
   // ── Search ──────────────────────────────────────────────────────────────────
 
-  /** The search row between the header and the body ('' when the option is off). */
+  /** The search row between the header and the body, with its leading line break ('' when the option is off, so the markup stays as in 0.2.1). */
   _renderSearch() {
     if (!this._bindSearch) return '';
     const value = this._searchText;
@@ -535,10 +541,12 @@ export class ModalController {
         if (row.hidden === show) row.hidden = !show;
         if (show) visible += 1;
       }
-      group.hidden = visible === 0;
+      // A group holding the focus (its header) stays shown, like a row does
+      group.hidden = visible === 0 && !group.contains(active);
       matches += visible;
       if (this._groupFolding) this._applyFold(group, this._isGroupFolded(group.dataset.group, searching));
     }
+    this._keepFocusInside(active);
     if (!input) return;
 
     const clear = this._overlay.querySelector('.bm-search-clear');
@@ -556,6 +564,23 @@ export class ModalController {
           : `${matches} key binding${matches === 1 ? '' : 's'} ${matches === 1 ? 'matches' : 'match'}.`;
       if (status.textContent !== text) status.textContent = text;
     }
+  }
+
+  /**
+   * Second line of defence: when the control that had the focus is hidden now
+   * (by the filter, a label change, the clear button going away), move the
+   * focus to the nearest sensible control instead of letting it fall to
+   * <body>, where Escape and the Tab trap no longer work.
+   */
+  _keepFocusInside(previous) {
+    const modal = this._overlay?.querySelector('.bm-modal');
+    if (!modal || !(previous instanceof HTMLElement) || previous === modal || !modal.contains(previous)) return;
+    const current = document.activeElement;
+    if (current !== previous && current instanceof HTMLElement && modal.contains(current)) return;
+    if (_isFocusable(previous)) return;
+    const bindBtn = previous.classList.contains('bm-clear-slot-btn') ? previous.closest('.bm-slot')?.querySelector('.bm-bind-btn') : null;
+    const target = [bindBtn, this._searchInput()].find((el) => el && _isFocusable(el)) ?? modal;
+    target.focus({ preventScroll: true });
   }
 
   // ── Group folding ───────────────────────────────────────────────────────────
@@ -1139,6 +1164,11 @@ function _readFoldChoices(store) {
     // Unreadable: start with the host's defaults
   }
   return choices;
+}
+
+/** A keystroke of an IME composition (Chromium also reports key 'Process', keyCode 229). */
+function _isComposing(event) {
+  return !!event.isComposing || event.keyCode === 229;
 }
 
 /** Keys that edit the search field's text besides printable characters. */

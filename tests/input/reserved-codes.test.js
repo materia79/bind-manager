@@ -82,7 +82,8 @@ describe('getReservedInfo', () => {
 
   it('M2: Alt+Tab is fullscreen-only only while the guard is enabled, requests Keyboard Lock and locks Tab; otherwise blocked', () => {
     expect(level('AltLeft+Tab', { guard: guardState() })).toBe('fullscreen-only');
-    expect(level('AltLeft+ShiftLeft+Tab', { guard: guardState() })).toBe('fullscreen-only');
+    // Exactly Alt (README:393 names Alt+Tab only): Alt+Shift+Tab keeps its level under the lock.
+    expect(level('AltLeft+ShiftLeft+Tab', { guard: guardState() })).toBe('blocked');
     expect(level('AltLeft+Tab', { guard: guardState({ keyboardLockKeys: null }) })).toBe('fullscreen-only');
     expect(level('AltLeft+Tab', { guard: null })).toBe('blocked');
     expect(level('AltLeft+Tab', { guard: guardState({ enabled: false }) })).toBe('blocked');
@@ -270,6 +271,7 @@ describe('manager.getReservedBindings', () => {
   });
 
   it("Alt+Tab follows the manager's guard lock settings", () => {
+    asPlatform('Win32'); // Alt+Tab changes under the lock on a known non-Mac platform only
     const off = createBindManager({ namespace: `reserved-test-${n}-d` });
     off.registerAction({ id: 'switch', slots: 1, defaultBindings: ['AltLeft+Tab'] });
     expect(off.getReservedBindings()[0].level).toBe('blocked');

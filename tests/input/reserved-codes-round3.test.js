@@ -10,6 +10,7 @@ import {
   DEFAULT_BLOCKED_SHORTCUTS,
   DEFAULT_KEYBOARD_LOCK_KEYS,
   FULLSCREEN_ONLY_SHORTCUTS,
+  parseShortcutPattern,
 } from '../../src/input/browser-shortcut-guard.js';
 import { createBindManager } from '../../src/core/bind-manager.js';
 
@@ -100,6 +101,21 @@ describe('M1: Keyboard Lock changes a level only where the 0.2.0 README plainly 
     expect(level('AltLeft+F4', { platform: 'other', guard: null })).toBe('blocked');
   });
 
+  it('no README line backs Alt+Tab or Alt+F4 with other modifiers, or on a Mac or an unknown platform: they stay blocked whatever is locked', () => {
+    for (const code of ['AltLeft+ShiftLeft+Tab', 'ControlLeft+AltLeft+Tab', 'ControlLeft+ShiftLeft+AltLeft+Tab', 'AltLeft+ShiftLeft+F4', 'ControlLeft+AltLeft+F4', 'ControlLeft+ShiftLeft+AltLeft+F4']) {
+      for (const guard of [guardState(), lockAll]) expect(level(code, { platform: 'other', guard }), code).toBe('blocked');
+    }
+    for (const platform of ['mac', 'unknown']) {
+      for (const code of ['AltLeft+Tab', 'AltLeft+F4']) {
+        for (const guard of [guardState(), lockAll]) expect(level(code, { platform, guard }), `${code} on ${platform}`).toBe('blocked');
+      }
+    }
+    // On a Mac only Cmd+Tab with exactly Cmd changes.
+    for (const code of ['MetaLeft+ShiftLeft+Tab', 'ControlLeft+MetaLeft+Tab', 'ControlLeft+ShiftLeft+MetaLeft+Tab', 'AltLeft+MetaLeft+Tab', 'AltLeft+MetaLeft+F4']) {
+      for (const guard of [guardState(), lockAll]) expect(level(code, { platform: 'mac', guard }), code).toBe(level(code, { platform: 'mac', guard: guardState({ keyboardLock: false }) }));
+    }
+  });
+
   it('README:388 ("Secure attention sequences such as Ctrl+Alt+Del can never be captured") and README:400: Ctrl+Alt+Del stays blocked under any lock', () => {
     for (const platform of ['other', 'mac', 'unknown']) {
       expect(level('ControlLeft+AltLeft+Delete', { platform, guard: lockAll }), platform).toBe('blocked');
@@ -112,6 +128,111 @@ describe('M1: Keyboard Lock changes a level only where the 0.2.0 README plainly 
       expect(level('MetaLeft+Tab', { platform: 'mac', guard }), JSON.stringify(guard)).toBe('blocked');
     }
   });
+});
+
+describe('Keyboard Lock class test: under the lock exactly the README combos change level, on the README platform', () => {
+  // The complete allowed list of level changes through the guard's Keyboard Lock.
+  // `names`: the EXACT modifier set (by name); `keys`: the primary key codes.
+  const ALLOWED = [
+    { readme: 'README:384 (Cmd+Tab)', platform: 'mac', names: ['meta'], keys: ['Tab'], from: 'blocked', to: 'unreliable' },
+    { readme: 'README:393 (Alt+Tab on Windows)', platform: 'other', names: ['alt'], keys: ['Tab'], from: 'blocked', to: 'fullscreen-only' },
+    { readme: 'none: Alt+F4 keeps its earlier level (ruled by the lead)', platform: 'other', names: ['alt'], keys: ['F4'], from: 'blocked', to: 'unreliable' },
+    { readme: 'README:384 (the Windows key)', platform: 'other', names: [], keys: ['MetaLeft', 'MetaRight'], from: 'blocked', to: 'unreliable' },
+  ];
+  const PLATFORMS = ['mac', 'other', 'unknown'];
+  // Five modifier codes, 32 sets; AltRight adds the right-hand (AltGr) code.
+  const MOD_CODES = ['ControlLeft', 'ShiftLeft', 'AltLeft', 'MetaLeft', 'AltRight'];
+  const NAME = { ControlLeft: 'ctrl', ControlRight: 'ctrl', ShiftLeft: 'shift', ShiftRight: 'shift', AltLeft: 'alt', AltRight: 'alt', MetaLeft: 'meta', MetaRight: 'meta' };
+  const GUARD_KEYS = [...DEFAULT_BLOCKED_SHORTCUTS, ...FULLSCREEN_ONLY_SHORTCUTS].flatMap((pattern) => parseShortcutPattern(pattern)?.keys ?? []);
+  const KEYS = [...new Set([
+    ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((c) => `Key${c}`),
+    ...'0123456789'.split('').map((d) => `Digit${d}`),
+    ...Array.from({ length: 12 }, (_, i) => `F${i + 1}`),
+    'Tab', 'Escape', 'Space', 'Enter', 'Backspace', 'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Equal', 'Minus', 'Slash', 'Quote', 'Backquote',
+    'Numpad0', 'NumpadAdd', 'NumpadSubtract',
+    'MetaLeft', 'MetaRight', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'AltRight',
+    'MouseButton1', 'MouseButton2', 'MouseButton3', 'MouseButton4', 'MouseButton5', 'MouseWheelUp', 'MouseWheelDown',
+    ...DEFAULT_KEYBOARD_LOCK_KEYS, ...GUARD_KEYS,
+  ])];
+  const NO_LOCK = guardState({ keyboardLock: false });
+  const LOCK_ON_NO_KEYS = guardState({ keyboardLockKeys: [] });
+  const LOCKS = (key) => [['default lock', guardState()], ['every key locked', guardState({ keyboardLockKeys: null })], ['own key locked', guardState({ keyboardLockKeys: [key] })]];
+
+  let result;
+  const compute = () => {
+    if (result) return result;
+    const observed = new Map(); // "platform code" -> Set of "from->to"
+    const noLockMismatches = [];
+    const lockTextWithoutGuard = [];
+    let combos = 0;
+    let calls = 0;
+    for (const platform of PLATFORMS) {
+      for (let mask = 0; mask < 32; mask += 1) {
+        const modCodes = MOD_CODES.filter((_, i) => mask & (1 << i));
+        for (const key of KEYS) {
+          if (modCodes.includes(key)) continue;
+          const code = [...modCodes, key].join('+');
+          combos += 1;
+          for (const bound of [true, false]) {
+            const base = level(code, { platform, bound, guard: NO_LOCK });
+            calls += 1;
+            if (level(code, { platform, bound, guard: LOCK_ON_NO_KEYS }) !== base) noLockMismatches.push(`${platform} ${code} bound=${bound}`);
+            if (/Keyboard Lock/.test(getReservedInfo(code, { platform, bound, guard: null })?.reason ?? '')) lockTextWithoutGuard.push(`${platform} ${code}`);
+            calls += 2;
+            for (const [, guard] of LOCKS(key)) {
+              const locked = level(code, { platform, bound, guard });
+              calls += 1;
+              if (locked === base) continue;
+              const id = `${platform} ${code}`;
+              if (!observed.has(id)) observed.set(id, new Set());
+              observed.get(id).add(`${base}->${locked}`);
+            }
+          }
+        }
+      }
+    }
+    const expected = new Map();
+    for (const platform of PLATFORMS) {
+      for (let mask = 0; mask < 32; mask += 1) {
+        const modCodes = MOD_CODES.filter((_, i) => mask & (1 << i));
+        const names = [...new Set(modCodes.map((m) => NAME[m]))].sort();
+        for (const key of KEYS) {
+          if (modCodes.includes(key)) continue;
+          const entry = ALLOWED.find((e) => e.platform === platform && e.keys.includes(key) && JSON.stringify([...e.names].sort()) === JSON.stringify(names));
+          if (entry) expected.set(`${platform} ${[...modCodes, key].join('+')}`, `${entry.from}->${entry.to}`);
+        }
+      }
+    }
+    result = {
+      observed: Object.fromEntries([...observed].map(([id, set]) => [id, [...set].sort().join(' | ')]).sort(([a], [b]) => a.localeCompare(b))),
+      expected: Object.fromEntries([...expected].sort(([a], [b]) => a.localeCompare(b))),
+      noLockMismatches, lockTextWithoutGuard, combos, calls,
+    };
+    return result;
+  };
+
+  it('over every key x 32 modifier sets x 3 platforms x lock settings x bound/unbound, the combos whose level changes under the lock EQUAL the allowed list, with from- and to-level', () => {
+    const { observed, expected, combos, calls } = compute();
+    expect(observed).toEqual(expected);
+    expect(combos).toBe(PLATFORMS.length * KEYS.reduce((n, key) => n + (MOD_CODES.includes(key) ? 16 : 32), 0));
+    expect(calls).toBeGreaterThan(90000);
+  });
+
+  it('the no-lock settings agree: keyboardLock off and Keyboard Lock on with no keys give the same level everywhere; with no guard no reason mentions Keyboard Lock', () => {
+    const { noLockMismatches, lockTextWithoutGuard } = compute();
+    expect(noLockMismatches).toEqual([]);
+    expect(lockTextWithoutGuard).toEqual([]);
+  });
+
+  for (const entry of ALLOWED) {
+    it(`allowed: ${entry.readme}: on ${entry.platform}, ${entry.names.length ? `${entry.names.join('+')}+` : 'bare '}${entry.keys.join('/')} goes ${entry.from} -> ${entry.to}`, () => {
+      const { observed } = compute();
+      const ids = Object.keys(observed).filter((id) => id.startsWith(`${entry.platform} `) && entry.keys.includes(id.split('+').at(-1).replace(/^\S+ /, '')));
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) expect(observed[id], id).toBe(`${entry.from}->${entry.to}`);
+    });
+  }
 });
 
 describe('M2: one "nothing cancels it" decision for Windows/Linux and Mac', () => {

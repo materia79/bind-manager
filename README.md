@@ -188,7 +188,7 @@ With `debug: true`, the debug key (F5) toggles the modal and its default (page r
 Options:
 - `namespace?: string` storage namespace, default `default`
 - `debug?: boolean` enable debug toggle key listener
-- `debugKey?: string` `KeyboardEvent.code` used for modal toggle, default `F5`
+- `debugKey?: string` `KeyboardEvent.code` used for modal toggle, default `F5`. A key that types a character (a letter, a digit, Space, punctuation) or edits text (Backspace, Delete, the arrows, Home, End) does not toggle while the modal's search field has the focus; it types there instead (see [Searching the bindings](#searching-the-bindings))
 - `container?: HTMLElement | null` mount target for modal, hints and tools, default `document.body`
 - `storage?: { load, save, clear?, loadGamepadProfileOverrides?, saveGamepadProfileOverrides? } | null` custom persistence adapter (see [Persistence](#persistence))
 - `builtInTools?: true | { inputRemap?: boolean, controllerTest?: boolean } | null` enable the bundled Input Remap and Controller Test tools (`true` enables both; see [Built-in tools](#built-in-tools))

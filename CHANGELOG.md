@@ -23,9 +23,9 @@ All notable changes to bind-manager are documented here. The format follows [Kee
   A shortcut the guard lets through reads "The browser guard lets X through, so the browser also acts on it."
 - **Other rules:**
   - Browser commands nothing cancels (Ctrl+S, Ctrl+R, F5, Ctrl+wheel, …, and Cmd combos on a Mac) are `unreliable`. One rule decides this for every platform: the guard is disabled, or it lets the key through.
-  - Under the guard's Keyboard Lock, only the combos the README's Keyboard Lock section names change while their key is locked: the bare Windows key and Cmd+Tab on a Mac become `unreliable`, Alt+Tab becomes `fullscreen-only`, and Alt+F4 is `unreliable`. Every other `blocked` combo (Win + any key, Ctrl+Shift+Q, Cmd+Q, the Esc combos, Cmd+Space, Cmd+H, Ctrl+Alt+Del) stays `blocked`.
-  - Windows-key combos depend on the detected platform: on a Mac, Cmd through the guard's `Mod` logic, and the bare Command key is `unreliable`; elsewhere `blocked`; when the platform is unknown, `unreliable`.
-  - Combos with Alt are never `fullscreen-only` (Ctrl+Alt is AltGr on many layouts).
+  - Under the guard's Keyboard Lock, only the combos the README's Keyboard Lock section names change while their key is locked: the bare Windows key (no other modifier held) and Cmd+Tab on a Mac become `unreliable`, Alt+Tab becomes `fullscreen-only`, and Alt+F4 is `unreliable`. Every other `blocked` combo (Win + any key, also with Alt such as Win+Alt+Tab, Ctrl+Shift+Q, Cmd+Q, the Esc combos, Cmd+Space, Cmd+H, Ctrl+Alt+Del) stays `blocked`.
+  - Windows-key combos depend on the detected platform: on a Mac, Cmd through the guard's `Mod` logic, and the bare Command key is `unreliable`; elsewhere `blocked`; when the platform is unknown, `unreliable`, except Win/Cmd + Q, Tab, Space and H, which are `blocked` there.
+  - The browser's tab and window shortcuts never count as `fullscreen-only` with Alt held (Ctrl+Alt is AltGr on many layouts); Alt+Tab under the guard's Keyboard Lock is the one Alt combo that can be `fullscreen-only`.
   - Escape, F11 and F12 count with any modifiers.
 
   See the README, section [Reserved keys](README.md#reserved-keys). The macOS entries are not verified on a real Mac.

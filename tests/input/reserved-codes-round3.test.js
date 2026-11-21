@@ -59,6 +59,9 @@ describe('M1: Keyboard Lock changes a level only where the 0.2.0 README plainly 
     { name: 'Ctrl+Esc', code: 'ControlLeft+Escape', key: 'Escape', platforms: ['other', 'mac'], expected: { other: 'blocked', mac: 'blocked' } },
     { name: 'Alt+Esc', code: 'AltLeft+Escape', key: 'Escape', platforms: ['other', 'mac'], expected: { other: 'blocked', mac: 'blocked' } },
     { name: 'Ctrl+Shift+Esc', code: 'ControlLeft+ShiftLeft+Escape', key: 'Escape', platforms: ['other', 'mac'], expected: { other: 'blocked', mac: 'blocked' } },
+    // Win held together with Alt on Tab / F4: the Alt rules must not give it a lock path (round 4, M-1).
+    { name: 'Win+Alt+Tab', code: 'AltLeft+MetaLeft+Tab', key: 'Tab', platforms: ['other', 'unknown'], expected: { other: 'blocked', unknown: 'blocked' } },
+    { name: 'Win+Alt+F4', code: 'AltLeft+MetaLeft+F4', key: 'F4', platforms: ['other', 'unknown'], expected: { other: 'blocked', unknown: 'blocked' } },
     // Win + any key; on an unknown platform these keep their earlier level (Win+Tab/Q: blocked, others unreliable), the lock changes nothing.
     ...['KeyW', 'KeyT', 'KeyN', 'KeyQ', 'Tab', 'PageUp', 'PageDown', 'F4', 'KeyL', 'KeyR', 'KeyD', 'KeyE'].map((key) => ({
       name: `Win+${key.replace(/^Key/, '')}`, code: `MetaLeft+${key}`, key, platforms: ['other', 'unknown'],
@@ -70,6 +73,18 @@ describe('M1: Keyboard Lock changes a level only where the 0.2.0 README plainly 
       expectLockChangesNothing(code, key, platforms, expected);
     });
   }
+
+  it('README:384 names the bare Windows key only: with Ctrl, Alt or Shift held and the Windows key pressed last there is no lock path (no README line backs it)', () => {
+    for (const code of ['ControlLeft+MetaLeft', 'AltLeft+MetaLeft', 'ShiftLeft+MetaRight', 'ControlLeft+ShiftLeft+MetaLeft']) {
+      const meta = code.split('+').at(-1);
+      for (const guard of [lockAll, guardState({ keyboardLockKeys: [meta] })]) {
+        expect(level(code, { platform: 'other', guard }), `${code} lock ${JSON.stringify(guard.keyboardLockKeys)}`).toBe('blocked');
+      }
+      expect(level(code, { platform: 'other', guard: null }), code).toBe('blocked');
+    }
+    // The bare key itself keeps its README:384 lock path.
+    expect(level('MetaLeft', { platform: 'other', guard: guardState({ keyboardLockKeys: ['MetaLeft'] }) })).toBe('unreliable');
+  });
 
   it('the Ctrl+Shift+Q reason agrees with README:382 (quit stays with the browser, also in fullscreen) and does not claim Chromium quits with it on a Mac', () => {
     for (const guard of [null, guardState(), lockAll]) {

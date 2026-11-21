@@ -19,9 +19,11 @@
  *
  * Keyboard Lock changes a level only where the 0.2.0 README (section "What a page
  * cannot block, and Keyboard Lock") plainly says it delivers the combo: the bare
- * Windows key and Cmd+Tab on a Mac (README line 384) become 'unreliable' while the
- * guard locks their key, and Alt+Tab (line 393) becomes 'fullscreen-only' while it
- * locks Tab. Alt+F4 keeps its earlier 'unreliable' under the lock. Every other
+ * Windows key (no other modifier held) and Cmd+Tab on a Mac (README line 384)
+ * become 'unreliable' while the guard locks their key, and Alt+Tab (line 393)
+ * becomes 'fullscreen-only' while it locks Tab. Alt+F4 keeps its earlier
+ * 'unreliable' under the lock. While the Windows key is held on a non-Mac
+ * platform nothing changes (Win+Alt+Tab, Win+Alt+F4 stay 'blocked'). Every other
  * 'blocked' combo stays 'blocked' whatever is locked: the general "every modifier
  * combination" sentence (line 387) is not enough on its own, line 388 limits it to
  * keys the operating system lets go of, and Ctrl+Alt+Del is never captured
@@ -127,7 +129,7 @@ const MOD_NAME = {
 /** README line 378 (0.2.0): "Whether F1/F3/F6/F7/F12 can be cancelled is up to each browser." (F12 has its own rule.) */
 const BROWSER_DECIDES_CANCEL = new Set(['F1', 'F3', 'F6', 'F7']);
 
-const FULLSCREEN_ONLY_PARSED =FULLSCREEN_ONLY_SHORTCUTS.map((pattern) => ({ pattern, parsed: parseShortcutPattern(pattern) }));
+const FULLSCREEN_ONLY_PARSED = FULLSCREEN_ONLY_SHORTCUTS.map((pattern) => ({ pattern, parsed: parseShortcutPattern(pattern) }));
 
 /**
  * The guard's browser commands: its default patterns with a Ctrl / `Mod` modifier
@@ -184,20 +186,24 @@ export function getReservedInfo(code, options = {}) {
     if (name) mods.add(name);
   }
   const locked = _guardLocks(guard, primary);
+  // While the Windows key is held on a non-Mac platform there is no lock path: no
+  // README line says Keyboard Lock delivers Windows-key combos (Win+Alt+Tab included).
+  const winHeld = mods.has('meta') && platform !== 'mac';
   const underLock = (reason) => ({ level: 'unreliable', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) may hand it to the page.` });
 
-  // The Windows / Command key on its own.
+  // The Windows / Command key, pressed last.
   if (MOD_NAME[primary] === 'meta') {
     if (platform === 'mac') return { level: 'unreliable', reason: 'On macOS the Command key reaches the page, but keys pressed while it is held are browser shortcuts (not verified on a real Mac).' };
     if (platform === 'unknown') return { level: 'unreliable', reason: 'The Windows key never reaches the page on Windows; on macOS the Command key does.' };
     const reason = 'The operating system reserves the Windows key.';
-    return locked ? underLock(reason) : { level: 'blocked', reason };
+    // Only the bare key (no other modifier held) has a lock path (README line 384).
+    return locked && mods.size === 0 ? underLock(reason) : { level: 'blocked', reason };
   }
 
   for (const rule of BLOCKED_RULES) {
     if (!rule.keys.includes(primary) || !rule.mods.every((m) => mods.has(m))) continue;
     const reason = rule.reasons ? rule.reasons[platform] : rule.reason;
-    const lockLevel = locked ? (typeof rule.underLock === 'object' ? rule.underLock[platform] : rule.underLock) : undefined;
+    const lockLevel = locked && !winHeld ? (typeof rule.underLock === 'object' ? rule.underLock[platform] : rule.underLock) : undefined;
     if (lockLevel === 'fullscreen-only') {
       return { level: 'fullscreen-only', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) hands it to the page.` };
     }

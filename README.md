@@ -190,13 +190,15 @@ Options:
 - `debug?: boolean` enable debug toggle key listener
 - `debugKey?: string` `KeyboardEvent.code` used for modal toggle, default `F5`. A key that types a character (a letter, a digit, Space, punctuation) or edits text (Backspace, Delete, the arrows, Home, End) does not toggle while the modal's search field has the focus; it types there instead (see [Searching the bindings](#searching-the-bindings))
 - `container?: HTMLElement | null` mount target for modal, hints and tools, default `document.body`
-- `storage?: { load, save, clear?, loadGamepadProfileOverrides?, saveGamepadProfileOverrides? } | null` custom persistence adapter (see [Persistence](#persistence))
+- `storage?: { load, save, clear?, loadGamepadProfileOverrides?, saveGamepadProfileOverrides?, loadCollapsedGroups?, saveCollapsedGroups? } | null` custom persistence adapter (see [Persistence](#persistence))
 - `builtInTools?: true | { inputRemap?: boolean, controllerTest?: boolean } | null` enable the bundled Input Remap and Controller Test tools (`true` enables both; see [Built-in tools](#built-in-tools))
 - `footerActions?: { id, label, className?, onClick }[]` extra buttons in the bindings modal's footer, before the built-in tools
 - `browserGuard?: boolean | BrowserGuardOptions` cancel browser shortcuts while the game owns input, default `false` (see [Browser shortcut guard](#browser-shortcut-guard))
 - `wheelPixelThreshold?: number` pixel delta that counts as one wheel notch, default `30` (see [Mouse wheel bindings](#mouse-wheel-bindings))
 - `reservedKeyWarnings?: boolean` note in the rebind dialog when the player binds a key the browser or the operating system keeps, default `true` (see [Reserved keys](#reserved-keys))
 - `bindSearch?: boolean` search field above the bindings list that filters it while the player types, default `true` (see [Searching the bindings](#searching-the-bindings))
+- `groupFolding?: boolean` group headers of the bindings list fold and unfold their rows, default `true` (see [Folding groups](#folding-groups))
+- `collapsedGroups?: string[]` groups that start folded, default `[]` (all open); the player's remembered choice wins
 - `deadband?: number` gamepad axis values at or below this are treated as rest, default `0.12`
 - `analogThreshold?: number` an axis direction counts as pressed past this value, default `0.5`
 
@@ -234,6 +236,8 @@ Action definition fields:
 - `close()`
 - `toggle()`
 - `isOpen()`
+- `setGroupCollapsed(group, collapsed)` — fold or unfold a group of the bindings list and remember it, like the player's click (no-op with `groupFolding: false`)
+- `isGroupCollapsed(group)` — the remembered fold state of a group: the player's choice, else `collapsedGroups`
 - `openInputRemap()` — opens the Input Remap tool when `builtInTools` enables it (no-op otherwise)
 - `openControllerTest()` — opens the Controller Test tool when `builtInTools` enables it (no-op otherwise)
 
@@ -633,13 +637,29 @@ A search field sits between the modal's header and the list, so it stays in view
 
 Classes: `bm-search` (the row), `bm-search-input`, `bm-search-clear`, `bm-search-status` (the live region, visually hidden with `bm-visually-hidden`) and `bm-search-empty` (the no-match line, also a `bm-empty`).
 
+### Folding groups
+
+Each group title of the bindings list is a button that folds and unfolds the group's rows (click, tap, Enter or Space). It shows a marker, the group name and a count of bound actions out of all, for example "3 / 64" (read as "3 of 64 bound"); an action counts as bound when any keyboard, mouse or gamepad slot is set. The count follows binding changes in place.
+
+- **Defaults.** All groups start open. `collapsedGroups: ['Spells']` starts the named groups folded; `manager.setGroupCollapsed(group, collapsed)` folds or unfolds one from code.
+- **Remembered.** The player's choice, open or folded, is kept per namespace and wins over `collapsedGroups`. `LocalStorageAdapter` keeps it in its own key, `bind-manager:<namespace>:collapsed-groups`, as `{ "version": 1, "groups": { "<group name>": true | false } }` (`true` folded, `false` opened by the player); the bindings key `bind-manager:<namespace>` is not touched. At most 256 groups are kept; the oldest choices go first. A custom storage adapter may add `loadCollapsedGroups()` (returns that `groups` object) and `saveCollapsedGroups(groups)`; without them the state lives in memory for the page's lifetime. Reading and saving never throw.
+- **Reset and clear.** Reset All leaves the fold state alone. `clearStorage()` deletes the stored fold state with the rest (the adapter's `clear()`); the groups folded on screen stay as they are until the next reload.
+- **With the search.** While the search field holds text, every group with a match is shown open, so matches inside folded groups appear. A header click during a search folds or unfolds that group for the current search only; clearing the search brings back the fold state from before, unchanged.
+- **Focus.** Rows of a folded group are out of the Tab order and the focus trap. When a group folds with the focus inside it, the focus goes to its header. Headers are disabled during a capture. `refresh()` keeps fold state, focus (also on a header) and scroll.
+- **Warnings.** Rows carry no lasting conflict or reserved-key marker (those notes are the temporary line in the footer), so a folded header shows none.
+- `groupFolding: false` renders plain group titles; with `bindSearch: false` as well, the modal's markup is as in 0.2.1.
+
+Classes: `bm-group-toggle` (the header button, also a `bm-group-title`), `bm-group-marker`, `bm-group-name`, `bm-group-count` (with `bm-group-count-short` and the screen-reader `bm-group-count-long`), `bm-group-rows` (the rows, `hidden` when folded) and `bm-group-folded` on a folded `bm-group`.
+
+With 400 actions in 16 groups, `open()` took about 117 ms to the second painted frame in desktop Chromium (0.2.1: about 130–150 ms), and about 33 ms with every group folded; one keystroke in the search field took about 33 ms (two frames). With 4x CPU throttling these were about 920 ms, 180 ms and 115 ms. Rows of folded groups are built but not laid out.
+
 ## Persistence
 
-Bindings are persisted under the localStorage key `bind-manager:<namespace>`, manual gamepad profile overrides under `bind-manager:<namespace>:gamepad-profile-overrides`. The payloads are versioned internally.
+Bindings are persisted under the localStorage key `bind-manager:<namespace>`, manual gamepad profile overrides under `bind-manager:<namespace>:gamepad-profile-overrides`, the folded groups of the bindings list under `bind-manager:<namespace>:collapsed-groups` (see [Folding groups](#folding-groups)). The payloads are versioned internally.
 
 - Saved bindings of actions that are not registered (yet) are kept on every save, so an action registered later still gets its saved bindings. `clearStorage()` drops them too.
 - Saving happens once per committed change (`resetAll()` is one commit). A failed save (quota exceeded, storage unavailable) never stops later saves: every later change tries again, the manager warns once in the console, and `getStorageStatus()` returns `{ ok, failedSaves, lastError, lastFailure }`. `ok` and `lastError` describe the latest save (`lastError` is `null` again after a successful save); `failedSaves` counts failures and `lastFailure` (`{ error, at }`) keeps the most recent one.
-- A custom `storage` adapter needs `load()` and `save(bindings)`; `clear()`, `loadGamepadProfileOverrides()` and `saveGamepadProfileOverrides(overrides)` are optional. A `save()` that throws or returns `false` counts as a failed save (the built-in `LocalStorageAdapter` returns `true`/`false` and keeps `lastSaveError`); a `save()` that returns nothing counts as a success.
+- A custom `storage` adapter needs `load()` and `save(bindings)`; `clear()`, `loadGamepadProfileOverrides()`, `saveGamepadProfileOverrides(overrides)`, `loadCollapsedGroups()` and `saveCollapsedGroups(groups)` are optional. A `save()` that throws or returns `false` counts as a failed save (the built-in `LocalStorageAdapter` returns `true`/`false` and keeps `lastSaveError`); a `save()` that returns nothing counts as a success.
 - In-memory gamepad mapping edits are never saved.
 
 ## JSON Export and Import

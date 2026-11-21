@@ -1,5 +1,6 @@
 const STORAGE_VERSION = 1;
 const PROFILE_OVERRIDE_STORAGE_VERSION = 1;
+const COLLAPSED_GROUPS_STORAGE_VERSION = 1;
 
 /**
  * Default persistence adapter backed by window.localStorage.
@@ -7,12 +8,15 @@ const PROFILE_OVERRIDE_STORAGE_VERSION = 1;
  *   load()  → plain bindings object or null
  *   save(bindings) → boolean (false when the data could not be stored)
  *   clear() → void
+ * and the optional extras: gamepad profile overrides and the folded groups of
+ * the bindings list, each in its own key.
  */
 export class LocalStorageAdapter {
   /** @param {string} namespace - used as part of the storage key */
   constructor(namespace) {
     this._key = `bind-manager:${namespace}`;
     this._profileOverrideKey = `bind-manager:${namespace}:gamepad-profile-overrides`;
+    this._collapsedGroupsKey = `bind-manager:${namespace}:collapsed-groups`;
     /** @type {unknown} error of the last failed save(), null after a successful one */
     this.lastSaveError = null;
   }
@@ -61,6 +65,7 @@ export class LocalStorageAdapter {
     try {
       window.localStorage.removeItem(this._key);
       window.localStorage.removeItem(this._profileOverrideKey);
+      window.localStorage.removeItem(this._collapsedGroupsKey);
     } catch {
       // Storage unavailable
     }
@@ -96,6 +101,44 @@ export class LocalStorageAdapter {
       );
     } catch {
       // Storage unavailable
+    }
+  }
+
+  /**
+   * Load the player's fold choices of the bindings list: group name → true
+   * (folded) or false (opened). Anything but `{ version: 1, groups: {...} }`
+   * reads as none; entries that are not booleans are dropped. Never throws.
+   * @returns {Record<string, boolean>}
+   */
+  loadCollapsedGroups() {
+    try {
+      const raw = window.localStorage.getItem(this._collapsedGroupsKey);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== COLLAPSED_GROUPS_STORAGE_VERSION
+        || !parsed.groups || typeof parsed.groups !== 'object' || Array.isArray(parsed.groups)) {
+        return {};
+      }
+      return Object.fromEntries(Object.entries(parsed.groups).filter(([, folded]) => typeof folded === 'boolean'));
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Persist the player's fold choices as `{ version: 1, groups }`. Never throws.
+   * @param {Record<string, boolean>} groups
+   * @returns {boolean} true when stored
+   */
+  saveCollapsedGroups(groups) {
+    try {
+      window.localStorage.setItem(
+        this._collapsedGroupsKey,
+        JSON.stringify({ version: COLLAPSED_GROUPS_STORAGE_VERSION, groups })
+      );
+      return true;
+    } catch {
+      return false;
     }
   }
 }

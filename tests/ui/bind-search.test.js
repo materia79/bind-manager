@@ -200,7 +200,7 @@ describe('bind search: what it shows', () => {
     createManager();
     manager.open();
     const jumpRow = row('jump');
-    const groups = () => $$('.bm-group').filter((g) => !g.hidden).map((g) => g.querySelector('.bm-group-title').textContent);
+    const groups = () => $$('.bm-group').filter((g) => !g.hidden).map((g) => (g.querySelector('.bm-group-name') ?? g.querySelector('.bm-group-title')).textContent);
     search('jump');
     expect(row('jump')).toBe(jumpRow);
     expect(groups()).toEqual(['Movement']);

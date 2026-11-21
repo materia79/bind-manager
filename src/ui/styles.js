@@ -442,6 +442,52 @@ const CSS = `
   color: var(--bm-text-secondary);
 }
 
+/* Foldable group: the title is a button with a marker, the name and a bound / total count */
+.bm-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--bm-u));
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.bm-group-toggle:hover {
+  color: var(--bm-text-primary);
+  background: var(--bm-row-hover);
+}
+.bm-group-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.bm-group-marker {
+  flex-shrink: 0;
+  display: inline-flex;
+  justify-content: center;
+  width: calc(12 * var(--bm-u));
+  transition: transform 0.15s;
+}
+.bm-group-toggle[aria-expanded="false"] .bm-group-marker {
+  transform: rotate(-90deg);
+}
+.bm-group-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bm-group-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--bm-text-desc);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
 /* ---- Action row: label | keyboard slots | gamepad slots | reset ---- */
 .bm-action-row {
   display: flex;

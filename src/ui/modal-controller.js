@@ -35,6 +35,18 @@ export class ModalController {
     this._searchText = '';
     /** Body scroll position when the filter became active, restored when it is cleared. */
     this._scrollBeforeSearch = 0;
+    /** Group headers fold their rows; false leaves the plain group titles of 0.2.1. */
+    this._groupFolding = options.groupFolding !== false;
+    /** The host's groups that start folded (a remembered choice of the player wins). */
+    this._defaultCollapsed = new Set(Array.isArray(options.collapsedGroups) ? options.collapsedGroups.filter((name) => typeof name === 'string') : []);
+    /** @type {{ load?: () => unknown, save?: (groups: Record<string, boolean>) => void } | null} where the player's choices persist */
+    this._foldStore = options.foldStore ?? null;
+    /** @type {Map<string, boolean>} the player's choices: group name → folded */
+    this._foldChoices = this._groupFolding ? _readFoldChoices(this._foldStore) : new Map();
+    /** @type {Map<string, boolean>} folds made during the current search only */
+    this._searchFolds = new Map();
+    /** Unique per controller, for the ids aria-controls points at. */
+    this._uid = ++_controllerCount;
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
@@ -200,6 +212,7 @@ export class ModalController {
         ? this._scrollBeforeSearch
         : this._overlay.querySelector('.bm-modal-body')?.scrollTop ?? 0;
     }
+    this._searchFolds.clear();
     if (this._searchText !== '') {
       this._searchText = '';
       const input = this._searchInput();
@@ -338,6 +351,8 @@ export class ModalController {
       this._store.reset(btn.dataset.actionId);
       this._hideConflictWarning();
       this._updateBindButtons();
+    } else if (cls.contains('bm-group-toggle')) {
+      this._toggleGroup(btn.dataset.group);
     } else if (cls.contains('bm-footer-action-btn')) {
       const id = btn.dataset.footerActionId;
       const action = this._footerActions.find((entry) => entry?.id === id);
@@ -397,12 +412,12 @@ export class ModalController {
     const el = document.activeElement;
     if (!(el instanceof HTMLElement) || !this._overlay?.contains(el)) return null;
     const role = FOCUS_ROLES.find((r) => el.classList.contains(r)) ?? 'bm-modal';
-    const { actionId, slot, device, footerActionId } = el.dataset;
+    const { actionId, slot, device, footerActionId, group } = el.dataset;
     // The search field keeps its caret and selection too
     const caret = el instanceof HTMLInputElement && role === 'bm-search-input'
       ? { start: el.selectionStart, end: el.selectionEnd, direction: el.selectionDirection }
       : null;
-    return { role, actionId, slot, device, footerActionId, caret };
+    return { role, actionId, slot, device, footerActionId, group, caret };
   }
 
   _restoreFocus(focus) {
@@ -416,7 +431,10 @@ export class ModalController {
       .filter(([, value]) => value != null)
       .map(([name, value]) => `[data-${name}="${_attrEscape(value)}"]`)
       .join('');
-    let target = this._overlay.querySelector(selector);
+    // A group name may hold anything (a newline breaks a selector): found by comparison
+    let target = focus.role === 'bm-group-toggle'
+      ? [...this._overlay.querySelectorAll('.bm-group-toggle')].find((btn) => btn.dataset.group === focus.group) ?? null
+      : this._overlay.querySelector(selector);
     if (target && !_isFocusable(target) && focus.role === 'bm-clear-slot-btn') {
       target = target.closest('.bm-slot')?.querySelector('.bm-bind-btn') ?? null;
     }
@@ -447,6 +465,7 @@ export class ModalController {
       btn.title = _bindTitle(code ? label : null);
       btn.classList.toggle('bm-unbound', !code);
     }
+    this._updateGroupCounts();
     // Binding labels are matched, so a changed label can change what the filter shows
     this._applySearch();
   }
@@ -480,6 +499,7 @@ export class ModalController {
     const body = this._overlay?.querySelector('.bm-modal-body');
     if (!wasActive && isActive) this._scrollBeforeSearch = body?.scrollTop ?? 0;
     this._searchText = text;
+    if (!isActive) this._searchFolds.clear();
     const input = this._searchInput();
     if (input && input.value !== text) input.value = text;
     this._applySearch();
@@ -496,8 +516,10 @@ export class ModalController {
    */
   _applySearch(pinnedActionId = null) {
     const input = this._searchInput();
-    if (!input) return;
-    const words = _searchWords(this._searchText);
+    // Neither search nor folding: leave the markup as it is (0.2.1)
+    if (!this._overlay || (!input && !this._groupFolding)) return;
+    const words = input ? _searchWords(this._searchText) : [];
+    const searching = words.length > 0;
     const active = document.activeElement;
     const pinned = new Set([pinnedActionId, this._captureTarget?.actionId].filter((id) => id != null));
     let rows = 0;
@@ -506,16 +528,18 @@ export class ModalController {
       let visible = 0;
       for (const row of group.querySelectorAll('.bm-action-row')) {
         rows += 1;
-        const show = words.length === 0
+        const show = !searching
           || pinned.has(row.dataset.actionId)
           || row.contains(active)
           || this._rowMatches(row.dataset.actionId, words);
-        row.hidden = !show;
+        if (row.hidden === show) row.hidden = !show;
         if (show) visible += 1;
       }
       group.hidden = visible === 0;
       matches += visible;
+      if (this._groupFolding) this._applyFold(group, this._isGroupFolded(group.dataset.group, searching));
     }
+    if (!input) return;
 
     const clear = this._overlay.querySelector('.bm-search-clear');
     if (clear) clear.hidden = this._searchText === '';
@@ -531,6 +555,95 @@ export class ModalController {
         : matches === 0 ? 'No key bindings match.'
           : `${matches} key binding${matches === 1 ? '' : 's'} ${matches === 1 ? 'matches' : 'match'}.`;
       if (status.textContent !== text) status.textContent = text;
+    }
+  }
+
+  // ── Group folding ───────────────────────────────────────────────────────────
+
+  /**
+   * Folded or open: the remembered state (the player's choice, else the host's
+   * collapsedGroups), or during a search the fold made for that search (open by default).
+   */
+  _isGroupFolded(name, searching = _searchWords(this._searchText).length > 0) {
+    if (searching) return this._searchFolds.get(name) ?? false;
+    return this._foldChoices.has(name) ? this._foldChoices.get(name) : this._defaultCollapsed.has(name);
+  }
+
+  /** Show a group folded or open; focus inside rows that fold goes to the group's header. */
+  _applyFold(group, folded) {
+    const rowsEl = group.querySelector('.bm-group-rows');
+    const btn = group.querySelector('.bm-group-toggle');
+    if (!rowsEl || !btn) return;
+    const hadFocus = folded && rowsEl.contains(document.activeElement);
+    rowsEl.hidden = folded;
+    btn.setAttribute('aria-expanded', String(!folded));
+    group.classList.toggle('bm-group-folded', folded);
+    if (hadFocus) btn.focus({ preventScroll: true });
+  }
+
+  /** A header click: during a search it folds for that search only, otherwise it is remembered. */
+  _toggleGroup(name) {
+    if (_searchWords(this._searchText).length > 0) {
+      this._searchFolds.set(name, !this._isGroupFolded(name, true));
+      this._applySearch();
+    } else {
+      this.setGroupCollapsed(name, !this._isGroupFolded(name, false));
+    }
+  }
+
+  /**
+   * Fold or unfold a group and remember it, like the player's click.
+   * @public - used by bind-manager.js
+   * @param {string} name
+   * @param {boolean} collapsed
+   */
+  setGroupCollapsed(name, collapsed) {
+    if (typeof name !== 'string') return;
+    // Most recent last, so the cap drops the oldest choices
+    this._foldChoices.delete(name);
+    this._foldChoices.set(name, !!collapsed);
+    while (this._foldChoices.size > MAX_FOLD_CHOICES) this._foldChoices.delete(this._foldChoices.keys().next().value);
+    try {
+      this._foldStore?.save?.(Object.fromEntries(this._foldChoices));
+    } catch {
+      // A storage that fails keeps the state in memory
+    }
+    this._applySearch();
+  }
+
+  /**
+   * The remembered fold state of a group (a search does not change it).
+   * @public - used by bind-manager.js
+   * @param {string} name
+   */
+  isGroupCollapsed(name) {
+    return this._isGroupFolded(name, false);
+  }
+
+  /** Bound actions of a group (any keyboard or gamepad slot set) and all of them. */
+  _groupCount(actions) {
+    const bound = actions.filter((a) => [
+      ...(this._store.get(a.id, 'keyboard') ?? []),
+      ...(this._store.get(a.id, 'gamepad') ?? []),
+    ].some(Boolean)).length;
+    return { bound, total: actions.length };
+  }
+
+  _renderGroupCount(actions) {
+    const { bound, total } = this._groupCount(actions);
+    return `<span class="bm-group-count-short" aria-hidden="true">${bound} / ${total}</span><span class="bm-group-count-long bm-visually-hidden">${bound} of ${total} bound</span>`;
+  }
+
+  /** Rewrite the headers' counts in place. */
+  _updateGroupCounts() {
+    if (!this._groupFolding || !this._overlay) return;
+    const groups = this._registry.getGroups();
+    for (const btn of this._overlay.querySelectorAll('.bm-group-toggle')) {
+      const { bound, total } = this._groupCount(groups.get(btn.dataset.group) ?? []);
+      const short = btn.querySelector('.bm-group-count-short');
+      const long = btn.querySelector('.bm-group-count-long');
+      if (short) short.textContent = `${bound} / ${total}`;
+      if (long) long.textContent = `${bound} of ${total} bound`;
     }
   }
 
@@ -624,6 +737,20 @@ export class ModalController {
   _renderGroups(groups) {
     if (groups.size === 0) {
       return '<p class="bm-empty">No actions registered yet.</p>';
+    }
+    if (this._groupFolding) {
+      // Header and rows; folded state, aria-expanded and hidden are set by _applySearch()
+      return [...groups.entries()]
+        .map(([name, actions], index) => {
+          const id = `bm-group-rows-${this._uid}-${index}`;
+          return `
+        <div class="bm-group" data-group="${_esc(name)}">
+          <button class="bm-group-title bm-group-toggle" type="button" aria-expanded="true" aria-controls="${id}" data-group="${_esc(name)}"><span class="bm-group-marker" aria-hidden="true">▾</span><span class="bm-group-name">${_esc(name)}</span><span class="bm-group-count">${this._renderGroupCount(actions)}</span></button>
+          <div class="bm-group-rows" id="${id}">
+            ${actions.map(a => this._renderAction(a)).join('')}
+          </div>
+        </div>`;
+        }).join('');
     }
     return [...groups.entries()]
       .map(([name, actions]) => `
@@ -878,7 +1005,7 @@ export class ModalController {
     for (const btn of this._overlay.querySelectorAll('.bm-footer-action-btn')) {
       btn.disabled = capturing;
     }
-    for (const el of this._overlay.querySelectorAll('.bm-search-input, .bm-search-clear')) {
+    for (const el of this._overlay.querySelectorAll('.bm-search-input, .bm-search-clear, .bm-group-toggle')) {
       el.disabled = capturing;
     }
   }
@@ -981,7 +1108,31 @@ const FOCUS_ROLES = [
   'bm-close-btn',
   'bm-search-input',
   'bm-search-clear',
+  'bm-group-toggle',
 ];
+
+/** Fold choices remembered per namespace; the oldest go first beyond this. */
+const MAX_FOLD_CHOICES = 256;
+
+let _controllerCount = 0;
+
+/**
+ * The player's stored fold choices as a Map; anything but an object of
+ * booleans counts as none, and a store that throws as empty.
+ */
+function _readFoldChoices(store) {
+  const choices = new Map();
+  try {
+    const raw = store?.load?.();
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return choices;
+    for (const [name, folded] of Object.entries(raw)) {
+      if (typeof folded === 'boolean' && choices.size < MAX_FOLD_CHOICES) choices.set(name, folded);
+    }
+  } catch {
+    // Unreadable: start with the host's defaults
+  }
+  return choices;
+}
 
 /** Keys that edit the search field's text besides printable characters. */
 const TEXT_EDIT_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);

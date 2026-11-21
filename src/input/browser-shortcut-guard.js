@@ -295,6 +295,20 @@ export class BrowserShortcutGuard {
   isKeyboardLocked() { return this._keyboardLocked; }
 
   /**
+   * The effective Keyboard Lock settings, read-only: whether the guard is enabled,
+   * whether it requests Keyboard Lock in fullscreen, and the keys it locks (`null`
+   * = every key). Frozen copies, so a caller cannot change the guard through them.
+   * @returns {Readonly<{ enabled: boolean, keyboardLock: boolean, keyboardLockKeys: readonly string[] | null }>}
+   */
+  getKeyboardLockSettings() {
+    return Object.freeze({
+      enabled: this._enabled,
+      keyboardLock: this._keyboardLock,
+      keyboardLockKeys: this._keyboardLockKeys === null ? null : Object.freeze([...this._keyboardLockKeys]),
+    });
+  }
+
+  /**
    * Enter fullscreen on `element` (default: the guard target, else the document)
    * and request Keyboard Lock. Call from a user gesture (click / key handler).
    * @param {HTMLElement} [element]

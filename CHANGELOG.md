@@ -16,6 +16,7 @@ All notable changes to bind-manager are documented here. The format follows [Kee
 ### Fixed
 
 - **Escape that closes the Key Bindings modal no longer fires a game action.** An action bound to Escape (a pause menu, say) fired as the modal closed, because gameplay was live again by the time the key reached the keyboard runtime. The modal now stops that Escape there; this holds with the search off too. A host's own window-level `keydown` listener therefore no longer sees the Escape that closes the modal; use `onActiveChange` to learn that it closed.
+- **A key held while the modal closes no longer sends `held` without `pressed`.** The keyboard runtime dispatched auto-repeat `held` events for keys whose `pressed` it never dispatched: the Escape that closed the modal, held on (`pause:held`), Enter held on the Close button, or a letter held in the search field while Escape closed the modal. `held` now only follows a dispatched `pressed`; a key pressed while the modal was open, during a capture or before the window lost focus stays silent until it is pressed again. Press, hold and release of a key pressed normally are unchanged, for single keys, modifiers and combos.
 - A debug toggle key that types a character (`debugKey: 'KeyK'`, for example) no longer toggles the modal while the player types into its search field.
 
 ## [0.2.1] - 2026-11-21

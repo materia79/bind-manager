@@ -184,9 +184,10 @@ export class KeyboardRuntime {
         this._activeBindings.set(code, dispatchCode);
         this._dispatch(dispatchCode, 'pressed', event);
       }
-    } else {
-      const dispatchCode = this._activeBindings.get(code) ?? code;
-      this._dispatch(dispatchCode, 'held', event);
+    } else if (this._activeBindings.has(code)) {
+      // 'held' only follows a dispatched 'pressed' (the record keyup releases from):
+      // a key pressed while suppressed, during a capture or before a blur stays silent
+      this._dispatch(this._activeBindings.get(code), 'held', event);
     }
   }
 

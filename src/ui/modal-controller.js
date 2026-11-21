@@ -745,7 +745,7 @@ export class ModalController {
         ? `The browser guard lets ${label} through, so the browser also acts on it.`
         : {
           blocked: `${label} will not work in the browser.`,
-          'fullscreen-only': `${label} only works while the game is fullscreen.`,
+          'fullscreen-only': `${label} only works while the game is fullscreen in a Chromium browser.`,
           unreliable: `${label} may not work in every browser.`,
         }[reserved.level];
       notes.push(`${lead} ${reserved.reason}`);

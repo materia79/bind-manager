@@ -4,10 +4,10 @@
  *
  * Levels:
  * - 'blocked'         : never reaches the page.
- * - 'fullscreen-only' : reaches the page only while it is fullscreen (Chromium's
- *                       tab and window shortcuts; Alt+Tab under the guard's
- *                       Keyboard Lock); outside fullscreen the browser or the
- *                       operating system acts first.
+ * - 'fullscreen-only' : reaches the page only while it is fullscreen in a Chromium
+ *                       browser (Chromium's tab and window shortcuts; Alt+Tab under
+ *                       the guard's Keyboard Lock); outside fullscreen the browser
+ *                       or the operating system acts first.
  * - 'unreliable'      : works in some browsers or situations only. Anything not
  *                       verified stays here, never 'blocked'.
  *
@@ -17,12 +17,21 @@
  * its modifiers), and its real decision for a bound key counts (`allow`, its
  * lists, `blockBound`). A disabled guard cancels nothing.
  *
+ * Keyboard Lock follows the 0.2.0 README (section "What a page cannot block, and
+ * Keyboard Lock"): it can hand the Windows key and other operating system
+ * shortcuts to the page (README line 384), a locked key arrives with every
+ * modifier combination and `lock()` without keys locks every key (line 387), but
+ * only keys the operating system lets go of, never a secure attention sequence
+ * such as Ctrl+Alt+Del (lines 388, 400); locking Tab captures Alt+Tab on Windows
+ * (line 393). So a 'blocked' combo whose key the guard locks becomes 'unreliable'
+ * (Alt+Tab: 'fullscreen-only'), except Ctrl+Alt+Del.
+ *
  * The Windows / Command key depends on the platform: on a Mac it is Cmd, handled
  * through the guard's `Mod` logic; elsewhere it is the Windows key, whose combos
  * the operating system keeps. The macOS entries are not verified on a real Mac.
  */
-import { MODIFIER_CODES } from './key-names.js';
 import {
+  DEFAULT_BLOCKED_SHORTCUTS,
   FULLSCREEN_ONLY_SHORTCUTS,
   matchesShortcutPattern,
   parseShortcutPattern,
@@ -40,7 +49,9 @@ import {
 /**
  * The effective state of a browser guard: the manager builds it from its guard
  * (`getShortcutPolicy()`, `getKeyboardLockSettings()`, the `blockBound` option).
- * `null` or `enabled: false` means nothing is cancelled.
+ * Values are read the way the guard reads them: `enabled` must be truthy, a
+ * missing `blockBound` or `keyboardLock` means true, otherwise truthiness counts.
+ * `null` or a falsy `enabled` means nothing is cancelled.
  * @typedef {object} ReservedGuardState
  * @property {boolean} enabled
  * @property {string[]} [shortcuts]
@@ -54,28 +65,28 @@ import {
 /** @typedef {'mac' | 'other' | 'unknown'} ReservedPlatform */
 
 /**
- * Keys that never reach the page. Modifiers match "at least these", so
- * Alt+Shift+Tab counts as Alt+Tab. `keyboardLock` marks an operating system combo
- * the guard's Keyboard Lock may hand to the page in fullscreen, when the guard is
- * enabled, requests the lock and locks that key: 'verified' (the README's Keyboard
- * Lock section states it for Alt+Tab) makes it 'fullscreen-only', 'unverified'
- * makes it 'unreliable'. Otherwise the rule stays 'blocked'.
- * The four Cmd entries are macOS (not verified on a real Mac); the same combos are
- * Windows-key shortcuts elsewhere, so they are 'blocked' on every platform.
- * @type {Array<{ mods: string[], keys: string[], reason: string, keyboardLock?: 'verified' | 'unverified' }>}
+ * Keys that never reach the page, unless the guard's Keyboard Lock locks their key
+ * (see the header). Modifiers match "at least these", so Alt+Shift+Tab counts as
+ * Alt+Tab. `lock: 'verified'` (Alt+Tab, README line 393) makes a locked combo
+ * 'fullscreen-only', `lock: 'secure'` (Ctrl+Alt+Del, README lines 388 and 400)
+ * keeps it 'blocked'; every other rule becomes 'unreliable' when its key is locked.
+ * The four Cmd entries are macOS shortcuts (not verified on a real Mac) and
+ * Windows-key shortcuts elsewhere; `reasons` holds the text per platform.
+ * @type {Array<{ mods: string[], keys: string[], reason?: string, reasons?: Record<ReservedPlatform, string>, lock?: 'verified' | 'secure' }>}
  */
+const WINDOWS_KEY_REASON = 'The operating system uses the Windows key for its own shortcuts.';
 const BLOCKED_RULES = [
-  { mods: ['ctrl', 'alt'], keys: ['Delete'], reason: 'The operating system reserves it.' },
+  { mods: ['ctrl', 'alt'], keys: ['Delete'], lock: 'secure', reason: 'The operating system reserves it.' },
   { mods: ['ctrl', 'shift'], keys: ['Escape'], reason: 'The operating system uses it to open the Task Manager.' },
-  { mods: ['ctrl'], keys: ['Escape'], reason: 'The operating system uses it to open the Start menu.' },
+  { mods: ['ctrl'], keys: ['Escape'], reason: 'The operating system uses Ctrl+Esc (the Start menu on Windows).' },
   { mods: ['alt'], keys: ['Escape'], reason: 'The operating system uses it to switch windows.' },
-  { mods: ['ctrl', 'shift'], keys: ['KeyQ'], reason: 'The browser uses it to quit, also in fullscreen.' },
-  { mods: ['alt'], keys: ['F4'], keyboardLock: 'unverified', reason: 'The operating system uses it to close the window.' },
-  { mods: ['alt'], keys: ['Tab'], keyboardLock: 'verified', reason: 'The operating system uses it to switch windows.' },
-  { mods: ['meta'], keys: ['KeyQ'], reason: 'macOS uses it to quit the browser.' },
-  { mods: ['meta'], keys: ['Tab'], reason: 'macOS uses it to switch applications.' },
-  { mods: ['meta'], keys: ['Space'], reason: 'macOS uses it to open Spotlight.' },
-  { mods: ['meta'], keys: ['KeyH'], reason: 'macOS uses it to hide the browser.' },
+  { mods: ['ctrl', 'shift'], keys: ['KeyQ'], reason: 'Chromium uses it to quit, also in fullscreen.' },
+  { mods: ['alt'], keys: ['F4'], reason: 'The operating system uses it to close the window.' },
+  { mods: ['alt'], keys: ['Tab'], lock: 'verified', reason: 'The operating system uses it to switch windows.' },
+  { mods: ['meta'], keys: ['KeyQ'], reasons: { mac: 'macOS uses it to quit the browser.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
+  { mods: ['meta'], keys: ['Tab'], reasons: { mac: 'macOS uses it to switch applications.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
+  { mods: ['meta'], keys: ['Space'], reasons: { mac: 'macOS uses it to open Spotlight.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
+  { mods: ['meta'], keys: ['KeyH'], reasons: { mac: 'macOS uses it to hide the browser.', other: WINDOWS_KEY_REASON, unknown: 'macOS and Windows use it for their own shortcuts.' } },
 ];
 
 /**
@@ -99,7 +110,7 @@ const FULLSCREEN_ONLY_REASONS = {
   'Mod+KeyW': 'The browser uses it to close the tab.',
   'Mod+KeyT': 'The browser uses it to open a new tab.',
   'Mod+KeyN': 'The browser uses it to open a new window.',
-  'Mod+KeyQ': 'The browser uses it to quit.',
+  'Mod+KeyQ': 'Firefox uses it to quit (Chromium uses Ctrl+Shift+Q, or Cmd+Q on macOS).',
   'Ctrl+Tab': 'The browser uses it to switch tabs.',
   'Ctrl+PageUp': 'The browser uses it to switch tabs.',
   'Ctrl+PageDown': 'The browser uses it to switch tabs.',
@@ -116,18 +127,33 @@ const MOD_NAME = {
 const FULLSCREEN_ONLY_PARSED = FULLSCREEN_ONLY_SHORTCUTS.map((pattern) => ({ pattern, parsed: parseShortcutPattern(pattern) }));
 
 /**
+ * The guard's browser commands: its default patterns with a Ctrl / `Mod` modifier
+ * (reload, save, print, find, history, zoom, Ctrl+wheel …) or on a function key
+ * (F5, F1 …), minus the tab and window shortcuts (those are 'fullscreen-only').
+ * Scrolling keys, the mouse buttons (the mouse runtime cancels bound ones itself)
+ * and bare Alt / Slash / Quote are not included.
+ */
+const BROWSER_COMMAND_PARSED = DEFAULT_BLOCKED_SHORTCUTS
+  .filter((pattern) => !FULLSCREEN_ONLY_SHORTCUTS.includes(pattern))
+  .map(parseShortcutPattern)
+  .filter((parsed) => parsed && (parsed.mods.includes('mod') || parsed.mods.includes('ctrl') || parsed.keys.every((key) => /^F\d+$/.test(key))));
+
+/**
  * The platform as a page can read it: `navigator.userAgentData.platform`, then
- * `navigator.platform`, then the user agent. Never throws.
- * @param {any} [nav] defaults to the global navigator (injectable for tests)
+ * `navigator.platform`, then the user agent. Never throws: anything unreadable,
+ * including the global navigator itself, counts as 'unknown'.
+ * @param {...any} args  an optional navigator (injectable for tests); without an
+ *   argument the global navigator is read
  * @returns {ReservedPlatform}
  */
-export function detectPlatform(nav = typeof navigator === 'undefined' ? undefined : navigator) {
+export function detectPlatform(...args) {
   try {
+    const nav = args.length > 0 ? args[0] : globalThis.navigator;
     const sources = [nav?.userAgentData?.platform, nav?.platform, nav?.userAgent];
     for (const value of sources) {
       if (typeof value !== 'string' || !value.trim()) continue;
-      if (/mac|iphone|ipad|ipod/i.test(value)) return 'mac';
-      if (/win|linux|x11|cros|chrome os|android|bsd/i.test(value)) return 'other';
+      if (/mac|iphone|ipad|ipod|darwin/i.test(value)) return 'mac';
+      if (/windows|\bwin(16|32|64|ce)?\b|linux|x11|\bcros\b|chrome os|android|bsd/i.test(value)) return 'other';
     }
   } catch { /* an unreadable navigator counts as unknown */ }
   return 'unknown';
@@ -154,23 +180,29 @@ export function getReservedInfo(code, options = {}) {
     const name = MOD_NAME[part];
     if (name) mods.add(name);
   }
-  // A modifier bound on its own is its own primary key.
-  if (MODIFIER_CODES.has(primary) && MOD_NAME[primary] === 'meta') {
-    return { level: 'blocked', reason: 'The operating system reserves the Windows / Command key.' };
+  const locked = _guardLocks(guard, primary);
+  const underLock = (reason) => ({ level: 'unreliable', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) may hand it to the page.` });
+
+  // The Windows / Command key on its own.
+  if (MOD_NAME[primary] === 'meta') {
+    if (platform === 'mac') return { level: 'unreliable', reason: 'On macOS the Command key reaches the page, but keys pressed while it is held are browser shortcuts (not verified on a real Mac).' };
+    if (platform === 'unknown') return { level: 'unreliable', reason: 'The Windows key never reaches the page on Windows; on macOS the Command key does.' };
+    const reason = 'The operating system reserves the Windows key.';
+    return locked ? underLock(reason) : { level: 'blocked', reason };
   }
 
   for (const rule of BLOCKED_RULES) {
     if (!rule.keys.includes(primary) || !rule.mods.every((m) => mods.has(m))) continue;
-    if (rule.keyboardLock && _guardLocks(guard, primary)) {
-      return rule.keyboardLock === 'verified'
-        ? { level: 'fullscreen-only', reason: `${rule.reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) hands it to the page.` }
-        : { level: 'unreliable', reason: `${rule.reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) may hand it to the page.` };
+    const reason = rule.reasons ? rule.reasons[platform] : rule.reason;
+    if (locked && rule.lock === 'verified') {
+      return { level: 'fullscreen-only', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard's Keyboard Lock (Chromium only) hands it to the page.` };
     }
-    return { level: 'blocked', reason: rule.reason };
+    if (locked && rule.lock !== 'secure') return underLock(reason);
+    return { level: 'blocked', reason };
   }
 
   if (mods.has('meta') && platform === 'other') {
-    return { level: 'blocked', reason: 'The operating system uses the Windows key for its own shortcuts.' };
+    return locked ? underLock(WINDOWS_KEY_REASON) : { level: 'blocked', reason: WINDOWS_KEY_REASON };
   }
   if (mods.has('meta') && platform === 'unknown') {
     return { level: 'unreliable', reason: 'The operating system may use Windows / Command key combinations.' };
@@ -184,22 +216,24 @@ export function getReservedInfo(code, options = {}) {
 
   const flags = { ctrlKey: mods.has('ctrl'), shiftKey: mods.has('shift'), altKey: mods.has('alt'), metaKey: mods.has('meta') };
   // With Alt, Ctrl+Alt is AltGr on many layouts: not a browser shortcut.
-  const fullscreenOnly = mods.has('alt') ? null : FULLSCREEN_ONLY_PARSED.find(({ parsed }) => matchesShortcutPattern(parsed, primary, flags));
-  if (fullscreenOnly) {
-    const reason = FULLSCREEN_ONLY_REASONS[fullscreenOnly.pattern] ?? 'The browser uses it for tab or window management.';
-    if (!guard) {
-      return { level: 'fullscreen-only', reason: `${reason} In fullscreen the game has to cancel the browser's action itself; the browser guard does that.` };
+  if (!mods.has('alt')) {
+    const fullscreenOnly = FULLSCREEN_ONLY_PARSED.find(({ parsed }) => matchesShortcutPattern(parsed, primary, flags));
+    if (fullscreenOnly) {
+      const reason = FULLSCREEN_ONLY_REASONS[fullscreenOnly.pattern];
+      if (!guard) {
+        return { level: 'fullscreen-only', reason: `${reason} In fullscreen the game has to cancel the browser's action itself; the browser guard does that.` };
+      }
+      if (_guardCancels(guard, primary, flags, bound)) {
+        return { level: 'fullscreen-only', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard cancels that.` };
+      }
+      return { level: 'unreliable', reason, guardLetsThrough: true };
     }
-    if (_guardCancels(guard, primary, flags, bound)) {
-      return { level: 'fullscreen-only', reason: `${reason.slice(0, -1)}; in fullscreen the browser guard cancels that.` };
+    if (BROWSER_COMMAND_PARSED.some((parsed) => matchesShortcutPattern(parsed, primary, flags))) {
+      return _uncancelled(guard, primary, flags, bound);
     }
-    return { level: 'unreliable', reason, guardLetsThrough: true };
   }
-
   // A Cmd combo on a Mac: the browser's own Cmd shortcut, unless the guard cancels it.
-  if (mods.has('meta') && !(guard && _guardCancels(guard, primary, flags, bound))) {
-    return { level: 'unreliable', reason: 'The browser may have its own Cmd shortcut for it, and nothing cancels it.' };
-  }
+  if (mods.has('meta')) return _uncancelled(guard, primary, flags, bound);
   return null;
 }
 
@@ -212,16 +246,29 @@ export function isReservedCode(code, options) {
   return getReservedInfo(code, options) !== null;
 }
 
+/**
+ * The one "nothing cancels it" decision, for the guard's browser commands on every
+ * platform and for Cmd combos on a Mac: null when the guard cancels the key,
+ * otherwise 'unreliable' (with `guardLetsThrough` while the guard is enabled).
+ */
+function _uncancelled(guard, primary, flags, bound) {
+  if (guard && _guardCancels(guard, primary, flags, bound)) return null;
+  const reason = 'The browser may have its own shortcut on it.';
+  return guard
+    ? { level: 'unreliable', reason, guardLetsThrough: true }
+    : { level: 'unreliable', reason: `${reason} Nothing cancels it; the browser guard can.` };
+}
+
 /** The guard's real decision for this key: allow wins, then its lists, then blockBound for a bound key. */
 function _guardCancels(guard, primary, flags, bound) {
   const matches = (list) => (list ?? []).some((pattern) => matchesShortcutPattern(parseShortcutPattern(pattern), primary, flags));
   if (matches(guard.allow)) return false;
   if (matches(guard.shortcuts) || matches(guard.block)) return true;
-  return guard.blockBound !== false && bound;
+  return !!(guard.blockBound ?? true) && bound;
 }
 
 /** True when the enabled guard requests Keyboard Lock and locks this key. */
 function _guardLocks(guard, primary) {
-  if (!guard || guard.keyboardLock === false) return false;
+  if (!guard || !(guard.keyboardLock ?? true)) return false;
   return guard.keyboardLockKeys === null || (guard.keyboardLockKeys ?? []).includes(primary);
 }

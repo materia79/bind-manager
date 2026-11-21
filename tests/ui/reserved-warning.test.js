@@ -44,7 +44,7 @@ describe('reserved-key note in the rebind dialog', () => {
     pressCombo(['ControlLeft'], 'KeyT');
     expect(manager.getBinding('close-bag')[0]).toBe('ControlLeft+KeyT');
     expect(warning().classList.contains('bm-hidden')).toBe(false);
-    expect(warning().textContent).toMatch(/only works while the game is fullscreen\. The browser uses it to open a new tab\. In fullscreen the game has to cancel the browser's action itself; the browser guard does that\.$/);
+    expect(warning().textContent).toMatch(/only works while the game is fullscreen in a Chromium browser\. The browser uses it to open a new tab\. In fullscreen the game has to cancel the browser's action itself; the browser guard does that\.$/);
     expect(warning().getAttribute('title')).toBe(warning().textContent);
   });
 
@@ -73,7 +73,7 @@ describe('reserved-key note in the rebind dialog', () => {
     pressCombo(['ControlLeft'], 'KeyW');
     const text = warning().textContent;
     expect(text).toMatch(/is also bound to "Quit menu" — both will be active\./);
-    expect(text).toMatch(/only works while the game is fullscreen\. The browser uses it to close the tab\. In fullscreen the game has to cancel/);
+    expect(text).toMatch(/only works while the game is fullscreen in a Chromium browser\. The browser uses it to close the tab\. In fullscreen the game has to cancel/);
     expect(text.indexOf('also bound')).toBeLessThan(text.indexOf('only works'));
     expect(warning().getAttribute('title')).toBe(text);
   });
@@ -90,7 +90,7 @@ describe('reserved-key note in the rebind dialog', () => {
     create({ browserGuard: { enabled: true, shortcuts: [] } });
     capture('close-bag');
     pressCombo(['ControlLeft'], 'KeyT');
-    expect(warning().textContent).toMatch(/only works while the game is fullscreen\. The browser uses it to open a new tab; in fullscreen the browser guard cancels that\.$/);
+    expect(warning().textContent).toMatch(/only works while the game is fullscreen in a Chromium browser\. The browser uses it to open a new tab; in fullscreen the browser guard cancels that\.$/);
   });
 
   it("follows the manager's guard while it is enabled", () => {

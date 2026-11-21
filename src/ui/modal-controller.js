@@ -1,4 +1,5 @@
 import { getKeyLabel } from '../input/key-names.js';
+import { getReservedInfo } from '../input/reserved-codes.js';
 import { injectStyles } from './styles.js';
 import { getGamepadLabel } from '../input/gamepad-profiles.js';
 import { gamepadDeviceName, profileChip, ignoredOverrideNote } from './profile-display.js';
@@ -23,7 +24,11 @@ export class ModalController {
    * @param {import('../core/action-registry.js').ActionRegistry} registry
    * @param {import('../input/keyboard-runtime.js').KeyboardRuntime} keyboardRuntime
    */
-  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = [], mouseRuntime = null) {
+  constructor(bindingStore, registry, keyboardRuntime, gamepadRuntime = null, captureModal = null, footerActions = [], mouseRuntime = null, options = {}) {
+    /** Warn when a captured key is one the browser or OS keeps for itself. */
+    this._reservedKeyWarnings = options.reservedKeyWarnings !== false;
+    /** @type {() => { guard?: import('../input/reserved-codes.js').ReservedGuardState | null, platform?: import('../input/reserved-codes.js').ReservedPlatform }} the guard's state and the platform */
+    this._reservedContext = typeof options.reservedContext === 'function' ? options.reservedContext : () => ({});
     this._store = bindingStore;
     this._registry = registry;
     this._runtime = keyboardRuntime;
@@ -608,8 +613,11 @@ export class ModalController {
         this._endCapture(actionId, slot, 'keyboard');
         if (code === null) { this._updateBindButtons(); return; }
         const result = this._store.set(actionId, slot, code, 'keyboard');
-        if (result.conflicts.length > 0) {
-          this._showConflictWarning(result.conflicts, code, 'keyboard');
+        const reserved = this._reservedKeyWarnings
+          ? getReservedInfo(code, { ...this._reservedContext(), bound: true })
+          : null;
+        if (reserved || result.conflicts.length > 0) {
+          this._showConflictWarning(result.conflicts, code, 'keyboard', reserved);
         } else {
           this._hideConflictWarning();
         }
@@ -711,19 +719,42 @@ export class ModalController {
     }
   }
 
-  _showConflictWarning(conflicts, code, device = 'keyboard') {
+  /**
+   * The conflict note and, for a reserved key, the reserved note: one element,
+   * conflict first. The title always holds the full text (the element clamps at
+   * three lines).
+   * @param {{ actionId: string }[]} conflicts
+   * @param {string} code
+   * @param {'keyboard' | 'gamepad'} [device]
+   * @param {import('../input/reserved-codes.js').ReservedInfo | null} [reserved]
+   */
+  _showConflictWarning(conflicts, code, device = 'keyboard', reserved = null) {
     const warningEl = this._overlay?.querySelector('.bm-conflict-warning');
     if (!warningEl) return;
-    const names = conflicts.map(c => {
-      const action = this._registry.get(c.actionId);
-      return action ? `"${action.label}"` : c.actionId;
-    });
     const label = device === 'gamepad' ? this._getGamepadLabel(code) : getKeyLabel(code);
-    warningEl.textContent = `${label} is also bound to ${names.join(', ')} — both will be active.`;
+    const notes = [];
+    if (conflicts.length > 0) {
+      const names = conflicts.map(c => {
+        const action = this._registry.get(c.actionId);
+        return action ? `"${action.label}"` : c.actionId;
+      });
+      notes.push(`${label} is also bound to ${names.join(', ')} — both will be active.`);
+    }
+    if (reserved) {
+      const lead = reserved.guardLetsThrough
+        ? `The browser guard lets ${label} through, so the browser also acts on it.`
+        : {
+          blocked: `${label} will not work in the browser.`,
+          'fullscreen-only': `${label} only works while the game is fullscreen in a Chromium browser.`,
+          unreliable: `${label} may not work in every browser.`,
+        }[reserved.level];
+      notes.push(`${lead} ${reserved.reason}`);
+    }
+    warningEl.textContent = notes.join(' ');
     warningEl.title = warningEl.textContent;
     warningEl.classList.remove('bm-hidden');
     clearTimeout(this._warningTimeout);
-    this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), 5000);
+    this._warningTimeout = setTimeout(() => warningEl.classList.add('bm-hidden'), reserved ? 8000 : 5000);
   }
 
   _showWarning(message) {

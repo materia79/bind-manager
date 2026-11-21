@@ -23,6 +23,15 @@
 import { buildComboCode } from './key-names.js';
 
 /**
+ * Tab and window management shortcuts. Chromium handles them before the page
+ * outside fullscreen; while the window is fullscreen they reach the page first,
+ * so the guard can cancel them there. Part of DEFAULT_BLOCKED_SHORTCUTS.
+ */
+export const FULLSCREEN_ONLY_SHORTCUTS = Object.freeze([
+  'Mod+KeyW', 'Mod+KeyT', 'Mod+KeyN', 'Mod+KeyQ', 'Ctrl+Tab', 'Ctrl+PageUp', 'Ctrl+PageDown', 'Ctrl+F4',
+]);
+
+/**
  * Default shortcuts cancelled while the guard is engaged.
  * Entries are kept separate (even where one implies another) so a game can filter
  * individual ones out, e.g. `DEFAULT_BLOCKED_SHORTCUTS.filter(p => p !== 'MouseWheel')`.
@@ -45,7 +54,7 @@ export const DEFAULT_BLOCKED_SHORTCUTS = Object.freeze([
   'Backspace', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'PageUp', 'PageDown', 'Home', 'End',
   // Tab / window management — Chromium only lets pages cancel these in fullscreen
-  'Mod+KeyW', 'Mod+KeyT', 'Mod+KeyN', 'Mod+KeyQ', 'Ctrl+Tab', 'Ctrl+PageUp', 'Ctrl+PageDown', 'Ctrl+F4',
+  ...FULLSCREEN_ONLY_SHORTCUTS,
   // Wheel: page scroll, Ctrl+wheel zoom, Shift+wheel horizontal scroll
   'MouseWheel', 'Mod+MouseWheel', 'Shift+MouseWheel',
   // Middle-click autoscroll / paste, back / forward thumb buttons
@@ -284,6 +293,20 @@ export class BrowserShortcutGuard {
   }
 
   isKeyboardLocked() { return this._keyboardLocked; }
+
+  /**
+   * The effective Keyboard Lock settings, read-only: whether the guard is enabled,
+   * whether it requests Keyboard Lock in fullscreen, and the keys it locks (`null`
+   * = every key). Frozen copies, so a caller cannot change the guard through them.
+   * @returns {Readonly<{ enabled: boolean, keyboardLock: boolean, keyboardLockKeys: readonly string[] | null }>}
+   */
+  getKeyboardLockSettings() {
+    return Object.freeze({
+      enabled: this._enabled,
+      keyboardLock: this._keyboardLock,
+      keyboardLockKeys: this._keyboardLockKeys === null ? null : Object.freeze([...this._keyboardLockKeys]),
+    });
+  }
 
   /**
    * Enter fullscreen on `element` (default: the guard target, else the document)

@@ -11,6 +11,7 @@ export { createBindManager } from './core/bind-manager.js';
 export {
 	DEFAULT_BLOCKED_SHORTCUTS,
 	DEFAULT_KEYBOARD_LOCK_KEYS,
+	FULLSCREEN_ONLY_SHORTCUTS,
 	parseShortcutPattern,
 	matchesShortcutPattern,
 } from './input/browser-shortcut-guard.js';

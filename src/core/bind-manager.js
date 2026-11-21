@@ -58,7 +58,6 @@ export function createBindManager(options = {}) {
     browserGuard = false,
     wheelPixelThreshold,
     reservedKeyWarnings = true,
-    isKeyboardLocked = null,
   } = options;
   const deadband        = options.deadband        ?? 0.12;
   const analogThreshold = options.analogThreshold ?? 0.50;
@@ -102,6 +101,8 @@ export function createBindManager(options = {}) {
     isUiActive: () => manager.active || !!builtInToolsController?.isAnyOpen?.(),
   });
   const guardApi = _makeBrowserGuardApi(guard);
+  // Reserved-key notes follow the configured guard while it is enabled, else its defaults.
+  const reservedPolicy = () => (guard.enabled ? guard.getShortcutPolicy() : null);
 
   // -- Active state + cursor persistence --
   let _keepCursorAfterClose = false;
@@ -633,11 +634,11 @@ export function createBindManager(options = {}) {
     /**
      * Lists current keyboard/mouse bindings the browser or OS may keep for itself.
      * Use it to check defaults at startup or to show a summary to the player.
-     * @param {{ keyboardLocked?: boolean }} [options] defaults to the isKeyboardLocked option
-     * @returns {{ actionId: string, slot: number, code: string, level: 'blocked' | 'unreliable', reason: string }[]}
+     * Follows the browser guard's policy while the guard is enabled.
+     * @returns {{ actionId: string, slot: number, code: string, level: import('../input/reserved-codes.js').ReservedLevel, reason: string }[]}
      */
-    getReservedBindings(options) {
-      const opts = options ?? { keyboardLocked: typeof isKeyboardLocked === 'function' ? isKeyboardLocked() : false };
+    getReservedBindings() {
+      const opts = { shortcutPolicy: reservedPolicy() };
       const found = [];
       for (const [actionId, bindings] of Object.entries(store.getAll())) {
         bindings.keyboard.forEach((code, slot) => {
@@ -733,7 +734,7 @@ export function createBindManager(options = {}) {
   captureModal = new CaptureModalController();
   modal = new ModalController(store, registry, runtime, gamepadRuntime, captureModal, mergedFooterActions, mouseRuntime, {
     reservedKeyWarnings,
-    isKeyboardLocked,
+    reservedPolicy,
   });
   hints = new HintsController(store, registry, gamepadRuntime);
 
@@ -1022,7 +1023,6 @@ function _hasOwn(obj, key) {
  *           - Cancel browser shortcuts while the game owns input (opt-in)
  * @property {number} [wheelPixelThreshold=30]     - Pixel delta that counts as one wheel notch
  * @property {boolean} [reservedKeyWarnings=true]  - Warn in the rebind dialog about keys the browser or OS keeps
- * @property {(() => boolean) | null} [isKeyboardLocked=null] - Return true while Keyboard Lock is active (fullscreen, Chromium)
  *
  * @typedef {object} BrowserGuardApi
  * @property {boolean} enabled

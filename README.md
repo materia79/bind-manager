@@ -10,7 +10,7 @@ It provides:
 - Built-in tools to test a controller and to capture a new controller profile
 - A framework-agnostic API that works in ThreeJS and non-ThreeJS apps
 
-Input support: keyboard, mouse buttons, mouse wheel and the browser Gamepad API, including modifier key combos (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`) with capture-on-release semantics. Gamepads are labelled per controller family (eight families, detected by vendor/product id), with exact generated profiles for controllers whose raw layout needs remapping.
+Input support: keyboard, mouse buttons, mouse wheel and the browser Gamepad API, including modifier key combos (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`) and modifier-only chords (e.g. `ControlLeft+ShiftLeft`) with capture-on-release semantics. Gamepads are labelled per controller family (eight families, detected by vendor/product id), with exact generated profiles for controllers whose raw layout needs remapping.
 
 Coming from the last public build? Read [Upgrading from 0.1.0](#upgrading-from-010) first.
 
@@ -36,6 +36,7 @@ A [demo page](https://materia79.github.io/projects/bind-manager/standalone-demo.
 - Mouse button and wheel bindings (buttons 0–4, wheel up/down, one notch = one press, Ctrl/Shift/Alt + wheel chords)
 - Opt-in browser shortcut guard: cancels reload/find/save/zoom/scroll/context-menu/… while the game owns input, Keyboard Lock in fullscreen, optional "leave site?" prompt
 - Modifier key combos for keyboard and mouse (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`)
+- Modifier-only chords such as Ctrl + Shift (`ControlLeft+ShiftLeft`), recorded in the rebind dialog and fired like any key; see [Modifier-only chords](#modifier-only-chords)
 - Capture-on-release: binding commits when the primary key/button is released, allowing modifier selection
 - Cancel button fires on pointer-down to prevent accidental bind commits
 - `active` getter and `onActiveChange` subscription for host cursor management
@@ -215,7 +216,7 @@ Action definition fields:
 - `description?: string` action description
 - `group?: string` modal section grouping, default `General`
 - `slots?: number` keyboard/mouse bindings count, default `2`
-- `defaultBindings?: (string|null)[]` `KeyboardEvent.code`, mouse or combo codes per slot
+- `defaultBindings?: (string|null)[]` `KeyboardEvent.code`, mouse, combo or chord codes per slot
 - `gamepadSlots?: number` gamepad bindings count, default `1`
 - `defaultGamepadBindings?: (string|null)[]` `GP_*` codes per gamepad slot
 - `analog?: boolean` receive continuous `analog` events from axes, default `false`
@@ -344,7 +345,7 @@ Everything below is exported from `src/index.js` (and is a property of `window.B
 | Area | Exports |
 | --- | --- |
 | Manager | `createBindManager` |
-| Keyboard and mouse | `getKeyLabel`, `isKnownCode`, `KEY_DISPLAY_NAMES`, `MODIFIER_ORDER`, `MODIFIER_CODES`, `buildComboCode`, `WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD`, `getReservedInfo`, `isReservedCode` |
+| Keyboard and mouse | `getKeyLabel`, `isKnownCode`, `KEY_DISPLAY_NAMES`, `MODIFIER_ORDER`, `MODIFIER_CODES`, `buildComboCode`, `buildChordCode`, `isModifierChord`, `WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD`, `getReservedInfo`, `isReservedCode` |
 | Browser guard | `DEFAULT_BLOCKED_SHORTCUTS`, `DEFAULT_KEYBOARD_LOCK_KEYS`, `FULLSCREEN_ONLY_SHORTCUTS`, `parseShortcutPattern`, `matchesShortcutPattern` |
 | Gamepad codes | `GP_CODES`, `GP_B0`..`GP_B23`, `GP_A0N`..`GP_A3P`, `GP_BUTTON_COUNT` (24), `GP_AXIS_COUNT` (4), `isGamepadCode`, `getGamepadCodeType` |
 | Families and labels | `GAMEPAD_PROFILES`, `GAMEPAD_FAMILIES`, `GAMEPAD_FAMILY_NAMES`, `GAMEPAD_DEVICE_FAMILIES`, `GAMEPAD_LABEL_VARIANTS`, `GAMEPAD_UNVERIFIED_LABELS`, `detectGamepadProfile`, `getGamepadLabel`, `getGamepadFamilyName`, `getGamepadLabelVariant`, `isGamepadLabelUnverified`, `parseGamepadId` |
@@ -458,6 +459,27 @@ Each **notch** dispatches one `pressed` followed by one `released` (wheels have 
 - Shift+wheel: Chromium and Safari report it on `deltaX`, which is used when `deltaY` is 0 and Shift is held, so Shift+wheel chords work everywhere. Pure horizontal scrolling (tilt wheel, sideways trackpad) is ignored
 
 The window wheel listener is passive by default. It becomes non-passive only while a capture runs (so capture can stop the modal from scrolling) or while a wheel code is bound and gameplay is not suppressed (so a host handler can cancel through `originalEvent`). During gameplay, page scrolling is only cancelled by the browser guard.
+
+## Modifier-only chords
+
+A binding can consist of modifier keys only: two or more of Left/Right Ctrl, Shift, Alt and Meta, such as `ControlLeft+ShiftLeft` (label "Left Ctrl + Left Shift"). The player records one in the rebind dialog by holding the modifiers and letting go of one of them; a host gives one as a default like any other code:
+
+```js
+binds.registerAction({ id: 'show-names', label: 'Show Names', slots: 2, defaultBindings: ['ControlLeft+ShiftLeft', 'ControlRight+ShiftRight'] });
+```
+
+How a chord behaves:
+
+- **Fires on the keydown that completes it**, when the modifiers held are then exactly the chord, in any order: Shift then Ctrl is the same chord as Ctrl then Shift. Keys other than modifiers that are held do not count. Left and right keys are different keys, as for single modifiers and combos: `ControlLeft+ShiftLeft` does not fire for Right Ctrl + Left Shift; bind each variant you want in its own slot.
+- **`held`** follows on the auto-repeat of the key that completed it; **`released`** comes when the first of its keys goes up, so a "hold to show" action ends as soon as the player lets go of either key. Blur, opening the modal and `destroy()` release it like any key, and `isActionPressed()` follows it.
+- **The chord wins over a single modifier for the keydown that completes it**, like a combo wins over its key alone: with Ctrl bound to Crouch, Shift to Sprint and Ctrl + Shift to Show Names, pressing Ctrl then Shift sends Crouch, then Show Names (not Sprint); Crouch stays held until Ctrl goes up. Pressing Shift then Ctrl sends Sprint, then Show Names (not Crouch).
+- **On the way to a bigger combo the chord fires too.** With Ctrl + Shift and Ctrl + Shift + A both bound, Ctrl, Shift, A sends Show Names at Shift and the Ctrl + Shift + A action at A; Show Names stays held until Ctrl or Shift goes up. A modifier pressed after the chord is complete leaves it active; a chord of more modifiers fires when its own last key goes down. Bind actions that can share a moment like this, or avoid binding both.
+- **Recording:** the dialog commits when the first modifier goes up while no other key was pressed, as the chord of every modifier held at that moment. A single modifier pressed and released records itself as before, and combos still commit when their key goes up, so recording Ctrl + A is as before.
+- **Without a chord bound, nothing changes:** every other binding sends exactly the events it sent in 0.2.2.
+- The conflict note, the reserved-key notes (a chord with the Windows key never reaches the page off a Mac) and the browser guard (`blockBound` cancels the keys of a bound chord) treat a chord like a combo. The search matches its label ("ctrl shift").
+- A chord written in another order (`'ShiftLeft+ControlLeft'`) is stored in canonical order (`MODIFIER_ORDER`: Ctrl, Shift, Alt, Meta, left before right). `buildChordCode(modifiers)` builds that code and `isModifierChord(code)` recognises one.
+
+**Storage:** a chord is stored like a combo, as its code string in a keyboard slot of the bindings key (`{ "version": 1, "bindings": { "show-names": { "keyboard": ["ControlLeft+ShiftLeft", null], "gamepad": [null] } } }`). Version 0.2.2 reads such a store without error and keeps every binding: it shows the chord in the modal ("Left Ctrl + Left Shift"), lets the player clear or replace it and saves it back unchanged, but never fires it and cannot record one. Stores written by 0.2.2 load unchanged.
 
 ## Gamepads
 

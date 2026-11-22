@@ -317,12 +317,19 @@ export class KeyboardRuntime {
     }
   }
 
-  /** Dispatch 'released' for every held binding and forget them. @private */
+  /**
+   * Dispatch 'released' for every held binding and forget them, and every held
+   * key. Forgotten first, so inside the 'released' listeners isPressed() is
+   * already false, as it is for a keyup.
+   * @private
+   */
   _releaseAll() {
-    for (const comboCode of this._activeBindings.values()) {
+    const released = [...this._activeBindings.values()];
+    this._activeBindings.clear();
+    this._pressed.clear();
+    for (const comboCode of released) {
       this._dispatch(comboCode, 'released', null);
     }
-    this._activeBindings.clear();
   }
 
   /** @private */

@@ -65,4 +65,55 @@ describe('manager.isActionPressed', () => {
     expect(types).toEqual(['pressed', 'released']);
     expect(manager.isActionPressed('zoom-in')).toBe(false);
   });
+
+  // 0.2.4: a release by window blur, by the modal opening or by stop() reads like a keyup
+  describe('inside the released callback it is already false, however the input was released', () => {
+    const RELEASES = {
+      'its keyup or mouseup': (up) => up(),
+      'a window blur': () => window.dispatchEvent(new Event('blur')),
+      'the modal opening': () => manager.open(),
+    };
+    const INPUTS = {
+      key: {
+        binding: 'KeyA',
+        down: () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' })),
+        up: () => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA' })),
+      },
+      combo: {
+        binding: 'ControlLeft+KeyA',
+        down: () => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ControlLeft', ctrlKey: true }));
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', ctrlKey: true }));
+        },
+        up: () => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA', ctrlKey: true })),
+      },
+      chord: {
+        binding: 'ControlLeft+ShiftLeft',
+        down: () => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ControlLeft', ctrlKey: true }));
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft', ctrlKey: true, shiftKey: true }));
+        },
+        up: () => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ShiftLeft', ctrlKey: true })),
+      },
+      'mouse button': {
+        binding: 'MouseButton0',
+        down: () => window.dispatchEvent(new MouseEvent('mousedown', { button: 0 })),
+        up: () => window.dispatchEvent(new MouseEvent('mouseup', { button: 0 })),
+      },
+    };
+    for (const [inputName, input] of Object.entries(INPUTS)) {
+      for (const [releaseName, release] of Object.entries(RELEASES)) {
+        it(`${inputName}, released by ${releaseName}`, () => {
+          const handle = manager.registerAction({ id: 'act', defaultBindings: [input.binding] });
+          const seen = [];
+          handle.onReleased(() => seen.push(manager.isActionPressed('act')));
+          input.down();
+          expect(manager.isActionPressed('act')).toBe(true);
+          release(input.up);
+          expect(seen).toEqual([false]);
+          expect(manager.isActionPressed('act')).toBe(false);
+        });
+      }
+    }
+  });
 });

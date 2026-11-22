@@ -4,7 +4,7 @@
  * as its canonical code string in a keyboard slot, like a combo:
  * "ControlLeft+ShiftLeft". A store written by 0.2.2 loads unchanged.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createBindManager } from '../../src/core/bind-manager.js';
 
 let manager = null;
@@ -49,6 +49,38 @@ describe('chords in storage', () => {
     const saved = JSON.parse(localStorage.getItem('bind-manager:compat'));
     expect(saved.version).toBe(1);
     for (const id of Object.keys(old)) expect(saved.bindings[id]).toEqual(old[id]);
+  });
+
+  it('a store written by 0.2.3 loads unchanged and is saved byte for byte as it was (0.2.4)', () => {
+    // Written by the released 0.2.3 sources (chords, combos, mouse, wheel, gamepad,
+    // an unregistered action) with the registrations below
+    const STORE_023 = '{"version":1,"bindings":{"forward":{"keyboard":["KeyW","ArrowUp"],"gamepad":["GP_A1N"]},"crouch":{"keyboard":["ControlLeft","ControlRight+ShiftRight+AltRight"],"gamepad":[null]},"save":{"keyboard":["ControlLeft+KeyS","ShiftLeft+MouseButton0"],"gamepad":[null]},"names":{"keyboard":["ControlLeft+ShiftLeft","ControlRight+ShiftRight"],"gamepad":[null]},"zoom":{"keyboard":["MouseWheelUp","ControlLeft+MouseWheelUp",null],"gamepad":["GP_B5",null]},"later":{"keyboard":["KeyL",null],"gamepad":["GP_B3"]}}}';
+    localStorage.setItem('bind-manager:compat023', STORE_023);
+    manager = createBindManager({ namespace: 'compat023' });
+    manager.registerAction({ id: 'forward', defaultBindings: ['KeyW', 'ArrowUp'], defaultGamepadBindings: ['GP_A1N'] });
+    manager.registerAction({ id: 'crouch', defaultBindings: ['ControlLeft'] });
+    manager.registerAction({ id: 'save', defaultBindings: ['F2'] });
+    manager.registerAction({ id: 'names', slots: 2, defaultBindings: ['ControlLeft+ShiftLeft'] });
+    manager.registerAction({ id: 'zoom', slots: 3, gamepadSlots: 2, defaultBindings: ['MouseWheelUp'] });
+    const old = JSON.parse(STORE_023).bindings;
+    for (const id of ['forward', 'crouch', 'save', 'names', 'zoom']) {
+      expect(manager.getBinding(id, 'keyboard')).toEqual(old[id].keyboard);
+      expect(manager.getBinding(id, 'gamepad')).toEqual(old[id].gamepad);
+    }
+    // Two changes that cancel out: both are saved, the last save is the 0.2.3 store again
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      manager.setBinding('forward', 0, 'KeyQ');
+      manager.setBinding('forward', 0, 'KeyW');
+      expect(setItem).toHaveBeenCalled();
+    } finally {
+      setItem.mockRestore();
+    }
+    expect(localStorage.getItem('bind-manager:compat023')).toBe(STORE_023);
+    // An export and a merge import of it change nothing either
+    const report = manager.importBindings(manager.exportBindings());
+    expect([report.appliedSlots, report.invalidEntries]).toEqual([0, []]);
+    expect(localStorage.getItem('bind-manager:compat023')).toBe(STORE_023);
   });
 
   it('a chord is stored as its canonical code string in a keyboard slot', () => {

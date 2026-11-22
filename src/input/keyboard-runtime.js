@@ -19,17 +19,22 @@
  * - Capture: the first modifier released with no other key pressed records the
  *   chord of every modifier held at that moment (one modifier: that modifier)
  *
- * A keyup the page never saw (0.2.4), see _releaseLostModifiers():
- * - A keydown (not a repeat) of a key that is down means its keyup was lost: the
- *   key is released first, as by that keyup, then pressed anew
- * - A key event whose modifier flags (ctrlKey, shiftKey, altKey, metaKey) say a
- *   modifier is up that is held here: it is released first, as by its keyup.
- *   Only events from the browser itself (isTrusted) are read. One flag covers
- *   both sides: it releases both, and a lost keyup of one side is not seen while
- *   the other side is down. With AltGr down (getModifierState('AltGraph')) the
- *   Ctrl and Alt flags are not read. An event's own key is never released by it.
- * - Without a lost keyup the flags always agree with the keys held here, so
- *   nothing changes then
+ * A keyup the page never saw (0.2.4), see _releaseLostModifiers(). Both repairs
+ * act only on a trusted event (isTrusted, from the browser itself) and only on
+ * keys held by trusted keydowns: a key that a synthetic keydown pressed (or
+ * pressed again) while it was down is never released by a repair, so synthetic
+ * events (a host's on-screen keys, tests) behave exactly as in 0.2.3.
+ * - A trusted keydown (not a repeat) of a key that a trusted keydown holds means
+ *   its keyup was lost: the key is released first, as by that keyup, then
+ *   pressed anew
+ * - A trusted key event whose modifier flags (ctrlKey, shiftKey, altKey,
+ *   metaKey) say a modifier is up that a trusted keydown holds here: it is
+ *   released first, as by its keyup. One flag covers both sides: it releases
+ *   both, and a lost keyup of one side is not seen while the other side is
+ *   down. With AltGr down (getModifierState('AltGraph')) the Ctrl and Alt flags
+ *   are not read. An event's own key is never released by it.
+ * - The repairs trust the flags: a trusted event whose flags disagree with the
+ *   keys although no keyup was lost releases the modifier early (see the README)
  */
 import { MODIFIER_CODES, MODIFIER_ORDER, buildComboCode, buildChordCode, isModifierChord } from './key-names.js';
 
@@ -47,6 +52,12 @@ export class KeyboardRuntime {
     this._store = bindingStore;
     /** @type {Set<string>} currently held key codes */
     this._pressed = new Set();
+    /**
+     * @type {Set<string>} held keys that only trusted keydowns pressed since they
+     * went down; only these may be released by a repair (read with _pressed:
+     * an entry for a key no longer in _pressed means nothing)
+     */
+    this._trustedHeld = new Set();
     /** @type {Map<string, Set<Function>>} per-action listeners */
     this._actionListeners = new Map();
     /** @type {Set<Function>} listeners for any action event */
@@ -170,6 +181,10 @@ export class KeyboardRuntime {
   /** @private */
   _onKeyDown(event) {
     const code = event.code;
+    const trusted = this._hasTrustedFlags(event);
+    // A synthetic keydown of a held key: a synthetic source holds it now too,
+    // so no repair may release it until it leaves _pressed
+    if (!trusted && !event.repeat) this._trustedHeld.delete(code);
     this._releaseLostModifiers(event);
     // A listener of those releases may have stopped the runtime
     if (!this._active) return;
@@ -190,10 +205,10 @@ export class KeyboardRuntime {
 
       if (MODIFIER_CODES.has(code)) {
         // Modifier pressed: track it but don't commit yet
-        this._pressed.add(code);
+        this._hold(code, trusted);
       } else {
         // Non-modifier pressed: snapshot held modifiers, wait for release
-        this._pressed.add(code);
+        this._hold(code, trusted);
         this._capturePending = {
           code,
           modifiers: this.getHeldModifiers(),
@@ -205,13 +220,15 @@ export class KeyboardRuntime {
     if (this._suppressGameplay) return;
 
     if (!event.repeat) {
-      // The key is down already: its keyup was lost. Release it as that keyup
-      // would have (its chords too), so every pressed gets its released
-      if (this._pressed.has(code) || this._activeBindings.has(code)) {
+      // A trusted keydown of a key a trusted keydown holds: its keyup was lost.
+      // Release it as that keyup would have (its chords too), so every pressed
+      // gets its released. A key a synthetic keydown pressed is left as in 0.2.3
+      // (its entry is replaced and a second pressed is sent).
+      if (trusted && this._isTrustedHeld(code)) {
         this._releaseKey(code, event);
         if (!this._active || this._suppressGameplay || this._captureCallback) return;
       }
-      this._pressed.add(code);
+      this._hold(code, trusted);
       const dispatchCode = MODIFIER_CODES.has(code)
         ? this._resolveModifierCode(code)
         : this._resolveDispatchCode(code);
@@ -303,6 +320,30 @@ export class KeyboardRuntime {
   }
 
   /**
+   * Mark a key held by a non-repeat keydown. A key not held yet is trusted-held
+   * when that keydown is trusted; a key already held keeps its mark (a trusted
+   * second keydown does not make a synthetic hold trusted).
+   * @private
+   * @param {string} code
+   * @param {boolean} trusted
+   */
+  _hold(code, trusted) {
+    if (this._pressed.has(code)) return;
+    this._pressed.add(code);
+    if (trusted) this._trustedHeld.add(code);
+    else this._trustedHeld.delete(code);
+  }
+
+  /**
+   * Whether a repair may release `code`: held, and only by trusted keydowns.
+   * @private
+   * @param {string} code
+   */
+  _isTrustedHeld(code) {
+    return this._pressed.has(code) && this._trustedHeld.has(code);
+  }
+
+  /**
    * Release every modifier held here whose flag in `event` says it is up: its
    * keyup was lost (left in another frame, swallowed by a menu or a host).
    * Done as its keyup would have (its own entry and every chord with it), in
@@ -310,7 +351,8 @@ export class KeyboardRuntime {
    * while gameplay is suppressed it is only forgotten (no dispatch, no commit).
    * Not read: synthetic events, the event's own key, and the Ctrl and Alt flags
    * while AltGr is down (some layouts and browsers report AltGr as Ctrl+Alt,
-   * others clear both flags).
+   * others clear both flags). Not released: a modifier a synthetic keydown
+   * pressed (its flags were never in a trusted event).
    * @private
    * @param {KeyboardEvent} event
    */
@@ -318,7 +360,7 @@ export class KeyboardRuntime {
     if (this._pressed.size === 0 || !this._hasTrustedFlags(event)) return;
     const altGraph = typeof event.getModifierState === 'function' && event.getModifierState('AltGraph') === true;
     for (const code of MODIFIER_ORDER) {
-      if (code === event.code || !this._pressed.has(code)) continue;
+      if (code === event.code || !this._isTrustedHeld(code)) continue;
       const flag = MODIFIER_FLAG[code];
       if (event[flag] !== false) continue;
       if (altGraph && (flag === 'ctrlKey' || flag === 'altKey')) continue;

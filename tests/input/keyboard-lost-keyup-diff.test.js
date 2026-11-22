@@ -16,7 +16,11 @@
  *    0.2.4 always keeps the rules: held and released only while pressed, no
  *    second pressed, no modifier or chord held after an event shows it up, and
  *    after the keys are up and one more key event nothing modifier-bound stays
- *    pressed. The kinds of difference are counted (printed with BM_DIFF_REPORT=1).
+ *    pressed. The kinds of difference are counted (BM_DIFF_REPORT=<file> writes them there).
+ * 3. Both again with synthetic events mixed in (a host's on-screen keys: any
+ *    key, any order, flags none, own or random; not in the flags of the
+ *    browser's events): without lost keyups exactly 0.2.3 again, and with lost
+ *    keyups no repair ever releases a key a synthetic keydown holds.
  *
  * BM_DIFF_SEQUENCES sets the number of sequences per part (default 1500).
  */
@@ -111,6 +115,22 @@ function randomStep(r, world) {
   return world.keys.has(code) ? ['repeat', code] : ['down', code];
 }
 
+/**
+ * A synthetic key event, as a host's on-screen or remapped key sends it: any
+ * key, in any order (second keydowns and keyups of keys not down included),
+ * with no flags, its own flag only, or random flags. Not physical: the flags of
+ * the browser's own events do not show it.
+ */
+function randomSynthStep(r) {
+  const roll = r();
+  const kind = roll < 0.45 ? 'synth-down' : roll < 0.55 ? 'synth-repeat' : 'synth-up';
+  const code = r() < 0.6 ? pick(r, COMMON_MODS) : pick(r, [...MODS, ...KEYS]);
+  return [kind, code, pick(r, ['none', 'own', 'random'])];
+}
+
+/** Events sent by a script (the trusted check of 0.2.4 reads this). */
+const SYNTHETIC = new WeakSet();
+
 /** Apply a step to the world and the page; `lost` drops a keyup's event. */
 function apply(step, world, runtimes, lost) {
   const [kind, arg] = step;
@@ -135,6 +155,14 @@ function apply(step, world, runtimes, lost) {
   } else if (kind === 'open' || kind === 'close') {
     world.suppressed = kind === 'open';
     for (const rt of runtimes) rt.setGameplaySuppressed(world.suppressed);
+  } else if (kind.startsWith('synth-')) {
+    const mode = step[2];
+    const init = { ctrlKey: false, shiftKey: false, altKey: false, metaKey: false };
+    if (mode === 'own' && FLAG[arg]) init[FLAG[arg]] = kind !== 'synth-up';
+    if (mode === 'random') for (const f of Object.keys(init)) init[f] = world.rand() < 0.5;
+    const event = new KeyboardEvent(kind === 'synth-up' ? 'keyup' : 'keydown', { code: arg, repeat: kind === 'synth-repeat', bubbles: true, cancelable: true, ...(mode === 'none' ? {} : init) });
+    SYNTHETIC.add(event);
+    window.dispatchEvent(event);
   }
 }
 
@@ -146,16 +174,17 @@ function innerState(kb, mouse) {
 
 /** Pairing per action and code: returns the first violation, updating `active`. */
 function pairing(lines, active) {
+  let first = null;
   for (const line of lines) {
     const [actionId, type, code] = line.split(':');
     const key = `${actionId}:${code}`;
     const on = active.has(key);
-    if (type === 'pressed' && on) return `second pressed without release: ${line}`;
-    if ((type === 'held' || type === 'released') && !on) return `${type} without pressed: ${line}`;
+    if (type === 'pressed' && on) first ??= `second pressed without release: ${line}`;
+    if ((type === 'held' || type === 'released') && !on) first ??= `${type} without pressed: ${line}`;
     if (type === 'pressed') active.add(key);
     if (type === 'released') active.delete(key);
   }
-  return null;
+  return first;
 }
 
 /** Multiset difference a - b. */
@@ -167,14 +196,15 @@ function minus(a, b) {
 /** Does 0.2.4 repair at this step (state both runtimes share, flags as the event carries them)? */
 function repairCause(step, kb, world, lost) {
   const [kind, code] = step;
+  // Only keys a trusted keydown holds can be repaired, and only by the browser's own events
   // Settling sends keyups for every key down and one more key: a modifier held here but up shows then
-  if (kind === 'settle') return MODIFIER_ORDER.some((m) => kb._pressed.has(m) && !world.keys.has(m)) ? 'flags show a held modifier up' : null;
+  if (kind === 'settle') return MODIFIER_ORDER.some((m) => kb._isTrustedHeld(m) && !world.keys.has(m)) ? 'flags show a held modifier up' : null;
   if (lost || !world.focused || !['down', 'repeat', 'up'].includes(kind)) return null;
   const keys = new Set(world.keys);
   if (kind === 'up') keys.delete(code); else keys.add(code);
   const f = flags({ keys });
-  for (const m of MODIFIER_ORDER) if (m !== code && kb._pressed.has(m) && !f[FLAG[m]]) return 'flags show a held modifier up';
-  if (kind === 'down' && (kb._pressed.has(code) || kb._activeBindings.has(code)) && !world.suppressed) return 'second keydown of a held key';
+  for (const m of MODIFIER_ORDER) if (m !== code && kb._isTrustedHeld(m) && !f[FLAG[m]]) return 'flags show a held modifier up';
+  if (kind === 'down' && kb._isTrustedHeld(code) && !world.suppressed) return 'second keydown of a held key';
   return null;
 }
 
@@ -189,11 +219,11 @@ function kindsOf(step, now, old) {
   return out;
 }
 
-function runSequence(seed, lostRate, tally) {
+function runSequence(seed, lostRate, tally, synthRate = 0) {
   const r = rng(seed);
   const { store, defs } = makeStore(r);
   const kb = new KeyboardRuntime(store);
-  kb._hasTrustedFlags = () => true;
+  kb._hasTrustedFlags = (event) => !SYNTHETIC.has(event);
   const mouse = new MouseRuntime(store, kb);
   const kbOld = new KeyboardRuntime023(store);
   const mouseOld = new MouseRuntime023(store, kbOld);
@@ -203,7 +233,7 @@ function runSequence(seed, lostRate, tally) {
   kbOld.onAnyAction(record('old')); mouseOld.onAnyAction(record('old'));
   const runtimes = [kb, mouse, kbOld, mouseOld];
   for (const rt of runtimes) rt.start();
-  const world = { keys: new Set(), buttons: new Set(), focused: true, suppressed: false };
+  const world = { keys: new Set(), buttons: new Set(), focused: true, suppressed: false, rand: r };
   const steps = [];
   const active = { now: new Set(), old: new Set() };
   const codes = [...new Set(defs.flat().filter(Boolean))];
@@ -213,11 +243,14 @@ function runSequence(seed, lostRate, tally) {
     for (let i = 0; i < total; i++) {
       // The last step settles: every key and button up (delivered), then one more key event
       const settle = i === STEPS;
-      const step = settle ? ['settle'] : randomStep(r, world);
+      const step = settle ? ['settle'] : synthRate > 0 && r() < synthRate ? randomSynthStep(r) : randomStep(r, world);
       const lost = !settle && step[0] === 'up' && r() < lostRate;
       steps.push(step.join(' ') + (lost ? ' (lost)' : ''));
       const sameBefore = innerState(kb, mouse) === innerState(kbOld, mouseOld);
       const cause = sameBefore ? repairCause(step, kb, world, lost) : null;
+      // Keys a synthetic keydown holds: no repair may release them (only a keyup, blur or the modal)
+      const synthHeld = [...kb._pressed].filter((c) => !kb._isTrustedHeld(c));
+      const keyupFor = settle ? new Set([...world.keys, 'KeyQ']) : new Set(step[0] === 'up' || step[0] === 'synth-up' ? [step[1]] : []);
       const before = { now: log.now.length, old: log.old.length };
       if (settle) {
         if (!world.focused) apply(['focus'], world, runtimes, false);
@@ -230,9 +263,18 @@ function runSequence(seed, lostRate, tally) {
       }
       if (lost) tally.lost += 1;
       const added = { now: log.now.slice(before.now), old: log.old.slice(before.old) };
+      // Synthetic second keydowns send a second pressed in both versions (as in 0.2.3),
+      // so the pairing rule holds for 0.2.4 only without synthetic events
       const pairNow = pairing(added.now, active.now);
-      if (pairNow) return fail(`0.2.4: ${pairNow}`);
+      if (pairNow && synthRate === 0) return fail(`0.2.4: ${pairNow}`);
+      if (pairNow) tally.nowPairingSynthetic += 1;
       if (pairing(added.old, active.old)) tally.oldPairing += 1;
+      if (!['blur', 'open'].includes(step[0])) {
+        for (const c of synthHeld) {
+          if (!keyupFor.has(c) && !kb._pressed.has(c)) return fail(`0.2.4 released ${c}, held by a synthetic keydown, at "${step.join(' ')}"`);
+        }
+      }
+      if (step[0].startsWith('synth-')) tally.synthetic += 1;
       const same = JSON.stringify(added.now) === JSON.stringify(added.old);
       if (lostRate === 0) {
         if (!same) return fail(`events differ at "${step.join(' ')}": 0.2.4 ${JSON.stringify(added.now)}, 0.2.3 ${JSON.stringify(added.old)}`);
@@ -255,10 +297,10 @@ function runSequence(seed, lostRate, tally) {
       // After a key event 0.2.4 holds no modifier, and no chord, that the flags show up
       if (world.focused && (settle || ['down', 'repeat', 'up'].includes(step[0]) && !lost)) {
         const f = flags(world);
-        const stale = kb.getHeldModifiers().filter((m) => !f[FLAG[m]] && m !== step[1]);
+        const stale = kb.getHeldModifiers().filter((m) => kb._isTrustedHeld(m) && !f[FLAG[m]] && m !== step[1]);
         if (stale.length) return fail(`0.2.4 still holds ${stale} after "${step.join(' ')}"`);
         for (const code of kb._activeBindings.values()) {
-          if (isModifierChord(code) && code.split('+').some((m) => !f[FLAG[m]])) return fail(`0.2.4 chord ${code} still active after "${step.join(' ')}"`);
+          if (isModifierChord(code) && code.split('+').some((m) => kb._isTrustedHeld(m) && !f[FLAG[m]])) return fail(`0.2.4 chord ${code} still active after "${step.join(' ')}"`);
         }
         if (kbOld.getHeldModifiers().some((m) => !f[FLAG[m]] && m !== step[1])) tally.oldStale += 1;
       }
@@ -267,16 +309,25 @@ function runSequence(seed, lostRate, tally) {
     // Settled: nothing whose key is a modifier stays pressed in 0.2.4; keys whose
     // keyup was lost stay pressed in both versions until pressed again or a blur
     for (const [raw, code] of kb._activeBindings) {
+      // A key a synthetic keydown holds waits for its synthetic keyup, as in 0.2.3
+      if (!kb._isTrustedHeld(raw)) { tally.synthResidual += 1; continue; }
       if (MODIFIER_ORDER.includes(raw)) return fail(`0.2.4 still has ${raw} -> ${code} after settling`);
       tally.residual += 1;
     }
     tally.oldResidualModifiers += [...kbOld._activeBindings.keys()].filter((raw) => MODIFIER_ORDER.includes(raw)).length;
     // A blur releases the rest: every pressed of 0.2.4 got its released
     const n = log.now.length;
+    const nOld = log.old.length;
     window.dispatchEvent(new Event('blur'));
     const closing = pairing(log.now.slice(n), active.now);
-    if (closing) return fail(`0.2.4 after blur: ${closing}`);
-    if (active.now.size > 0) return fail(`0.2.4 pressed without released after blur: ${[...active.now]}`);
+    pairing(log.old.slice(nOld), active.old);
+    if (synthRate === 0) {
+      if (closing) return fail(`0.2.4 after blur: ${closing}`);
+      if (active.now.size > 0) return fail(`0.2.4 pressed without released after blur: ${[...active.now]}`);
+    } else if (lostRate === 0 && sorted(active.now).join() !== sorted(active.old).join()) {
+      // A synthetic second keydown leaves a pressed without its own released, in both versions alike
+      return fail(`after blur 0.2.4 leaves ${sorted(active.now)}, 0.2.3 ${sorted(active.old)}`);
+    }
     return null;
   } finally {
     for (const rt of runtimes) rt.stop();
@@ -288,7 +339,7 @@ function report(line) {
 }
 
 function newTally() {
-  return { steps: 0, lost: 0, diffSteps: 0, oldPairing: 0, oldStale: 0, residual: 0, oldResidualModifiers: 0, kinds: new Map(), causes: new Map() };
+  return { steps: 0, lost: 0, diffSteps: 0, oldPairing: 0, oldStale: 0, residual: 0, oldResidualModifiers: 0, synthetic: 0, synthResidual: 0, nowPairingSynthetic: 0, kinds: new Map(), causes: new Map() };
 }
 
 describe('0.2.4 against 0.2.3: keyboard and mouse runtimes', () => {
@@ -319,5 +370,33 @@ describe('0.2.4 against 0.2.3: keyboard and mouse runtimes', () => {
     expect(tally.lost).toBeGreaterThan(SEQUENCES);
     expect(tally.diffSteps).toBeGreaterThan(SEQUENCES / 10);
     expect(tally.oldPairing).toBeGreaterThan(0);
+  }, TIMEOUT_MS);
+
+  it(`synthetic and trusted events mixed, no keyup lost: the same events and state at every step (${SEQUENCES} sequences of ${STEPS} steps)`, () => {
+    const tally = newTally();
+    for (let seed = 1; seed <= SEQUENCES; seed++) {
+      const failure = runSequence(9e6 + seed, 0, tally, 0.25);
+      if (failure) expect.fail(failure);
+    }
+    if (process.env.BM_DIFF_REPORT) report(`[diff] mixed, no lost keyups: ${SEQUENCES} sequences, ${tally.steps} steps (${tally.synthetic} synthetic), 0 differences; synthetic second pressed in both versions: ${tally.nowPairingSynthetic} steps`);
+    expect(tally.steps).toBe(SEQUENCES * (STEPS + 1));
+    // Synthetic double keydowns really happen (0.2.3 and 0.2.4 both send a second pressed)
+    expect(tally.synthetic).toBeGreaterThan(SEQUENCES * 5);
+    expect(tally.nowPairingSynthetic).toBeGreaterThan(0);
+  }, TIMEOUT_MS);
+
+  it(`synthetic and trusted events mixed, keyups lost: every difference is a repair, no repair touches a synthetic hold (${SEQUENCES} sequences of ${STEPS} steps)`, () => {
+    const tally = newTally();
+    for (let seed = 1; seed <= SEQUENCES; seed++) {
+      const failure = runSequence(13e6 + seed, 0.2, tally, 0.25);
+      if (failure) expect.fail(failure);
+    }
+    if (process.env.BM_DIFF_REPORT) {
+      report(`[diff] mixed, lost keyups: ${SEQUENCES} sequences, ${tally.steps} steps (${tally.synthetic} synthetic), ${tally.lost} keyups lost, ${tally.diffSteps} steps differ`);
+      report(`[diff] repairs started by: ${JSON.stringify(Object.fromEntries(tally.causes))}`);
+      report(`[diff] keys held by a synthetic keydown left after settling (both versions, until their synthetic keyup or blur): ${tally.synthResidual}`);
+    }
+    expect(tally.lost).toBeGreaterThan(SEQUENCES);
+    expect(tally.diffSteps).toBeGreaterThan(SEQUENCES / 10);
   }, TIMEOUT_MS);
 });

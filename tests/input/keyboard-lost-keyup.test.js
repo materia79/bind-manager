@@ -4,20 +4,25 @@
  * stops the event, Cmd on macOS (the keyups of other keys are not delivered
  * while it is held). The window keeps its focus, so no blur cleans up.
  *
- * - A second keydown (not a repeat) of a key that is down: its keyup was lost.
- *   The old press is released first, so every pressed gets its released.
- * - A key event whose modifier flags (ctrlKey, shiftKey, altKey, metaKey) say a
- *   modifier is up that the runtime holds: that modifier is released first, as if
- *   its keyup had arrived (its own entry and every chord with it).
- *   Only events from the browser itself (isTrusted) are read: a synthetic event
- *   often has no flags set. A flag covers both sides, so it releases both and
- *   cannot release one side while the other is down. With AltGr held
+ * Both repairs act only on a trusted event (from the browser itself) and only
+ * on keys held by trusted keydowns:
+ * - A trusted second keydown (not a repeat) of a key a trusted keydown holds:
+ *   its keyup was lost. The old press is released first, so every pressed gets
+ *   its released.
+ * - A trusted key event whose modifier flags (ctrlKey, shiftKey, altKey,
+ *   metaKey) say a modifier is up that a trusted keydown holds: that modifier is
+ *   released first, as if its keyup had arrived (its own entry and every chord
+ *   with it). A flag covers both sides, so it releases both and cannot release
+ *   one side while the other is down. With AltGr held
  *   (getModifierState('AltGraph')) the Ctrl and Alt flags are not read. The
  *   event's own key is never released by its flags.
+ * - A key a synthetic keydown pressed (or pressed again while it was down) is
+ *   never released by a repair, and a synthetic event never repairs: synthetic
+ *   events (a host's on-screen keys, its tests) behave exactly as in 0.2.3.
  *
  * jsdom events are never trusted (isTrusted cannot be set), so these tests
- * mark the runtime as reading flags; the Chromium tests in
- * tests/e2e/lost-keyup.spec.js use real, trusted events.
+ * let the runtime treat events as trusted unless marked synthetic; the
+ * Chromium tests in tests/e2e/lost-keyup.spec.js use real, trusted events.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { KeyboardRuntime } from '../../src/input/keyboard-runtime.js';
@@ -29,14 +34,20 @@ const FLAG = { ControlLeft: 'ctrlKey', ControlRight: 'ctrlKey', ShiftLeft: 'shif
 let runtime = null;
 let held = new Set();
 let log = [];
+/** Events a test marks as synthetic (sent by a script, not the browser). */
+const SYNTHETIC = new WeakSet();
 
-/** A runtime with these bindings ({ actionId: code }); `trusted`: read the events' flags. */
+/**
+ * A runtime with these bindings ({ actionId: code }). `trusted`: events count
+ * as the browser's own (flags read) unless marked synthetic; false: every
+ * event is synthetic, as jsdom's really are.
+ */
 function setup(bindings, { trusted = true } = {}) {
   const registry = new ActionRegistry();
   const store = new BindingStore(registry);
   for (const [id, code] of Object.entries(bindings)) store.initAction(registry.register({ id, slots: 1, defaultBindings: [code] }));
   runtime = new KeyboardRuntime(store);
-  if (trusted) runtime._hasTrustedFlags = () => true;
+  if (trusted) runtime._hasTrustedFlags = (event) => !SYNTHETIC.has(event);
   runtime.onAnyAction((e) => log.push(`${e.actionId}:${e.type}`));
   runtime.start();
   return runtime;
@@ -58,13 +69,20 @@ function key(type, code, { lost = false, repeat = false, altGraph = false } = {}
   window.dispatchEvent(event);
 }
 
+/** A synthetic key event, as a host's on-screen button sends it: not physical, its own flags. */
+function synth(type, code, init = {}) {
+  const event = new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...init });
+  SYNTHETIC.add(event);
+  window.dispatchEvent(event);
+}
+
 const take = () => log.splice(0);
 
 afterEach(() => { runtime?.stop(); runtime = null; held = new Set(); log = []; });
 
 describe('a second keydown after a lost keyup', () => {
-  it('releases the first press before the new one (also for synthetic events)', () => {
-    setup({ jump: 'KeyA' }, { trusted: false });
+  it('releases the first press before the new one', () => {
+    setup({ jump: 'KeyA' });
     key('keydown', 'KeyA');
     key('keyup', 'KeyA', { lost: true });
     key('keydown', 'KeyA');
@@ -74,7 +92,7 @@ describe('a second keydown after a lost keyup', () => {
   });
 
   it('a combo: the old combo is released, the new press resolves anew', () => {
-    setup({ select: 'ControlLeft+KeyA', jump: 'KeyA' }, { trusted: false });
+    setup({ select: 'ControlLeft+KeyA', jump: 'KeyA' });
     key('keydown', 'ControlLeft');
     key('keydown', 'KeyA');
     key('keyup', 'KeyA', { lost: true });
@@ -84,7 +102,7 @@ describe('a second keydown after a lost keyup', () => {
   });
 
   it('a modifier: its chord is released with it, then the keydown fires the chord again', () => {
-    setup({ names: 'ControlLeft+ShiftLeft' }, { trusted: false });
+    setup({ names: 'ControlLeft+ShiftLeft' });
     key('keydown', 'ControlLeft');
     key('keydown', 'ShiftLeft');
     key('keyup', 'ControlLeft', { lost: true });
@@ -96,10 +114,97 @@ describe('a second keydown after a lost keyup', () => {
   });
 
   it('a repeat is still a repeat: held, nothing released', () => {
-    setup({ jump: 'KeyA' }, { trusted: false });
+    setup({ jump: 'KeyA' });
     key('keydown', 'KeyA');
     key('keydown', 'KeyA', { repeat: true });
     expect(take()).toEqual(['jump:pressed', 'jump:held']);
+  });
+});
+
+describe('synthetic events and keys a synthetic keydown holds: exactly as in 0.2.3', () => {
+  it('three synthetic keydowns and one keyup: pressed three times, released once', () => {
+    setup({ walk: 'KeyW' });
+    synth('keydown', 'KeyW');
+    synth('keydown', 'KeyW');
+    synth('keydown', 'KeyW');
+    synth('keyup', 'KeyW');
+    expect(take()).toEqual(['walk:pressed', 'walk:pressed', 'walk:pressed', 'walk:released']);
+  });
+
+  it('the same with every event synthetic, as jsdom sends them', () => {
+    setup({ walk: 'KeyW' }, { trusted: false });
+    synth('keydown', 'KeyW');
+    synth('keydown', 'KeyW');
+    synth('keyup', 'KeyW');
+    expect(take()).toEqual(['walk:pressed', 'walk:pressed', 'walk:released']);
+  });
+
+  it('a synthetic Shift held by a host is not released by a real key\'s flags', () => {
+    setup({ run: 'ShiftLeft', walk: 'KeyW' });
+    synth('keydown', 'ShiftLeft', { shiftKey: true });
+    key('keydown', 'KeyW');
+    key('keyup', 'KeyW');
+    expect(take()).toEqual(['run:pressed', 'walk:pressed', 'walk:released']);
+    expect(runtime.isPressed('ShiftLeft')).toBe(true);
+    synth('keyup', 'ShiftLeft');
+    expect(take()).toEqual(['run:released']);
+  });
+
+  it('a synthetic modifier still counts for combos and chords of real keys', () => {
+    setup({ sprintJump: 'ShiftLeft+Space', names: 'ControlLeft+ShiftLeft' });
+    synth('keydown', 'ShiftLeft');
+    key('keydown', 'Space');
+    key('keyup', 'Space');
+    key('keydown', 'ControlLeft');
+    expect(take()).toEqual(['sprintJump:pressed', 'sprintJump:released', 'names:pressed']);
+  });
+
+  it('held by a synthetic keydown, a real second keydown: no repair (a second pressed, as in 0.2.3)', () => {
+    setup({ walk: 'KeyW' });
+    synth('keydown', 'KeyW');
+    key('keydown', 'KeyW');
+    expect(take()).toEqual(['walk:pressed', 'walk:pressed']);
+    key('keyup', 'KeyW');
+    synth('keyup', 'KeyW');
+    expect(take()).toEqual(['walk:released']);
+  });
+
+  it('held by a real keydown, a synthetic second keydown: no repair, and the key is never repaired after it', () => {
+    setup({ walk: 'KeyW', run: 'ShiftLeft' });
+    key('keydown', 'KeyW');
+    synth('keydown', 'KeyW');
+    expect(take()).toEqual(['walk:pressed', 'walk:pressed']);
+    // A real keydown again (its keyup "lost"): the synthetic source may still hold it, so no release
+    key('keydown', 'KeyW');
+    expect(take()).toEqual(['walk:pressed']);
+    // Same for a modifier and the flags: a real Shift, then a synthetic Shift keydown
+    key('keydown', 'ShiftLeft');
+    synth('keydown', 'ShiftLeft', { shiftKey: true });
+    key('keyup', 'ShiftLeft', { lost: true });
+    key('keydown', 'KeyQ');
+    expect(take()).toEqual(['run:pressed', 'run:pressed']);
+    expect(runtime.isPressed('ShiftLeft')).toBe(true);
+  });
+
+  it('a synthetic event never repairs a real key whose keyup was lost', () => {
+    setup({ crouch: 'ControlLeft', jump: 'KeyA' });
+    key('keydown', 'ControlLeft');
+    key('keyup', 'ControlLeft', { lost: true });
+    synth('keydown', 'KeyA');
+    expect(take()).toEqual(['crouch:pressed', 'jump:pressed']);
+    // The next real event does
+    key('keydown', 'KeyS');
+    expect(take()).toEqual(['crouch:released']);
+  });
+
+  it('a key that left and came back with a real keydown is repaired again', () => {
+    setup({ walk: 'KeyW' });
+    synth('keydown', 'KeyW');
+    synth('keyup', 'KeyW');
+    key('keydown', 'KeyW');
+    key('keyup', 'KeyW', { lost: true });
+    key('keydown', 'KeyW');
+    expect(take()).toEqual(['walk:pressed', 'walk:released', 'walk:pressed', 'walk:released', 'walk:pressed']);
   });
 });
 

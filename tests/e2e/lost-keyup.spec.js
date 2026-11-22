@@ -19,7 +19,10 @@ async function setup(page) {
       { id: 'names', defaultBindings: ['ControlLeft+ShiftLeft'] },
       { id: 'select', defaultBindings: ['ControlLeft+KeyA'] },
       { id: 'jump', defaultBindings: ['KeyA'] },
+      { id: 'walk', defaultBindings: ['KeyW'] },
     ]);
+    // A host's on-screen or remapped key: a synthetic KeyboardEvent on window
+    window.__synth = (type, code, init = {}) => window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...init }));
     window.__events = [];
     bm.onAnyAction((e) => { if (e.type !== 'held') window.__events.push(`${e.actionId}:${e.type}`); });
     window.__swallow = new Set();
@@ -72,6 +75,42 @@ test.describe('a lost keyup (Chromium, trusted events)', () => {
     await page.keyboard.press('KeyA');
     await page.keyboard.up('Control');
     expect(await events(page)).toEqual(['crouch:pressed', 'names:pressed', 'names:released', 'select:pressed', 'select:released', 'crouch:released']);
+  });
+
+  test('a Shift held by a synthetic keydown (a host\'s on-screen key) is not released by a real W', async ({ page }) => {
+    await setup(page);
+    await page.evaluate(() => window.__synth('keydown', 'ShiftLeft', { shiftKey: true }));
+    await page.keyboard.press('KeyW');
+    expect(await events(page)).toEqual(['run:pressed', 'walk:pressed', 'walk:released']);
+    expect(await page.evaluate(() => window.__bm.isActionPressed('run'))).toBe(true);
+    await page.evaluate(() => window.__synth('keyup', 'ShiftLeft'));
+    expect(await events(page)).toEqual(['run:released']);
+  });
+
+  test('three synthetic keydowns and one keyup: pressed three times, released once (0.2.3)', async ({ page }) => {
+    await setup(page);
+    await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__synth('keydown', 'KeyW'); window.__synth('keyup', 'KeyW'); });
+    expect(await events(page)).toEqual(['walk:pressed', 'walk:pressed', 'walk:pressed', 'walk:released']);
+  });
+
+  test('mixed: held by a synthetic keydown, a real keydown is no repair; held by a real keydown, a synthetic one is none either', async ({ page }) => {
+    await setup(page);
+    await page.evaluate(() => window.__synth('keydown', 'KeyW'));
+    await page.keyboard.down('KeyW');
+    expect(await events(page)).toEqual(['walk:pressed', 'walk:pressed']);
+    await page.keyboard.up('KeyW');
+    await page.evaluate(() => window.__synth('keyup', 'KeyW'));
+    expect(await events(page)).toEqual(['walk:released']);
+
+    await page.keyboard.down('KeyW');
+    await page.evaluate(() => window.__synth('keydown', 'KeyW'));
+    // The real keyup is lost, then a real keydown again: the synthetic source may hold W, so no release
+    await swallowNextKeyup(page, 'KeyW');
+    await page.keyboard.up('KeyW');
+    await page.keyboard.down('KeyW');
+    expect(await events(page)).toEqual(['walk:pressed', 'walk:pressed', 'walk:pressed']);
+    await page.keyboard.up('KeyW');
+    expect(await events(page)).toEqual(['walk:released']);
   });
 
   test('a synthetic event is not read for flags (0.2.3 behaviour)', async ({ page }) => {

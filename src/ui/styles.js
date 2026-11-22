@@ -595,6 +595,18 @@ const CSS = `
 .bm-layout-narrow .bm-device-row {
   width: calc((32 + max(var(--bm-kb-slots, 2), var(--bm-gp-slots, 1)) * 154 - 6) * var(--bm-u));
 }
+/*
+ * Phones and tablets (a coarse primary pointer) in the narrow layout: each
+ * action's device rows are as wide as its own slots, not the widest action's,
+ * so one action with many slots does not push every reset button onto a line
+ * of its own. Slots still start at the same place and have the same width, so
+ * they line up; an action with too many slots for the line wraps its own.
+ */
+@media (pointer: coarse) {
+  .bm-layout-narrow .bm-device-row {
+    width: auto;
+  }
+}
 .bm-layout-narrow .bm-action-info {
   flex-basis: 100%;
 }

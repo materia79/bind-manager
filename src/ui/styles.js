@@ -136,7 +136,12 @@ const CSS = `
   max-height: min(var(--bm-modal-max-h, calc(880 * var(--bm-u))), calc(100dvh - min(32 * var(--bm-u), 4dvh)));
   display: flex;
   flex-direction: column;
+  /* Only the list (.bm-modal-body) scrolls: clip, unlike hidden, is no scroll
+     container, so scrollIntoView() and focus() on a row cannot move the header,
+     the search field and the footer. Browsers without clip keep hidden (the
+     modal controller puts a scrolled box back). */
   overflow: hidden;
+  overflow: clip;
   box-shadow:
     0 0 0 1px var(--bm-modal-border),
     0 calc(24 * var(--bm-u)) calc(64 * var(--bm-u)) rgba(0, 0, 0, 0.6);

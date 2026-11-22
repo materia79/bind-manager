@@ -111,6 +111,18 @@ export class ModalController {
       if (e.target instanceof HTMLInputElement && e.target.matches('.bm-search-input')) this._setSearchText(e.target.value);
     });
 
+    // Only the list scrolls. The box is overflow: clip (never scrolls); where
+    // clip is unknown (Safari before 16) it is overflow: hidden, which code can
+    // still scroll (scrollIntoView, focus()): put it back, the list keeps its part.
+    // Scroll events do not bubble, so this listens in the capture phase.
+    this._overlay.addEventListener('scroll', (e) => {
+      const box = e.target;
+      if (box instanceof HTMLElement && box.classList.contains('bm-modal') && (box.scrollTop !== 0 || box.scrollLeft !== 0)) {
+        box.scrollTop = 0;
+        box.scrollLeft = 0;
+      }
+    }, true);
+
     this._overlay.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') {
         const input = this._searchInput();

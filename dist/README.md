@@ -63,7 +63,7 @@ To publish it, copy `standalone-demo.html` and `bind-manager.min.js` into the sa
 
 ## Bundle size
 
-`bind-manager.min.js` is 228,752 bytes minified (about 63.5 kB with `gzip -9`) at this version (0.2.4), up from 134,734 bytes (34,471 bytes with `gzip -9`) in 0.1.0, the last public build (`main-latest` of 2026-08-10). The growth is the built-in tools (the SVG controller view, the Debug and Profile editor panels), the eight gamepad families, the scale-unit stylesheet, the browser shortcut guard, the wheel notch counter, the reserved-key notes (0.2.1), the bindings search and foldable groups (0.2.2), modifier-only chords (0.2.3), and the fixes from the first consumer (0.2.4). Measure your own build with `npm run build`; the numbers above are from the build of this tree.
+`bind-manager.min.js` is 229,121 bytes minified (about 63.6 kB with `gzip -9`) at this version (0.2.4), up from 134,734 bytes (34,471 bytes with `gzip -9`) in 0.1.0, the last public build (`main-latest` of 2026-08-10). The growth is the built-in tools (the SVG controller view, the Debug and Profile editor panels), the eight gamepad families, the scale-unit stylesheet, the browser shortcut guard, the wheel notch counter, the reserved-key notes (0.2.1), the bindings search and foldable groups (0.2.2), modifier-only chords (0.2.3), and the fixes from the first consumer (0.2.4). Measure your own build with `npm run build`; the numbers above are from the build of this tree.
 
 ## Rebuilding
 

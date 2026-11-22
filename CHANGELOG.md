@@ -4,6 +4,25 @@ All notable changes to bind-manager are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-22
+
+### Fixed
+
+- **Only the list of the Key Bindings modal scrolls.** The modal box was `overflow: hidden`, which code can still scroll: a host's `scrollIntoView()` on a row (or anything else that scrolls an element inside into view) moved the whole box, and the header, the search field and the footer left the screen (with 80 actions the box scrolled by 421 px at 390x844 and by 470 px at 1280x800). The box is now `overflow: clip`, so the list scrolls and the row still comes into view inside it. Browsers without `overflow: clip` (Safari before 16) keep `overflow: hidden`, and the modal puts a scrolled box back.
+- **A keyup the page never saw no longer leaves keys pressed or modifiers held while the window keeps its focus.** A second keydown of a key that is down (not a repeat) releases the first press before the new one; before, the listener got a second `pressed` and never a `released` for the first. A key event whose modifier flags show a held modifier up releases that modifier first (with its chords): a chord no longer fires on a single modifier press or twice, an exact-set chord is no longer blocked by a modifier left over, and Ctrl + A is no longer sent once Ctrl is up (this was so since 0.2.0). Both repairs act only on events from the browser itself and only on keys such events pressed, so synthetic key events (a script, a host's on-screen keys, tests) behave as in 0.2.3 as long as no keyup of a real key is lost (a modifier-only chord a synthetic modifier completes with a real modifier ends when that modifier is repaired); one flag covers Left and Right; with AltGr down the Ctrl and Alt flags are not read. A modifier lost during a recording is no longer recorded with the next key. See the README, [Runtime input and subscriptions](README.md#runtime-input-and-subscriptions).
+- **`isActionPressed()` is `false` inside the `released` listener** when a window blur, the modal opening or `destroy()` releases a key or mouse button, as it already was for a keyup or mouseup.
+- **Phones: one action with many slots no longer widens every row.** On a coarse primary pointer in the narrow row layout, each action's device rows are as wide as its own slots: an action with one or two slots keeps its reset button on its line (rows 83 px instead of 112 px tall on a 390 px wide phone in the example of 80 actions), and an action with more slots wraps its own. Desktop layouts are unchanged.
+- **Importing a chord that differs from the stored one only in key order is no change**: no applied slot in the report and no change event. In merge mode nothing is saved; in replace mode the store is still written once with the same bytes, as before this release.
+
+### Added
+
+- **New export** `normalizeChordCode(code)`: a modifier-only chord written in any order in `MODIFIER_ORDER` (`'ShiftLeft+ControlLeft'` → `'ControlLeft+ShiftLeft'`), anything else unchanged, so a host can compare stored chords.
+
+### Changed
+
+- As long as no keyup of a real key is lost and the browser's modifier flags match the keys held, every binding sends exactly the events of 0.2.3, synthetic key events (a script, a host's on-screen keys, tests) included. A key a synthetic keydown pressed is never itself released by a repair, but a modifier-only chord it completes with a real modifier ends when that modifier is repaired. A test runs random sequences of keys, repeats, synthetic key events, mouse buttons, wheel notches, blur, focus and the modal opening and closing on 0.2.4 and on the released 0.2.3 keyboard and mouse runtimes and compares them. What a host can notice: after a lost keyup it gets a `released` earlier, where 0.2.3 sent none or a second `pressed`, and the codes that follow are resolved without the modifier that is up; a trusted second keydown (not a repeat) of a key that is down gives `released` + `pressed` where 0.2.3 gave a second `pressed`; where the browser's own flags say a modifier is up although it is held (automation that sets the flags per key name, such as holding both Shift keys in Playwright and letting one go; key events sent through a debugger with empty flags; see the README), that modifier is released early. The browser shortcut guard reads the held modifiers before the repair, so the first key event after a lost keyup is still guarded as if the modifier were down. On phones and tablets the reset buttons of rows with fewer slots than the widest action no longer line up with the widest row's.
+- Not changed: a modifier already held when a recording starts is still not counted (Ctrl held, start recording, tap Shift records Shift alone). The flags of the later events would show that Ctrl is down, but not which Ctrl, and Left and Right are different bindings; the README says so.
+
 ## [0.2.3] - 2026-11-22
 
 ### Added

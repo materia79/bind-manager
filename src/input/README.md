@@ -92,7 +92,7 @@ It exports:
 - `isKnownCode(code)` (a combo is known when every part is)
 - `MODIFIER_ORDER`, `MODIFIER_CODES`
 - `buildComboCode(modifiers, primaryCode)`: the canonical combo string, modifiers in `MODIFIER_ORDER`
-- `buildChordCode(modifiers)`: the canonical modifier-only chord string (`ControlLeft+ShiftLeft`), `isModifierChord(code)`, and `normalizeChordCode(code)` (internal: a chord in another order put in canonical order, anything else unchanged)
+- `buildChordCode(modifiers)`: the canonical modifier-only chord string (`ControlLeft+ShiftLeft`), `isModifierChord(code)`, and `normalizeChordCode(code)` (public since 0.2.4: a chord in another order put in canonical order, anything else unchanged)
 
 All of them are exported from `src/index.js`.
 
@@ -283,7 +283,20 @@ For a bound keyboard code, the runtime emits:
 
 ### Blur behavior
 
-If the window loses focus, all currently pressed keys are released internally and `released` events are fired for them. This avoids the classic stuck-key problem when users alt-tab away from the page.
+If the window loses focus, all currently pressed keys are released internally and `released` events are fired for them. This avoids the classic stuck-key problem when users alt-tab away from the page. The keys are forgotten before the events are fired, so `isPressed()` (and `isActionPressed()`) already read `false` inside a `released` listener, as after a keyup; the same holds when suppression (the modal opening) or `stop()` releases them, and for the mouse runtime.
+
+### Lost keyups (0.2.4)
+
+A keyup can be lost while the window keeps its focus (another frame, a native menu or a host listener got it; on macOS the keyups of other keys while Cmd is held). Two repairs, both done as that keyup would have been handled (`_releaseKey()`), before the event itself:
+
+- A trusted keydown that is not a repeat, for a key in `_trustedHeld`, releases the key first (its entry and, for a modifier, its chords), then presses it anew.
+- `_releaseLostModifiers()`: a trusted key event whose flags (`ctrlKey`, `shiftKey`, `altKey`, `metaKey`) say a modifier in `_trustedHeld` is up releases it, in `MODIFIER_ORDER`. Never the event's own key; not the Ctrl and Alt flags while `getModifierState('AltGraph')` is true. A flag covers both sides: off releases Left and Right, on keeps both (a lost keyup of one side is not seen while the other is down). During a capture or while suppressed the modifier is only forgotten, with no dispatch and no commit.
+
+Trusted means `_hasTrustedFlags()` (`isTrusted`). `_trustedHeld` holds the keys that only trusted keydowns pressed since they went down; a synthetic keydown of a held key takes it out until it leaves `_pressed`. A synthetic event never repairs and a key a synthetic keydown holds is never itself repaired, so synthetic events behave as in 0.2.3 as long as no keyup of a real key is lost. A modifier-only chord such a key completes with a real modifier still ends when that modifier is repaired (`_releaseChordsWith()` releases every chord with it), and the later synthetic keyup then sends nothing for it; a combo whose key a synthetic keydown pressed stays until that keyup.
+
+The repairs trust the flags. Where trusted flags say a modifier is up although no keyup was lost, it is released early: automation that sets flags per key name and not per side, debugger-driven key events with empty flags, and (not verified in a real browser) Windows NumLock with Shift held and a numpad key, or a Meta key reported with `metaKey` false. `tests/input/keyboard-lost-keyup-diff.test.js` runs random sequences, trusted and synthetic events mixed, on this runtime and the released 0.2.3 one; with flags that match the held keys and no lost keyup it requires identical events and state.
+
+The browser shortcut guard's capture listener runs before the runtime's and reads `getHeldModifiers()` before the repair, so the first key event after a lost keyup is still guarded as if the modifier were down.
 
 ### Keyboard capture
 
@@ -295,6 +308,7 @@ While active:
 - pressing a non-modifier key records it with the modifiers held at that moment; the binding commits when that key is released (capture-on-release), as a combo such as `ControlLeft+KeyS`
 - a modifier released with no other key pressed commits at once, as the chord of every modifier held at that moment: the modifier itself when it is alone, otherwise a modifier-only chord such as `ControlLeft+ShiftLeft` (in canonical order, whatever order the keys went down in)
 - `Escape` cancels capture on keydown and returns `null`
+- a modifier already held when capture starts is not counted (its keydown came before; the flags of later events tell that Ctrl is down but not which Ctrl, so they are not used to add it)
 
 ## Gamepad behavior in detail
 

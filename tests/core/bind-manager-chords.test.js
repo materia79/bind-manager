@@ -3,7 +3,7 @@
  * bound chord like a bound combo, reserved-key notes read chords, conflicts and
  * isActionPressed() work, and stored chords round-trip.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createBindManager } from '../../src/core/bind-manager.js';
 import { getReservedInfo } from '../../src/input/reserved-codes.js';
 
@@ -128,5 +128,37 @@ describe('chords through the manager', () => {
     expect(report.invalidEntries).toEqual([]);
     expect(manager.getBinding('names')).toEqual(['ControlRight+ShiftRight', 'ControlLeft+ShiftLeft']);
     expect(manager.exportBindings({ includeMetadata: false }).bindings.names.keyboard).toEqual(['ControlRight+ShiftRight', 'ControlLeft+ShiftLeft']);
+  });
+
+  it('importing a chord that differs from the stored one only in key order is no change: no change event, no save (0.2.4)', () => {
+    manager = createBindManager({ namespace: 'chord-import-order' });
+    manager.registerAction({ id: 'names', slots: 2, defaultBindings: ['ControlLeft+ShiftLeft', null] });
+    manager.setBinding('names', 1, 'ControlRight+AltRight');
+    const stored = localStorage.getItem('bind-manager:chord-import-order');
+    const changes = [];
+    manager.subscribe((e) => changes.push(e));
+    const payload = { version: 2, bindings: { names: { keyboard: ['ShiftLeft+ControlLeft', 'AltRight+ControlRight'], gamepad: [null] } } };
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      const report = manager.importBindings(payload);
+      expect(report.invalidEntries).toEqual([]);
+      expect(report.appliedSlots).toBe(0);
+      expect(report.appliedActions).toBe(0);
+      expect(changes).toEqual([]);
+      expect(setItem).not.toHaveBeenCalled();
+    } finally {
+      setItem.mockRestore();
+    }
+    // Replace mode: no change either (it rewrites the saved entries of unregistered
+    // actions on every import, as before, here with the same bytes)
+    const report = manager.importBindings(payload, { mode: 'replace' });
+    expect([report.appliedSlots, report.appliedActions]).toEqual([0, 0]);
+    expect(changes).toEqual([]);
+    expect(localStorage.getItem('bind-manager:chord-import-order')).toBe(stored);
+    expect(manager.getBinding('names')).toEqual(['ControlLeft+ShiftLeft', 'ControlRight+AltRight']);
+    // A real change in the same import still applies
+    const changed = manager.importBindings({ version: 2, bindings: { names: { keyboard: ['ShiftLeft+ControlLeft', 'ShiftRight+ControlRight'], gamepad: [null] } } });
+    expect(changed.appliedSlots).toBe(1);
+    expect(manager.getBinding('names')).toEqual(['ControlLeft+ShiftLeft', 'ControlRight+ShiftRight']);
   });
 });

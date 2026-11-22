@@ -20,6 +20,22 @@ describe('package entry exports the gamepad codes and helpers', () => {
     expect(pkg.parseGamepadId('054c-0ce6-DualSense Wireless Controller').key).toBe('054c-0ce6');
   });
 
+  it('chord helpers: normalizeChordCode puts a chord in MODIFIER_ORDER and leaves anything else (0.2.4)', () => {
+    expect(pkg.normalizeChordCode('ShiftLeft+ControlLeft')).toBe('ControlLeft+ShiftLeft');
+    expect(pkg.normalizeChordCode('MetaRight+AltLeft+ShiftRight')).toBe('ShiftRight+AltLeft+MetaRight');
+    expect(pkg.normalizeChordCode('ControlLeft+ShiftLeft')).toBe('ControlLeft+ShiftLeft');
+    // Compares stored chords whatever order they were written in
+    expect(pkg.normalizeChordCode('ShiftRight+ControlRight')).toBe(pkg.normalizeChordCode('ControlRight+ShiftRight'));
+    expect(pkg.normalizeChordCode('ShiftRight+ControlRight')).toBe(pkg.buildChordCode(['ShiftRight', 'ControlRight']));
+    // Not a chord: unchanged, combos with a key written out of order included
+    expect(pkg.normalizeChordCode('ShiftLeft+ControlLeft+KeyA')).toBe('ShiftLeft+ControlLeft+KeyA');
+    expect(pkg.normalizeChordCode('ControlLeft')).toBe('ControlLeft');
+    expect(pkg.normalizeChordCode('KeyA')).toBe('KeyA');
+    expect(pkg.normalizeChordCode(null)).toBe(null);
+    expect(typeof pkg.isModifierChord).toBe('function');
+    expect(pkg.MODIFIER_ORDER[0]).toBe('ControlLeft');
+  });
+
   it('resolver and runtime helpers', () => {
     expect(typeof pkg.isControllerProfileApplicable).toBe('function');
     expect(pkg.decodeHatValue(-1).up).toBe(true);

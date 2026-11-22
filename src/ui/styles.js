@@ -136,7 +136,12 @@ const CSS = `
   max-height: min(var(--bm-modal-max-h, calc(880 * var(--bm-u))), calc(100dvh - min(32 * var(--bm-u), 4dvh)));
   display: flex;
   flex-direction: column;
+  /* Only the list (.bm-modal-body) scrolls: clip, unlike hidden, is no scroll
+     container, so scrollIntoView() and focus() on a row cannot move the header,
+     the search field and the footer. Browsers without clip keep hidden (the
+     modal controller puts a scrolled box back). */
   overflow: hidden;
+  overflow: clip;
   box-shadow:
     0 0 0 1px var(--bm-modal-border),
     0 calc(24 * var(--bm-u)) calc(64 * var(--bm-u)) rgba(0, 0, 0, 0.6);
@@ -589,6 +594,18 @@ const CSS = `
 .bm-layout-stacked .bm-device-row,
 .bm-layout-narrow .bm-device-row {
   width: calc((32 + max(var(--bm-kb-slots, 2), var(--bm-gp-slots, 1)) * 154 - 6) * var(--bm-u));
+}
+/*
+ * Phones and tablets (a coarse primary pointer) in the narrow layout: each
+ * action's device rows are as wide as its own slots, not the widest action's,
+ * so one action with many slots does not push every reset button onto a line
+ * of its own. Slots still start at the same place and have the same width, so
+ * they line up; an action with too many slots for the line wraps its own.
+ */
+@media (pointer: coarse) {
+  .bm-layout-narrow .bm-device-row {
+    width: auto;
+  }
 }
 .bm-layout-narrow .bm-action-info {
   flex-basis: 100%;

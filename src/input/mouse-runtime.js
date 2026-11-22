@@ -344,12 +344,18 @@ export class MouseRuntime {
     }
   }
 
-  /** Dispatch 'released' for every held binding and forget them. @private */
+  /**
+   * Dispatch 'released' for every held binding and forget them. Forgotten
+   * first, so inside the 'released' listeners isPressed() is already false, as
+   * it is for a mouseup.
+   * @private
+   */
   _releaseAll() {
-    for (const comboCode of this._activeBindings.values()) {
+    const released = [...this._activeBindings.values()];
+    this._activeBindings.clear();
+    for (const comboCode of released) {
       this._dispatch(comboCode, 'released', null);
     }
-    this._activeBindings.clear();
   }
 
   /** @private */

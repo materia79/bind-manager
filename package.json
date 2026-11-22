@@ -1,6 +1,6 @@
 {
   "name": "bind-manager",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Universal key binding manager for browser games and applications",
   "type": "module",
   "main": "src/index.js",

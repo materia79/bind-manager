@@ -16,7 +16,7 @@ export {
 	matchesShortcutPattern,
 } from './input/browser-shortcut-guard.js';
 export { WheelNotchCounter, DEFAULT_WHEEL_PIXEL_THRESHOLD } from './input/wheel-notches.js';
-export { getKeyLabel, isKnownCode, KEY_DISPLAY_NAMES, MODIFIER_ORDER, MODIFIER_CODES, buildComboCode, buildChordCode, isModifierChord } from './input/key-names.js';
+export { getKeyLabel, isKnownCode, KEY_DISPLAY_NAMES, MODIFIER_ORDER, MODIFIER_CODES, buildComboCode, buildChordCode, isModifierChord, normalizeChordCode } from './input/key-names.js';
 export { getReservedInfo, isReservedCode } from './input/reserved-codes.js';
 export {
 	GP_CODES,

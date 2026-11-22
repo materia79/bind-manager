@@ -92,7 +92,7 @@ It exports:
 - `isKnownCode(code)` (a combo is known when every part is)
 - `MODIFIER_ORDER`, `MODIFIER_CODES`
 - `buildComboCode(modifiers, primaryCode)`: the canonical combo string, modifiers in `MODIFIER_ORDER`
-- `buildChordCode(modifiers)`: the canonical modifier-only chord string (`ControlLeft+ShiftLeft`), `isModifierChord(code)`, and `normalizeChordCode(code)` (internal: a chord in another order put in canonical order, anything else unchanged)
+- `buildChordCode(modifiers)`: the canonical modifier-only chord string (`ControlLeft+ShiftLeft`), `isModifierChord(code)`, and `normalizeChordCode(code)` (public since 0.2.4: a chord in another order put in canonical order, anything else unchanged)
 
 All of them are exported from `src/index.js`.
 

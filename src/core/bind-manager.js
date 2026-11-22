@@ -10,7 +10,7 @@ import { HintsController } from '../ui/hints-controller.js';
 import { GamepadRuntime } from '../input/gamepad-runtime.js';
 import { BrowserShortcutGuard } from '../input/browser-shortcut-guard.js';
 import { createBuiltInToolsController } from '../ui/built-in-tools-controller.js';
-import { isKnownCode } from '../input/key-names.js';
+import { isKnownCode, normalizeChordCode } from '../input/key-names.js';
 import { isGamepadCode } from '../input/gamepad-codes.js';
 
 /** Sentinel: leave the current slot value untouched during import. */
@@ -502,7 +502,8 @@ export function createBindManager(options = {}) {
             const raw = kbSource[slot];
             if (raw === null || raw === undefined) return null;
             if (typeof raw === 'string') {
-              if (isKnownCode(raw)) return raw;
+              // Compared in the form the store keeps: a chord in another key order is no change
+              if (isKnownCode(raw)) return normalizeChordCode(raw);
               report.invalidEntries.push(`Action "${action.id}" keyboard slot ${slot} has unknown code "${raw}"`);
               return KEEP_SLOT;
             }

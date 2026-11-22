@@ -20,7 +20,7 @@
  *   Keyboard Lock (navigator.keyboard.lock) where available so they reach the page.
  * - Optional beforeunload "leave site?" guard, armed after the first engagement.
  */
-import { buildComboCode } from './key-names.js';
+import { MODIFIER_CODES, buildChordCode, buildComboCode } from './key-names.js';
 
 /**
  * Tab and window management shortcuts. Chromium handles them before the page
@@ -415,12 +415,20 @@ export class BrowserShortcutGuard {
   }
 
   /**
-   * Bound bare, or bound as a combo with the currently held modifiers.
+   * Bound bare, or bound as a combo with the currently held modifiers; a
+   * modifier also when it is part of a bound modifier-only chord of exactly the
+   * modifiers held with it.
    * @private
    */
   _isBound(rawCode) {
     if (this._store.getActionsByCode(rawCode).length > 0) return true;
     const modifiers = this._keyboardRuntime?.getHeldModifiers?.() ?? [];
+    if (MODIFIER_CODES.has(rawCode)) {
+      // This listener runs before the runtime's, so a keydown's own modifier is
+      // not among the held ones yet (and a keyup's still is)
+      const chord = buildChordCode([...modifiers, rawCode]);
+      return chord.includes('+') && this._store.getActionsByCode(chord).length > 0;
+    }
     if (modifiers.length === 0) return false;
     return this._store.getActionsByCode(buildComboCode(modifiers, rawCode)).length > 0;
   }

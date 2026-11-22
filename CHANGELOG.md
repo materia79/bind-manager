@@ -4,6 +4,28 @@ All notable changes to bind-manager are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-22
+
+### Added
+
+- **Modifier-only chords.** A binding can now be two or more modifier keys alone, such as Ctrl + Shift (`ControlLeft+ShiftLeft`, label "Left Ctrl + Left Shift"). The player records one in the rebind dialog by holding the modifiers and letting go of one of them: the dialog commits at that first release, as the chord of every modifier held then. A single modifier and combos such as Ctrl + A record exactly as before. A host can give a chord as a default binding. See the README, section [Modifier-only chords](README.md#modifier-only-chords).
+  - A chord fires `pressed` on the keydown that makes the modifiers held exactly the chord, in any order; keys other than modifiers that are held do not count, left and right keys are different keys. `held` follows the operating system's auto-repeat of the key that completed it (none where modifiers do not repeat, as on macOS), and `released` comes when the first of its keys goes up (also on blur, when the modal opens and on `destroy()`). `isActionPressed()` follows it.
+  - For the keydown that completes it, a bound chord wins over that modifier's own binding, as a combo wins over its key alone (Ctrl, then Shift: the Ctrl action, then the chord, not the Shift action). A modifier pressed earlier keeps its own binding until it goes up. On the way to a bound Ctrl + Shift + A, a bound Ctrl + Shift fires too and stays held until Ctrl or Shift goes up.
+  - Conflict notes, reserved-key notes (a chord with the Windows key never reaches the page off a Mac) and the search treat a chord like a combo. With the browser guard's `blockBound`, the keydown that completes a bound chord, its auto-repeats and keyups while the whole chord is still held are cancelled; the keydown of the chord's first key and the keyup of its last key pass through. A chord given in another order (`'ShiftLeft+ControlLeft'`) is stored in canonical order.
+  - **New exports** `buildChordCode(modifiers)` and `isModifierChord(code)`.
+- **Storage.** A chord is stored like a combo, as its code string in a keyboard slot; the bindings key (`bind-manager:<namespace>`, `{ version: 1, bindings }`) is unchanged and a store written by 0.2.2 loads unchanged. One exception: a modifier-only code a 0.2.2 host stored in another modifier order (`ShiftLeft+ControlLeft`; 0.2.2 showed it but never fired it) fires now and is rewritten in the fixed order on the first save. 0.2.2 reads a store with a chord without error and keeps every binding: it shows the chord, lets the player clear or replace it and saves it back unchanged, but does not fire it.
+
+### Changed
+
+- Nothing for bindings that exist today: without a chord bound, every binding sends exactly the events of 0.2.2. A test runs random key sequences on 0.2.3 and on the released 0.2.2 keyboard runtime and compares them. A chord that a 0.2.2 host already stored or registered (it showed but never fired) fires now.
+- The capture dialog's hint reads "Modifier combos supported, also modifiers alone (Ctrl + Shift). Escape cancels."
+
+### Fixed
+
+- When a script emptied the search field while its clear button had the focus, the focus fell to the page, where Escape and the Tab trap no longer work. It now goes to the field.
+- A group header that held the focus during a filter lost it when the host called `registerAction()` (or the modal re-rendered otherwise) while its group had no match. The group now stays shown and the header keeps the focus until the text changes, as the README says.
+- The README's timing paragraph gave 111 rows for the widening keystroke of the timing test; it brings back 247 (from 40 to 287).
+
 ## [0.2.2] - 2026-11-21
 
 ### Added

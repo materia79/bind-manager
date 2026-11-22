@@ -1,7 +1,7 @@
 /**
  * 0.2.2: the search field of the bindings modal in a real browser. Keys are
  * typed with page.keyboard, so they go through the browser like a player's.
- * The binds are uoc-like: plain letters, Enter, Tab and Escape are actions.
+ * The binds are game-like: plain letters, Enter, Tab and Escape are actions.
  */
 import { test, expect } from '@playwright/test';
 import { installFakeGamepad, DUALSENSE_CHROME } from './helpers/fake-gamepad.js';

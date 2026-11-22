@@ -10,8 +10,16 @@
  * - Gameplay dispatch is suppressed while the bind modal is open
  * - Capture fires on key release so modifier combos can be recorded
  * - Escape cancels capture immediately on keydown (not release)
+ *
+ * Modifier-only chords (e.g. "ControlLeft+ShiftLeft"), see _resolveModifierCode():
+ * - A modifier keydown dispatches the chord of exactly the modifiers now held when
+ *   an action is bound to it, else the modifier's own code (as in 0.2.2), the same
+ *   way a key dispatches its combo when bound, else its own code
+ * - The chord is released when the first of its keys goes up
+ * - Capture: the first modifier released with no other key pressed records the
+ *   chord of every modifier held at that moment (one modifier: that modifier)
  */
-import { MODIFIER_CODES, MODIFIER_ORDER, buildComboCode } from './key-names.js';
+import { MODIFIER_CODES, MODIFIER_ORDER, buildComboCode, buildChordCode, isModifierChord } from './key-names.js';
 
 export class KeyboardRuntime {
   /** @param {import('../core/binding-store.js').BindingStore} bindingStore */
@@ -175,15 +183,11 @@ export class KeyboardRuntime {
 
     if (!event.repeat) {
       this._pressed.add(code);
-      if (MODIFIER_CODES.has(code)) {
-        // Dispatch modifier as simple code
-        this._activeBindings.set(code, code);
-        this._dispatch(code, 'pressed', event);
-      } else {
-        const dispatchCode = this._resolveDispatchCode(code);
-        this._activeBindings.set(code, dispatchCode);
-        this._dispatch(dispatchCode, 'pressed', event);
-      }
+      const dispatchCode = MODIFIER_CODES.has(code)
+        ? this._resolveModifierCode(code)
+        : this._resolveDispatchCode(code);
+      this._activeBindings.set(code, dispatchCode);
+      this._dispatch(dispatchCode, 'pressed', event);
     } else if (this._activeBindings.has(code)) {
       // 'held' only follows a dispatched 'pressed' (the record keyup releases from):
       // a key pressed while suppressed, during a capture or before a blur stays silent
@@ -212,12 +216,14 @@ export class KeyboardRuntime {
       }
 
       if (MODIFIER_CODES.has(code) && !this._capturePending) {
-        // Modifier released with no non-modifier pending: modifier-only bind
+        // Modifier released with no non-modifier pending: modifier-only bind, the
+        // chord of every modifier held now (just this one: the modifier alone)
         const cb = this._captureCallback;
         this._captureCallback = null;
         this._capturePending = null;
+        const chord = buildChordCode([...this.getHeldModifiers(), code]);
         this._pressed.delete(code);
-        cb(code);
+        cb(chord);
         return;
       }
 
@@ -232,6 +238,9 @@ export class KeyboardRuntime {
     }
 
     this._pressed.delete(code);
+    // A chord ends with the first of its keys that goes up (the key that
+    // completed it may still be held)
+    if (MODIFIER_CODES.has(code)) this._releaseChordsWith(code, event);
     // Only release what was pressed: a key pressed while suppressed or during
     // capture never dispatched 'pressed'
     if (!this._activeBindings.has(code)) return;
@@ -265,6 +274,47 @@ export class KeyboardRuntime {
       if (actions.length > 0) return comboCode;
     }
     return code;
+  }
+
+  /**
+   * Resolve the dispatch code for a modifier key press: the chord of exactly the
+   * modifiers now held (this one included), in canonical order, when an action
+   * is bound to it; otherwise the modifier's own code, as in 0.2.2. Keys other
+   * than modifiers that are held do not count, like for a single modifier.
+   * The one place that decides when a modifier-only chord fires.
+   * @private
+   * @param {string} code - the modifier going down
+   * @returns {string}
+   */
+  _resolveModifierCode(code) {
+    const modifiers = this.getHeldModifiers();
+    if (modifiers.length > 1) {
+      const chord = buildChordCode(modifiers);
+      if (this._store.getActionsByCode(chord).length > 0) return chord;
+    }
+    return code;
+  }
+
+  /**
+   * Release every active chord that contains `code` and was completed by
+   * another key; the entry of `code` itself is released by the caller.
+   * @private
+   * @param {string} code - the modifier going up
+   * @param {KeyboardEvent} event
+   */
+  _releaseChordsWith(code, event) {
+    const ended = [];
+    for (const [rawCode, dispatchCode] of this._activeBindings) {
+      if (rawCode !== code && isModifierChord(dispatchCode) && dispatchCode.split('+').includes(code)) {
+        ended.push([rawCode, dispatchCode]);
+      }
+    }
+    for (const [rawCode, dispatchCode] of ended) {
+      // A listener may have released it meanwhile (stop(), suppression)
+      if (this._activeBindings.get(rawCode) !== dispatchCode) continue;
+      this._activeBindings.delete(rawCode);
+      this._dispatch(dispatchCode, 'released', event);
+    }
   }
 
   /** Dispatch 'released' for every held binding and forget them. @private */

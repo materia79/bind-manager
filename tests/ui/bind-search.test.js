@@ -18,7 +18,7 @@ function setGamepads(pads) {
   Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => pads });
 }
 
-/** uoc-like binds: plain letters, Enter, Tab and Escape are actions too. */
+/** Game-like binds: plain letters, Enter, Tab and Escape are actions too. */
 const ACTIONS = [
   { id: 'jump', label: 'Jump', group: 'Movement', slots: 2, defaultBindings: ['Space', null], defaultGamepadBindings: ['GP_B0'] },
   { id: 'forward', label: 'Move Forward', group: 'Movement', slots: 2, defaultBindings: ['KeyW', 'ArrowUp'] },

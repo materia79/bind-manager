@@ -1,3 +1,5 @@
+import { normalizeChordCode } from '../input/key-names.js';
+
 /**
  * Holds and manages the current key binding state for all registered actions.
  * Emits change events to subscribers whenever a binding is modified.
@@ -51,7 +53,7 @@ export class BindingStore {
       ? saved
       : (saved && Array.isArray(saved.keyboard) ? saved.keyboard : null);
 
-    this._keyboard.set(action.id, _mergeSlots(action.slots, savedKb, action.defaultBindings));
+    this._keyboard.set(action.id, _mergeSlots(action.slots, savedKb?.map(normalizeChordCode) ?? null, action.defaultBindings));
 
     // ── Gamepad bindings ─────────────────────────────────────────────────────
     const savedGp = saved && !Array.isArray(saved) && Array.isArray(saved.gamepad)
@@ -156,6 +158,8 @@ export class BindingStore {
     const map = device === 'gamepad' ? this._gamepad : this._keyboard;
     const bindings = map.get(actionId);
     const oldCode = bindings[slot];
+    // A modifier-only chord is kept in canonical order ("ShiftLeft+ControlLeft" → "ControlLeft+ShiftLeft")
+    if (device !== 'gamepad') code = normalizeChordCode(code);
     const conflicts = code !== null ? this._findConflicts(code, actionId, slot, device) : [];
 
     bindings[slot] = code ?? null;

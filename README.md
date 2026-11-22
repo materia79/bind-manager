@@ -10,7 +10,7 @@ It provides:
 - Built-in tools to test a controller and to capture a new controller profile
 - A framework-agnostic API that works in ThreeJS and non-ThreeJS apps
 
-Input support: keyboard, mouse buttons, mouse wheel and the browser Gamepad API, including modifier key combos (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`) with capture-on-release semantics. Gamepads are labelled per controller family (eight families, detected by vendor/product id), with exact generated profiles for controllers whose raw layout needs remapping.
+Input support: keyboard, mouse buttons, mouse wheel and the browser Gamepad API, including modifier key combos (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`) and modifier-only chords (e.g. `ControlLeft+ShiftLeft`) with capture-on-release semantics. Gamepads are labelled per controller family (eight families, detected by vendor/product id), with exact generated profiles for controllers whose raw layout needs remapping.
 
 Coming from the last public build? Read [Upgrading from 0.1.0](#upgrading-from-010) first.
 
@@ -36,6 +36,7 @@ A [demo page](https://materia79.github.io/projects/bind-manager/standalone-demo.
 - Mouse button and wheel bindings (buttons 0–4, wheel up/down, one notch = one press, Ctrl/Shift/Alt + wheel chords)
 - Opt-in browser shortcut guard: cancels reload/find/save/zoom/scroll/context-menu/… while the game owns input, Keyboard Lock in fullscreen, optional "leave site?" prompt
 - Modifier key combos for keyboard and mouse (e.g. `ShiftLeft+KeyW`, `ControlLeft+MouseButton0`)
+- Modifier-only chords such as Ctrl + Shift (`ControlLeft+ShiftLeft`), recorded in the rebind dialog and fired like any key; see [Modifier-only chords](#modifier-only-chords)
 - Capture-on-release: binding commits when the primary key/button is released, allowing modifier selection
 - Cancel button fires on pointer-down to prevent accidental bind commits
 - `active` getter and `onActiveChange` subscription for host cursor management
@@ -215,7 +216,7 @@ Action definition fields:
 - `description?: string` action description
 - `group?: string` modal section grouping, default `General`
 - `slots?: number` keyboard/mouse bindings count, default `2`
-- `defaultBindings?: (string|null)[]` `KeyboardEvent.code`, mouse or combo codes per slot
+- `defaultBindings?: (string|null)[]` `KeyboardEvent.code`, mouse, combo or chord codes per slot
 - `gamepadSlots?: number` gamepad bindings count, default `1`
 - `defaultGamepadBindings?: (string|null)[]` `GP_*` codes per gamepad slot
 - `analog?: boolean` receive continuous `analog` events from axes, default `false`
@@ -344,7 +345,7 @@ Everything below is exported from `src/index.js` (and is a property of `window.B
 | Area | Exports |
 | --- | --- |
 | Manager | `createBindManager` |
-| Keyboard and mouse | `getKeyLabel`, `isKnownCode`, `KEY_DISPLAY_NAMES`, `MODIFIER_ORDER`, `MODIFIER_CODES`, `buildComboCode`, `WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD`, `getReservedInfo`, `isReservedCode` |
+| Keyboard and mouse | `getKeyLabel`, `isKnownCode`, `KEY_DISPLAY_NAMES`, `MODIFIER_ORDER`, `MODIFIER_CODES`, `buildComboCode`, `buildChordCode`, `isModifierChord`, `WheelNotchCounter`, `DEFAULT_WHEEL_PIXEL_THRESHOLD`, `getReservedInfo`, `isReservedCode` |
 | Browser guard | `DEFAULT_BLOCKED_SHORTCUTS`, `DEFAULT_KEYBOARD_LOCK_KEYS`, `FULLSCREEN_ONLY_SHORTCUTS`, `parseShortcutPattern`, `matchesShortcutPattern` |
 | Gamepad codes | `GP_CODES`, `GP_B0`..`GP_B23`, `GP_A0N`..`GP_A3P`, `GP_BUTTON_COUNT` (24), `GP_AXIS_COUNT` (4), `isGamepadCode`, `getGamepadCodeType` |
 | Families and labels | `GAMEPAD_PROFILES`, `GAMEPAD_FAMILIES`, `GAMEPAD_FAMILY_NAMES`, `GAMEPAD_DEVICE_FAMILIES`, `GAMEPAD_LABEL_VARIANTS`, `GAMEPAD_UNVERIFIED_LABELS`, `detectGamepadProfile`, `getGamepadLabel`, `getGamepadFamilyName`, `getGamepadLabelVariant`, `isGamepadLabelUnverified`, `parseGamepadId` |
@@ -458,6 +459,27 @@ Each **notch** dispatches one `pressed` followed by one `released` (wheels have 
 - Shift+wheel: Chromium and Safari report it on `deltaX`, which is used when `deltaY` is 0 and Shift is held, so Shift+wheel chords work everywhere. Pure horizontal scrolling (tilt wheel, sideways trackpad) is ignored
 
 The window wheel listener is passive by default. It becomes non-passive only while a capture runs (so capture can stop the modal from scrolling) or while a wheel code is bound and gameplay is not suppressed (so a host handler can cancel through `originalEvent`). During gameplay, page scrolling is only cancelled by the browser guard.
+
+## Modifier-only chords
+
+A binding can consist of modifier keys only: two or more of Left/Right Ctrl, Shift, Alt and Meta, such as `ControlLeft+ShiftLeft` (label "Left Ctrl + Left Shift"). The player records one in the rebind dialog by holding the modifiers and letting go of one of them; a host gives one as a default like any other code:
+
+```js
+binds.registerAction({ id: 'show-names', label: 'Show Names', slots: 2, defaultBindings: ['ControlLeft+ShiftLeft', 'ControlRight+ShiftRight'] });
+```
+
+How a chord behaves:
+
+- **Fires on the keydown that completes it**, when the modifiers held are then exactly the chord, in any order: Shift then Ctrl is the same chord as Ctrl then Shift. Keys other than modifiers that are held do not count. Left and right keys are different keys, as for single modifiers and combos: `ControlLeft+ShiftLeft` does not fire for Right Ctrl + Left Shift; bind each variant you want in its own slot.
+- **`held`** follows on the auto-repeat of the key that completed it; **`released`** comes when the first of its keys goes up, so a "hold to show" action ends as soon as the player lets go of either key. Blur, opening the modal and `destroy()` release it like any key, and `isActionPressed()` follows it. `held` comes from the operating system's auto-repeat of the completing key, so where the system does not repeat modifier keys (macOS) a chord gets no `held`, only `pressed` and `released`.
+- **The chord wins over a single modifier for the keydown that completes it**, like a combo wins over its key alone: with Ctrl bound to Crouch, Shift to Sprint and Ctrl + Shift to Show Names, pressing Ctrl then Shift sends Crouch, then Show Names (not Sprint); Crouch stays held until Ctrl goes up. Pressing Shift then Ctrl sends Sprint, then Show Names (not Crouch).
+- **On the way to a bigger combo the chord fires too.** With Ctrl + Shift and Ctrl + Shift + A both bound, Ctrl, Shift, A sends Show Names at Shift and the Ctrl + Shift + A action at A; Show Names stays held until Ctrl or Shift goes up. A modifier pressed after the chord is complete leaves it active; a chord of more modifiers fires when its own last key goes down. Bind actions that can share a moment like this, or avoid binding both.
+- **Recording:** the dialog commits when the first modifier goes up while no other key was pressed, as the chord of every modifier held at that moment. A single modifier pressed and released records itself as before, and combos still commit when their key goes up, so recording Ctrl + A is as before.
+- **Without a chord bound, nothing changes:** every other binding sends exactly the events it sent in 0.2.2.
+- The conflict note, the reserved-key notes (a chord with the Windows key never reaches the page off a Mac) and the browser guard treat a chord like a combo. With `blockBound`, the guard cancels the keydown that completes a bound chord, its auto-repeats, and keyups while the whole chord is still held; the keydown of the chord's first key and the keyup of its last key pass through. The search matches its label ("ctrl shift").
+- A chord written in another order (`'ShiftLeft+ControlLeft'`) is stored in canonical order (`MODIFIER_ORDER`: Ctrl, Shift, Alt, Meta, left before right); a stored chord in another order is read in that order and written back in it on the next save. `buildChordCode(modifiers)` builds that code and `isModifierChord(code)` recognises one.
+
+**Storage:** a chord is stored like a combo, as its code string in a keyboard slot of the bindings key (`{ "version": 1, "bindings": { "show-names": { "keyboard": ["ControlLeft+ShiftLeft", null], "gamepad": [null] } } }`). Version 0.2.2 reads such a store without error and keeps every binding: it shows the chord in the modal ("Left Ctrl + Left Shift"), lets the player clear or replace it and saves it back unchanged, but never fires it and cannot record one. Stores written by 0.2.2 load unchanged, with one exception: a modifier-only code a 0.2.2 host stored in another modifier order (`ShiftLeft+ControlLeft`, which 0.2.2 showed but never fired) is rewritten in the fixed order on the first save.
 
 ## Gamepads
 
@@ -632,7 +654,7 @@ A search field sits between the modal's header and the list, so it stays in view
 - Escape with text in the field, or on the clear button, clears the text, keeps the modal open and puts the focus in the field; the next Escape closes the modal. Elsewhere in the modal (a row, a group header) Escape closes it as before. Enter does nothing. Tab moves on to the clear button and the list. The clear button (×) appears when there is text.
 - During an IME composition (`isComposing`, or `keyCode` 229), every keystroke belongs to the input method: the Escape that cancels a composition neither clears the text nor closes the modal, and the debug toggle key does not toggle.
 - Typing in the field never fires an action or starts a capture, and the browser guard leaves it alone (actions are suppressed while the modal is open). The debug toggle key is ignored while it would type into the field (a letter, digit or other character, Backspace, Delete, the arrows, Home, End), so it may be a letter key; F5 and other non-typing keys still toggle.
-- The text survives `refresh()` (value, focus and caret) and is cleared when the modal closes. Opening the modal puts the focus on the modal, not in the field. During a capture the field is disabled like the other controls.
+- The text survives a re-render of the list, as `registerAction()` while the modal is open does (value, focus and caret) and is cleared when the modal closes. Opening the modal puts the focus on the modal, not in the field. During a capture the field is disabled like the other controls.
 - On touch screens (`any-pointer: coarse`) the field's text is at least 16px whatever `--bm-u` is, so iOS Safari does not zoom the page when it takes focus. The list body keeps a minimum height (`min(120u, 40vh)`), so a short viewport, such as one with an on-screen keyboard, cuts the footer before the list.
 - `bindSearch: false` removes the field. The modal's markup is as in 0.2.1 only with `groupFolding: false` as well (folding is on by default), byte for byte, which a test checks against 0.2.1's output.
 
@@ -646,13 +668,13 @@ Each group title of the bindings list is a button that folds and unfolds the gro
 - **Remembered.** The player's choice, open or folded, is kept per namespace and wins over `collapsedGroups`. `LocalStorageAdapter` keeps it in its own key, `bind-manager:<namespace>:collapsed-groups`, as `{ "version": 2, "groups": [["<group name>", true | false], ...] }`, oldest choice first (`true` folded, `false` opened by the player); the bindings key `bind-manager:<namespace>` is not touched. At most 256 groups are kept: the newest choices, also for a stored list longer than that; a name listed twice counts with its last entry. The object form `{ "version": 1, "groups": { "<name>": true | false } }` is still read, in its stored order. A custom storage adapter may add `loadCollapsedGroups()` (returns the `[name, folded]` pairs, oldest first; an object `{ name: folded }` is accepted too) and `saveCollapsedGroups(groups)` (gets the pairs); without them the state lives in memory for the page's lifetime. Reading and saving never throw.
 - **Reset and clear.** Reset All leaves the fold state alone. `clearStorage()` deletes the stored fold state with the rest (the adapter's `clear()`); the groups folded on screen stay as they are until the next reload.
 - **With the search.** While the search field holds text, every group with a match is shown open, so matches inside folded groups appear. A header click during a search folds or unfolds that group for the current search only; clearing the search brings back the fold state from before, unchanged.
-- **Focus.** Rows of a folded group are out of the Tab order and the focus trap. When a group folds with the focus inside it, the focus goes to its header. Headers are disabled during a capture. `refresh()` keeps fold state, focus (also on a header) and scroll.
+- **Focus.** Rows of a folded group are out of the Tab order and the focus trap. When a group folds with the focus inside it, the focus goes to its header. Headers are disabled during a capture. A re-render of the list (`registerAction()` while the modal is open) keeps fold state, focus (also on a header) and scroll.
 - **Warnings.** Rows carry no lasting conflict or reserved-key marker (those notes are the temporary line in the footer), so a folded header shows none.
 - `groupFolding: false` renders plain group titles; with `bindSearch: false` as well, the modal's markup is as in 0.2.1.
 
 Classes: `bm-group-toggle` (the header button, also a `bm-group-title`), `bm-group-marker`, `bm-group-name`, `bm-group-count` (with `bm-group-count-short` and the screen-reader `bm-group-count-long`), `bm-group-rows` (the rows, `hidden` when folded) and `bm-group-folded` on a folded `bm-group`.
 
-With 400 actions in 16 groups (desktop Chromium, to the second painted frame), `open()` takes about as long as in 0.2.1 while all groups are open (about 100 ms; about 600 ms with 4x CPU throttling) and is much faster with groups folded (about 34 ms with every group folded; about 120 ms throttled): rows of folded groups are built but not laid out. A keystroke that narrows the filter takes about two frames (33 ms; 70 ms throttled); one that widens it lays out the rows that come back (deleting one character to bring back 111 rows: about 50 ms; about 350 ms throttled).
+With 400 actions in 16 groups (desktop Chromium, to the second painted frame), `open()` takes about as long as in 0.2.1 while all groups are open (about 100 ms; about 600 ms with 4x CPU throttling) and is much faster with groups folded (about 34 ms with every group folded; about 120 ms throttled): rows of folded groups are built but not laid out. A keystroke that narrows the filter takes about two frames (33 ms; 70 ms throttled); one that widens it lays out the rows that come back (deleting one character to bring back 247 rows (from 40 to 287): about 50 ms; about 350 ms throttled).
 
 ## Persistence
 

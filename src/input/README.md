@@ -68,7 +68,8 @@ Important behavior:
 - A first `keydown` becomes `pressed`.
 - A repeated `keydown` becomes `held`.
 - `keyup` becomes `released`.
-- During capture mode, keys are consumed for rebinding instead of normal gameplay. The binding commits when the non-modifier key is released, as a combo with the modifiers held when it was pressed (`ShiftLeft+KeyW`); a modifier pressed and released on its own binds that modifier.
+- During capture mode, keys are consumed for rebinding instead of normal gameplay. The binding commits when the non-modifier key is released, as a combo with the modifiers held when it was pressed (`ShiftLeft+KeyW`); a modifier released with no other key pressed binds the modifiers held at that moment: that modifier alone, or a modifier-only chord such as `ControlLeft+ShiftLeft`.
+- A modifier `keydown` dispatches the chord of exactly the modifiers then held (canonical order, `buildChordCode`) when an action is bound to it, otherwise the modifier's own code, the way a key dispatches its combo when bound, otherwise its own code. Keys other than modifiers that are held do not count. The chord's `held` follows the auto-repeat of the key that completed it, and its `released` comes when the first of its keys goes up (`_resolveModifierCode`, `_releaseChordsWith`). Without a chord bound this is the 0.2.2 behaviour.
 - Pressing `Escape` during keyboard capture cancels it at once (on keydown) and returns `null`.
 
 This file is the authoritative source for keyboard runtime semantics in the project.
@@ -91,6 +92,7 @@ It exports:
 - `isKnownCode(code)` (a combo is known when every part is)
 - `MODIFIER_ORDER`, `MODIFIER_CODES`
 - `buildComboCode(modifiers, primaryCode)`: the canonical combo string, modifiers in `MODIFIER_ORDER`
+- `buildChordCode(modifiers)`: the canonical modifier-only chord string (`ControlLeft+ShiftLeft`), `isModifierChord(code)`, and `normalizeChordCode(code)` (internal: a chord in another order put in canonical order, anything else unchanged)
 
 All of them are exported from `src/index.js`.
 
@@ -291,7 +293,7 @@ While active:
 
 - normal gameplay action dispatch is bypassed
 - pressing a non-modifier key records it with the modifiers held at that moment; the binding commits when that key is released (capture-on-release), as a combo such as `ControlLeft+KeyS`
-- a modifier pressed and released with no other key binds the modifier itself
+- a modifier released with no other key pressed commits at once, as the chord of every modifier held at that moment: the modifier itself when it is alone, otherwise a modifier-only chord such as `ControlLeft+ShiftLeft` (in canonical order, whatever order the keys went down in)
 - `Escape` cancels capture on keydown and returns `null`
 
 ## Gamepad behavior in detail

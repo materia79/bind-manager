@@ -18,8 +18,28 @@
  * - The chord is released when the first of its keys goes up
  * - Capture: the first modifier released with no other key pressed records the
  *   chord of every modifier held at that moment (one modifier: that modifier)
+ *
+ * A keyup the page never saw (0.2.4), see _releaseLostModifiers():
+ * - A keydown (not a repeat) of a key that is down means its keyup was lost: the
+ *   key is released first, as by that keyup, then pressed anew
+ * - A key event whose modifier flags (ctrlKey, shiftKey, altKey, metaKey) say a
+ *   modifier is up that is held here: it is released first, as by its keyup.
+ *   Only events from the browser itself (isTrusted) are read. One flag covers
+ *   both sides: it releases both, and a lost keyup of one side is not seen while
+ *   the other side is down. With AltGr down (getModifierState('AltGraph')) the
+ *   Ctrl and Alt flags are not read. An event's own key is never released by it.
+ * - Without a lost keyup the flags always agree with the keys held here, so
+ *   nothing changes then
  */
 import { MODIFIER_CODES, MODIFIER_ORDER, buildComboCode, buildChordCode, isModifierChord } from './key-names.js';
+
+/** The KeyboardEvent flag of each modifier key; both sides share one. */
+const MODIFIER_FLAG = {
+  ControlLeft: 'ctrlKey', ControlRight: 'ctrlKey',
+  ShiftLeft: 'shiftKey', ShiftRight: 'shiftKey',
+  AltLeft: 'altKey', AltRight: 'altKey',
+  MetaLeft: 'metaKey', MetaRight: 'metaKey',
+};
 
 export class KeyboardRuntime {
   /** @param {import('../core/binding-store.js').BindingStore} bindingStore */
@@ -150,6 +170,9 @@ export class KeyboardRuntime {
   /** @private */
   _onKeyDown(event) {
     const code = event.code;
+    this._releaseLostModifiers(event);
+    // A listener of those releases may have stopped the runtime
+    if (!this._active) return;
 
     // --- Capture mode: intercept for rebinding ---
     if (this._captureCallback) {
@@ -182,6 +205,12 @@ export class KeyboardRuntime {
     if (this._suppressGameplay) return;
 
     if (!event.repeat) {
+      // The key is down already: its keyup was lost. Release it as that keyup
+      // would have (its chords too), so every pressed gets its released
+      if (this._pressed.has(code) || this._activeBindings.has(code)) {
+        this._releaseKey(code, event);
+        if (!this._active || this._suppressGameplay || this._captureCallback) return;
+      }
       this._pressed.add(code);
       const dispatchCode = MODIFIER_CODES.has(code)
         ? this._resolveModifierCode(code)
@@ -198,6 +227,8 @@ export class KeyboardRuntime {
   /** @private */
   _onKeyUp(event) {
     const code = event.code;
+    this._releaseLostModifiers(event);
+    if (!this._active) return;
 
     // --- Capture mode: commit on release ---
     if (this._captureCallback) {
@@ -237,6 +268,17 @@ export class KeyboardRuntime {
       return;
     }
 
+    this._releaseKey(code, event);
+  }
+
+  /**
+   * Gameplay release of one key: what its keyup does, also used for a keyup
+   * that was lost.
+   * @private
+   * @param {string} code
+   * @param {KeyboardEvent} event - the keyup, or the event that showed the key up
+   */
+  _releaseKey(code, event) {
     this._pressed.delete(code);
     // A chord ends with the first of its keys that goes up (the key that
     // completed it may still be held)
@@ -247,6 +289,42 @@ export class KeyboardRuntime {
     const dispatchCode = this._activeBindings.get(code);
     this._activeBindings.delete(code);
     this._dispatch(dispatchCode, 'released', event);
+  }
+
+  /**
+   * Whether the event's modifier flags can be trusted to say which modifiers
+   * are down: only for events the browser generated. A synthetic event (a test,
+   * an on-screen keyboard) often has no flags set.
+   * @private
+   * @param {KeyboardEvent} event
+   */
+  _hasTrustedFlags(event) {
+    return event.isTrusted === true;
+  }
+
+  /**
+   * Release every modifier held here whose flag in `event` says it is up: its
+   * keyup was lost (left in another frame, swallowed by a menu or a host).
+   * Done as its keyup would have (its own entry and every chord with it), in
+   * MODIFIER_ORDER, before the event itself is handled; during a capture or
+   * while gameplay is suppressed it is only forgotten (no dispatch, no commit).
+   * Not read: synthetic events, the event's own key, and the Ctrl and Alt flags
+   * while AltGr is down (some layouts and browsers report AltGr as Ctrl+Alt,
+   * others clear both flags).
+   * @private
+   * @param {KeyboardEvent} event
+   */
+  _releaseLostModifiers(event) {
+    if (this._pressed.size === 0 || !this._hasTrustedFlags(event)) return;
+    const altGraph = typeof event.getModifierState === 'function' && event.getModifierState('AltGraph') === true;
+    for (const code of MODIFIER_ORDER) {
+      if (code === event.code || !this._pressed.has(code)) continue;
+      const flag = MODIFIER_FLAG[code];
+      if (event[flag] !== false) continue;
+      if (altGraph && (flag === 'ctrlKey' || flag === 'altKey')) continue;
+      if (this._captureCallback || this._suppressGameplay) this._pressed.delete(code);
+      else this._releaseKey(code, event);
+    }
   }
 
   /** @private */

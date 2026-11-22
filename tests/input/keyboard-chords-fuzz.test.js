@@ -14,6 +14,12 @@
  *    - after a keyup no active chord contains that key;
  *    - after blur nothing is left pressed.
  *
+ * Since 0.2.4 both parts send realistic sequences: no second keydown (without
+ * repeat) for a key that is down. That only happens after a lost keyup, and
+ * 0.2.4 then releases the first press before the second (0.2.2 and 0.2.3 sent a
+ * second pressed); tests/input/keyboard-lost-keyup-diff.test.js compares those
+ * sequences with 0.2.3.
+ *
  * BM_FUZZ_SEQUENCES sets the number of sequences per part (default 1500).
  */
 import { describe, it, expect } from 'vitest';
@@ -73,7 +79,7 @@ function randomActions(r, chords) {
 /**
  * One random step: [kind, code?]. Keyups and repeats prefer keys that are down.
  * `realistic`: no second keydown (without repeat) for a key that is down, as
- * browsers send (0.2.2 itself sends a second pressed then, which part 1 compares).
+ * browsers send when no keyup is lost (both parts since 0.2.4).
  */
 function randomStep(r, down, realistic) {
   const roll = r();
@@ -126,7 +132,7 @@ function runSequence(seed, chords, check) {
   const state = { active: new Map() };
   try {
     for (let i = 0; i < STEPS; i++) {
-      const step = randomStep(r, down, chords);
+      const step = randomStep(r, down, true);
       steps.push(step.join(' '));
       const heldBefore = old.getHeldModifiers();
       const before = { now: log.now.length, old: log.old.length };

@@ -289,10 +289,14 @@ If the window loses focus, all currently pressed keys are released internally an
 
 A keyup can be lost while the window keeps its focus (another frame, a native menu or a host listener got it; on macOS the keyups of other keys while Cmd is held). Two repairs, both done as that keyup would have been handled (`_releaseKey()`), before the event itself:
 
-- A keydown that is not a repeat, for a key that is held, releases the key first (its entry and, for a modifier, its chords), then presses it anew.
-- `_releaseLostModifiers()`: a key event whose flags (`ctrlKey`, `shiftKey`, `altKey`, `metaKey`) say a held modifier is up releases it, in `MODIFIER_ORDER`. Only trusted events (`isTrusted`, `_hasTrustedFlags()`); never the event's own key; not the Ctrl and Alt flags while `getModifierState('AltGraph')` is true. A flag covers both sides: off releases Left and Right, on keeps both (a lost keyup of one side is not seen while the other is down). During a capture or while suppressed the modifier is only forgotten, with no dispatch and no commit.
+- A trusted keydown that is not a repeat, for a key in `_trustedHeld`, releases the key first (its entry and, for a modifier, its chords), then presses it anew.
+- `_releaseLostModifiers()`: a trusted key event whose flags (`ctrlKey`, `shiftKey`, `altKey`, `metaKey`) say a modifier in `_trustedHeld` is up releases it, in `MODIFIER_ORDER`. Never the event's own key; not the Ctrl and Alt flags while `getModifierState('AltGraph')` is true. A flag covers both sides: off releases Left and Right, on keeps both (a lost keyup of one side is not seen while the other is down). During a capture or while suppressed the modifier is only forgotten, with no dispatch and no commit.
 
-Without a lost keyup the flags agree with the held keys, so both repairs never act: `tests/input/keyboard-lost-keyup-diff.test.js` runs random sequences on this runtime and the released 0.2.3 one and requires identical events and state.
+Trusted means `_hasTrustedFlags()` (`isTrusted`). `_trustedHeld` holds the keys that only trusted keydowns pressed since they went down; a synthetic keydown of a held key takes it out until it leaves `_pressed`. A synthetic event never repairs and a key a synthetic keydown holds is never repaired, so synthetic events behave as in 0.2.3.
+
+The repairs trust the flags. Where trusted flags say a modifier is up although no keyup was lost, it is released early: automation that sets flags per key name and not per side, debugger-driven key events with empty flags, and (not verified in a real browser) Windows NumLock with Shift held and a numpad key, or a Meta key reported with `metaKey` false. `tests/input/keyboard-lost-keyup-diff.test.js` runs random sequences, trusted and synthetic events mixed, on this runtime and the released 0.2.3 one; with flags that match the held keys and no lost keyup it requires identical events and state.
+
+The browser shortcut guard's capture listener runs before the runtime's and reads `getHeldModifiers()` before the repair, so the first key event after a lost keyup is still guarded as if the modifier were down.
 
 ### Keyboard capture
 

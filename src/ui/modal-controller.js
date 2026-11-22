@@ -118,8 +118,15 @@ export class ModalController {
     this._overlay.addEventListener('scroll', (e) => {
       const box = e.target;
       if (box instanceof HTMLElement && box.classList.contains('bm-modal') && (box.scrollTop !== 0 || box.scrollLeft !== 0)) {
-        box.scrollTop = 0;
-        box.scrollLeft = 0;
+        // Instant: a host's scroll-behavior: smooth would animate an assignment
+        // and leave the box where the next scroll event stops it
+        try {
+          if (typeof box.scrollTo === 'function') box.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        } catch { /* no options form or no 'instant': assign below */ }
+        if (box.scrollTop !== 0 || box.scrollLeft !== 0) {
+          box.scrollTop = 0;
+          box.scrollLeft = 0;
+        }
       }
     }, true);
 

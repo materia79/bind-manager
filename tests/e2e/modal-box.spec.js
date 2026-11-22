@@ -110,5 +110,25 @@ for (const [vpName, use] of Object.entries(VIEWPORTS)) {
       expect([after.header, after.search, after.footer]).toEqual([before.header, before.search, before.footer]);
       expect(after.lastInBody).toBe(true);
     });
+
+    test('the same with a host rule * { scroll-behavior: smooth } and a smooth scrollIntoView: the box ends at 0', async ({ page }) => {
+      await setup(page);
+      await page.addStyleTag({ content: '* { scroll-behavior: smooth; } .bm-overlay .bm-modal { overflow: hidden !important; }' });
+      const before = await readout(page);
+      await page.evaluate(() => [...document.querySelectorAll('.bm-action-row')].at(-1).scrollIntoView({ block: 'start', behavior: 'smooth' }));
+      // Wait until the smooth scroll of the list has settled: the same offset over several frames
+      await expect.poll(() => page.evaluate(() => new Promise((resolve) => {
+        const list = document.querySelector('.bm-modal-body');
+        const start = list.scrollTop;
+        let n = 0;
+        const tick = () => (++n < 10 ? requestAnimationFrame(tick) : resolve(list.scrollTop === start && start > 0));
+        requestAnimationFrame(tick);
+      })), { timeout: 10000 }).toBe(true);
+      await frames(page);
+      const after = await readout(page);
+      expect(after.modalScroll).toEqual([0, 0]);
+      expect([after.header, after.search, after.footer]).toEqual([before.header, before.search, before.footer]);
+      expect(after.lastInBody).toBe(true);
+    });
   });
 }
